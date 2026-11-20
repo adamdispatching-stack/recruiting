@@ -952,3 +952,9 @@ table.obt .caret{width:28px;height:28px}
 table.obt td.arr .small,table.obt td.arr .latetag{white-space:nowrap}
 table.obt .cpy{margin-left:4px}
 table.obt .phw{white-space:nowrap}table.obt .ph{font-size:13.5px}
+/* onboarding rows: every other driver tinted, the whole row opens the driver */
+table.obt tbody tr.brow{cursor:pointer}
+table.obt tbody tr.brow.alt>th,table.obt tbody tr.brow.alt>td{background:#EDF5E5}
+table.obt tbody tr.brow:hover>th,table.obt tbody tr.brow:hover>td{background:#DCEBCD}
+table.obt tbody tr.brow.open>th,table.obt tbody tr.brow.open>td,table.obt tbody tr.ostep>td{background:#EAF4E1}
+table.obt tbody tr.ostep>td{border-bottom:1px solid var(--hair)}

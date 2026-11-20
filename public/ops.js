@@ -145,13 +145,14 @@
     const step = (d, i, k) => `<li class="${i.done ? 'done' : ''}${d.items[k + 1] && d.items[k + 1].done && i.done ? ' linked' : ''}">
           <button class="dot" data-act="boardStep" data-step="${i.id}" data-done="${i.done ? 1 : 0}" ${LOCKED.includes(i.auto) ? 'disabled title="Ticks itself from the driver\'s page"' : ''} aria-pressed="${i.done}" aria-label="${esc(i.label)}: ${i.done ? 'done' : 'not done'}${LOCKED.includes(i.auto) ? ', ticks itself' : ''}">${i.done ? '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 8.4 3 3 6-6.4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}</button>
           <span>${esc(i.label)}</span>${i.note ? `<small title="${esc(i.note)}">Note</small>` : ''}</li>`;
-    const row = (d) => {
+    const row = (d, k) => {
+      const alt = k % 2 ? ' alt' : '';
       const done = d.items.filter((i) => i.done).length, total = d.items.length, isOpen = open.has(d.id);
       const next = d.items.find((i) => !i.done); const oo = d.mode === 'Owner-operators';
       const facts = [d.location, d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'yr')} CDL` : '', App.periodText(d)].filter(Boolean).map(esc).join(' · ');
       const truck = oo && !d.truck ? (d.ownTruck ? `<b>Own</b> <span class="small mut">${esc(d.ownTruck)}</span>` : '<span class="none">Own truck, not noted</span>')
         : d.truck ? `<b>${esc(d.truck.unit)}</b>${d.truck.details ? ` <span class="small mut">${esc(d.truck.details)}</span>` : ''}` : '<span class="latetag">No truck yet</span>';
-      return `<tr class="brow${isOpen ? ' open' : ''}" data-driver="${d.id}"><th scope="row"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><span class="obday">day ${daysSince(d.startedAt) + 1}</span>
+      return `<tr class="brow${alt}${isOpen ? ' open' : ''}" data-driver="${d.id}" title="Open ${esc(d.name)}"><th scope="row"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><span class="obday">day ${daysSince(d.startedAt) + 1}</span>
           ${facts ? `<div class="small mut ofacts">${facts}</div>` : ''}</th>
         <td>${(d.phones || []).slice(0, 1).map((p) => App.phone(p)).join('') || '<span class="none">No phone</span>'}</td>
         <td>${d.companyId ? App.coTag(d.companyId) : '<span class="none">Not set</span>'}</td>
@@ -161,13 +162,13 @@
           <div class="small mut clip1">${next ? `Next: ${esc(next.label)}` : 'All done, ready to mark hired'}</div></td>
         <td class="small">${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}${d.telegramLink ? `<div><a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram</a></div>` : ''}</td>
         <td><button class="caret" data-act="boardOpen" aria-expanded="${isOpen}" aria-label="${isOpen ? 'Hide' : 'Show'} the checklist for ${esc(d.name)}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td></tr>
-        ${isOpen ? `<tr class="ostep"><td colspan="8"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
+        ${isOpen ? `<tr class="ostep${alt}"><td colspan="8"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
           <ol class="stepper">${d.items.map((i, k) => step(d, i, k)).join('')}</ol>
           <p class="note-i">Truck and arrival steps tick themselves when you fill them in on the driver's page. Click a circle to tick or untick a step.</p></td></tr>` : ''}`;
     };
     const table = (list, title, oo) => list.length ? `<h3 class="obsub">${title} <span class="cnt">${list.length}</span></h3>
       <div class="sheet"><table class="board2 obt"><colgroup><col style="width:20%"><col style="width:148px"><col style="width:10%"><col style="width:15%"><col style="width:16%"><col><col style="width:10%"><col style="width:40px"></colgroup>
-        <thead><tr><th>Driver</th><th>Phone</th><th>Company</th><th>${oo ? 'Their truck' : 'Truck'}</th><th>Arrival</th><th>Progress</th><th>Recruiter</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : '';
+        <thead><tr><th>Driver</th><th>Phone</th><th>Company</th><th>${oo ? 'Their truck' : 'Truck'}</th><th>Arrival</th><th>Progress</th><th>Recruiter</th><th></th></tr></thead><tbody>${list.map((d, k) => row(d, k)).join('')}</tbody></table></div>` : '';
     const byType = (list) => {
       const co = list.filter((d) => d.mode !== 'Owner-operators'), oo = list.filter((d) => d.mode === 'Owner-operators');
       return table(co, 'Company drivers', false) + table(oo, 'Owner operators', true);
@@ -183,6 +184,11 @@
         <span class="small mut">${d.truck ? 'Truck ' + esc(d.truck) + ', ' : ''}hired ${esc(dateText(dayOf(d.hiredAt)))}, ${plural(Math.max(1, Math.round((new Date(d.hiredAt) - new Date(d.startedAt)) / 864e5)), 'day')} in onboarding</span></li>`).join('')}</ul></section>` : ''}
     </main>`;
   }
+  // a click anywhere on a driver's row opens the driver; links, buttons and the arrow keep their own job
+  document.addEventListener('click', (e) => {
+    const r = e.target.closest('table.obt tr.brow[data-driver]');
+    if (r && !e.target.closest('a, button, input, select, label, .phw, .caret') && !String(window.getSelection() || '')) App.go('#/driver/' + r.dataset.driver);
+  });
   on('boardOpen', (b) => { const id = +b.closest('[data-driver]').dataset.driver; if (open.has(id)) open.delete(id); else open.add(id); redraw(viewOnboarding); });
   on('boardStep', async (b) => { try { await api('/api/checklist/' + b.dataset.step, { method: 'PATCH', body: { done: b.dataset.done !== '1' } }); } catch (e) { fail(e); } await redraw(viewOnboarding); });
   onChange('boardStep', async (el) => { try { await api('/api/checklist/' + el.dataset.step, { method: 'PATCH', body: { done: el.checked } }); } catch (e) { fail(e); } await redraw(viewOnboarding); });
