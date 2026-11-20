@@ -27,11 +27,21 @@ const u = Date.now().toString().slice(-5);
   b = await beat(); let n = await list();
   ok(b.unread === 1 && n[0].kind === 'lead_new' && /New lead for you: Lee Lead/.test(n[0].text) && /#\/driver\/\d+/.test(n[0].link), 'a lead shared to her: one notification with a link');
   const leadId = +n[0].link.split('/').pop();
-  // the driver writes back twice: one notification, kept up to date
-  await push({ name: `Lee Lead ${u}`, phones: ['484555' + u.slice(-4)], lastMessage: 'yes I am interested', status: 'Interested' });
-  await push({ name: `Lee Lead ${u}`, phones: ['484555' + u.slice(-4)], emails: ['lee@example.com'], lastMessage: 'my email is lee@example.com', status: 'Email collected' });
+  // the driver writes back twice (the extension sends the whole history each time): a notification for each new message
+  const t1 = new Date(Date.now() - 60000).toISOString(), t2 = new Date().toISOString(), old = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+  const e1 = { t: t1, type: 'reply', text: 'yes I am interested → AI: Great! How long have you had your CDL-A?' };
+  const e2 = { t: t2, type: 'reply', text: 'my email is lee@example.com → sent relay' };
+  const eOld = { t: old, type: 'reply', text: 'an old message from a backup' };
+  await push({ name: `Lee Lead ${u}`, phones: ['484555' + u.slice(-4)], lastMessage: 'yes I am interested', status: 'Interested', events: [eOld, e1] });
+  let msgs = (await list()).filter((x) => x.kind === 'message');
+  ok(msgs.length === 1 && msgs[0].text === `Lee Lead ${u} wrote on Indeed: "yes I am interested"` && msgs[0].link === `#/driver/${leadId}`, 'a new message: a notification with what the driver wrote (not the old one): ' + (msgs[0] || {}).text);
+  await push({ name: `Lee Lead ${u}`, phones: ['484555' + u.slice(-4)], emails: ['lee@example.com'], lastMessage: 'my email is lee@example.com', status: 'Email collected', events: [eOld, e1, e2] });
+  msgs = (await list()).filter((x) => x.kind === 'message');
+  ok(msgs.length === 2 && /my email is lee@example.com"$/.test(msgs[0].text), 'the second message is its own notification');
+  await push({ name: `Lee Lead ${u}`, phones: ['484555' + u.slice(-4)], emails: ['lee@example.com'], status: 'Email collected', events: [eOld, e1, e2] });
+  ok((await list()).filter((x) => x.kind === 'message').length === 2, 'the same history sent again: nothing new');
   n = await list(); const up = n.filter((x) => x.kind === 'lead_update');
-  ok(up.length === 1 && /new message: "my email is lee@example.com"/.test(up[0].text) && /new email/.test(up[0].text), 'news on her lead: one notification, brought up to date: ' + (up[0] || {}).text);
+  ok(up.length === 1 && /new email/.test(up[0].text) && /now Email collected/.test(up[0].text) && !/message/.test(up[0].text), 'other news on her lead: one notification, brought up to date: ' + (up[0] || {}).text);
   // someone else changes her lead and leaves a note
   await A('/api/drivers/' + leadId, { method: 'PATCH', body: { followUp: new Date().toISOString().slice(0, 10) } });
   await A(`/api/drivers/${leadId}/notes`, { method: 'POST', body: { body: 'Call him after 5pm' } });

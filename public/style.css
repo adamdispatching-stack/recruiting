@@ -1322,3 +1322,5 @@ details.fbadd.card{padding:0}
 .fbwarn{padding:3px 9px;border-radius:7px;background:var(--yellow-t);color:var(--yellow-ink);font-size:13px;font-weight:600}
 .fbsafe ul{margin:10px 0 0;padding-left:20px;line-height:1.55}
 .bteam th[scope=row],.bteam td{vertical-align:middle}.bteam th[scope=row]{text-align:left;padding-left:14px}
+#pops .pop.k-message{background:#1D4E9E} #pops .pop.k-message b{color:#CFE0FF}
+#bellpanel .k-message .bk{color:var(--blue)}

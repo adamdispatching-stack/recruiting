@@ -130,7 +130,7 @@ window.App = (() => {
   // Idle alerts stay in a box at the top right until dismissed. Everything else goes to the bell (unread count)
   // and pops up once in the corner for a few seconds, and on the desktop when allowed.
   const pageStart = Date.now();
-  const NKIND = { lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', goal: 'Streak', badge: 'New badge', idle: 'Idle alert' };
+  const NKIND = { message: 'New message', lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', goal: 'Streak', badge: 'New badge', idle: 'Idle alert' };
   function setBell(n) { S.unread = n; document.querySelectorAll('.bellcount').forEach((b) => { b.textContent = n > 99 ? '99+' : String(n); b.hidden = !n; }); }
   function showNotices(list, unread) {
     if (unread !== undefined) setBell(unread);

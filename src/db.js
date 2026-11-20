@@ -585,7 +585,6 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
   // tell the lead's recruiter what is new (the website's own edits are told elsewhere)
   if (d.owner_id && !given) {
     const what = [];
-    if (set.last_message) what.push(`new message: "${String(set.last_message).slice(0, 90)}"`);
     if (set.phones) what.push('new phone number');
     if (set.emails) what.push('new email');
     if (set.status) what.push(`now ${set.status}`);
@@ -594,10 +593,21 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
   }
   // history
   const events = [...(Array.isArray(rec.events) ? rec.events : []), ...(rec.event && typeof rec.event === 'object' ? [{ ...rec.event, t: rec.event.t || new Date().toISOString() }] : [])];
+  const said = []; // the driver's new messages, first seen now
   for (const e of events.slice(-80)) {
     if (!e || !e.text) continue;
     const t = isoOrNull(e.t) || new Date().toISOString();
-    await c.query(`INSERT INTO driver_events (driver_id, t, type, text, fp) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`, [d.id, t, e.type || null, String(e.text).slice(0, 2000), sha(`${t}|${e.text}`)]);
+    const ins = await c.query(`INSERT INTO driver_events (driver_id, t, type, text, fp) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING id`, [d.id, t, e.type || null, String(e.text).slice(0, 2000), sha(`${t}|${e.text}`)]);
+    // "their words → what we answered": a driver's message the extension just read (not an old backup)
+    if (ins.rows[0] && e.type === 'reply' && Date.now() - new Date(t).getTime() < 3 * 3600 * 1000) {
+      const words = String(e.text).split(' → ')[0].trim();
+      if (words && !/^Applied on Indeed/.test(words)) said.push(words);
+    }
+  }
+  // every new message from the driver: a notification for the lead's recruiter, so a chat never waits on them
+  if (said.length && d.owner_id && !given) {
+    const last = said[said.length - 1];
+    await notify(c, d.owner_id, 'message', `${rec.name || d.name} wrote on Indeed: "${last.slice(0, 160)}"${said.length > 1 ? ` (and ${said.length - 1} more)` : ''}`, `#/driver/${d.id}`, { driverId: d.id });
   }
   // the extension's own notes box: kept as one note per Chrome profile, updated in place
   if (typeof rec.notes === 'string' && sourceLabel) {
