@@ -161,6 +161,15 @@ module.exports = (app) => {
         (SELECT count(DISTINCT driver_id) FROM status_log WHERE at >= $3 AND at < $4 AND to_status = 'Onboarding')::int onboarded,
         (SELECT count(DISTINCT driver_id) FROM status_log WHERE at >= $3 AND at < $4 AND to_status = 'Hired')::int hired`,
       [week.from, week.to, month.from, month.to, db.ROUTE, ENGAGED])).rows[0];
+    // the last 30 days against the 30 before, for the trend on each figure
+    const trend = (await q(`SELECT
+        count(*) FILTER (WHERE lead_at >= $1 AND lead_at < $2)::int leads_now, count(*) FILTER (WHERE lead_at >= $1::timestamptz - interval '30 days' AND lead_at < $1)::int leads_before,
+        (SELECT count(DISTINCT driver_id) FROM status_log WHERE to_status = 'Onboarding' AND at >= $1 AND at < $2)::int onb_now,
+        (SELECT count(DISTINCT driver_id) FROM status_log WHERE to_status = 'Onboarding' AND at >= $1::timestamptz - interval '30 days' AND at < $1)::int onb_before,
+        (SELECT count(DISTINCT driver_id) FROM status_log WHERE to_status = 'Hired' AND at >= $1 AND at < $2)::int hired_now,
+        (SELECT count(DISTINCT driver_id) FROM status_log WHERE to_status = 'Hired' AND at >= $1::timestamptz - interval '30 days' AND at < $1)::int hired_before
+      FROM drivers`, [month.from, month.to])).rows[0];
+    const recent = await q(`SELECT id, name, mode, exp_years, source, status, owner_id, follow_up, company_id FROM drivers WHERE lead_at IS NOT NULL ORDER BY lead_at DESC, id DESC LIMIT 6`);
     const sources = await q(`SELECT COALESCE(source, 'Not set') source, count(*)::int leads, count(*) FILTER (WHERE status = ANY($3::text[]))::int engaged, count(*) FILTER (WHERE status IN ('Onboarding', 'Hired'))::int won
       FROM drivers WHERE lead_at >= $1 AND lead_at < $2 GROUP BY 1 ORDER BY 2 DESC, 1`, [month.from, month.to, ENGAGED]);
     const lost = await q(`SELECT COALESCE(NULLIF(lost_reason, ''), CASE WHEN status IN ('No CDL', 'Declined on Indeed') THEN status ELSE 'No reason given' END) reason, count(*)::int n FROM drivers d
@@ -170,6 +179,8 @@ module.exports = (app) => {
       attention: { due: att.due, unassigned: att.unassigned, cold: att.cold, arriving: att.arriving, late: att.late, stuck: att.stuck, ready: att.ready, onboarding: att.onboarding, emptyTrucks: att.empty_trucks, trucks: att.trucks,
         activeDrivers: att.active_drivers, expiring: att.expiring, missingDocs: att.missing_docs, dueHome: att.due_home },
       pipeline: pipe.rows, week: { newLeads: moved.new_leads, forward: moved.forward }, month: { onboarded: moved.onboarded, hired: moved.hired },
+      trend: { leads: [trend.leads_now, trend.leads_before], onboarded: [trend.onb_now, trend.onb_before], hired: [trend.hired_now, trend.hired_before] },
+      recent: recent.rows.map((d) => ({ id: d.id, name: d.name, mode: d.mode, expYears: d.exp_years === null ? null : +d.exp_years, source: d.source, status: d.status, ownerId: d.owner_id, followUp: d.follow_up, companyId: d.company_id })),
       team: await teamStats(day), sources: sources.rows, lost: lost.rows, feed: feed.rows.map(feedRow) });
   }));
 };

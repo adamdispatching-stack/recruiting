@@ -30,7 +30,7 @@
   let filter = '', coFilter = '', data = null;
   async function viewActive() {
     const live = App.drawing(); const r = await api('/api/active'); if (!live()) return; data = r;
-    document.title = 'Active drivers · Recruiting';
+    document.title = 'Active drivers · FleetHire';
     const t = r.today;
     const rows = r.drivers.map((d) => ({ d, cdl: expiry(d.cdlExpires, t), med: expiry(d.medExpires, t), road: road(d, t) }));
     const bad = (x) => ['expired', 'soon'].includes(x.cdl.state) || ['expired', 'soon'].includes(x.med.state);
@@ -49,13 +49,12 @@
       <td class="small">${d.hiredAt ? esc(dateText(dayOf(d.hiredAt), { year: 'numeric' })) : ''}${d.ownerId ? `<div class="mut">${esc(person(d.ownerId))}</div>` : ''}</td>
       <td><button class="linkbtn" data-act="activeEdit">Edit</button></td></tr>`;
     const seg = [['', `All ${n(() => true)}`], ['expiring', `Expiring ${n(bad)}`], ['missing', `Dates missing ${n(missing)}`], ['home', `Due home ${n(due)}`]];
-    view.innerHTML = header('active') + `<main>
-      <section class="card"><dl class="figs wide">
-        <div><dd>${n(() => true)}</dd><dt>active drivers</dt></div>
-        <div class="${n((x) => x.cdl.state === 'expired' || x.med.state === 'expired') ? 'badfig' : ''}"><dd>${n((x) => x.cdl.state === 'expired' || x.med.state === 'expired')}</dd><dt>with an expired CDL or medical card</dt></div>
-        <div><dd>${n((x) => x.cdl.state === 'soon')}</dd><dt>CDLs expiring in ${SOON} days</dt></div>
-        <div><dd>${n((x) => x.med.state === 'soon')}</dd><dt>medical cards expiring in ${SOON} days</dt></div>
-        <div><dd>${n(due)}</dd><dt>due home in 3 days or overdue</dt></div></dl></section>
+    view.innerHTML = header('active') + `<main>${App.pageHead('Active drivers', 'Hired drivers on the road: their documents, working period and home time.')}
+      <div class="tiles">${App.tile('wheel', n(() => true), 'active drivers', { on: !filter, href: '#/active' })}
+        ${App.tile('warn', n((x) => x.cdl.state === 'expired' || x.med.state === 'expired'), 'with an expired CDL or medical card', { tone: n((x) => x.cdl.state === 'expired' || x.med.state === 'expired') ? 'r' : '' })}
+        ${App.tile('cal', n((x) => x.cdl.state === 'soon'), `CDLs expiring in ${SOON} days`, { tone: n((x) => x.cdl.state === 'soon') ? 'y' : '' })}
+        ${App.tile('clip', n((x) => x.med.state === 'soon'), `medical cards expiring in ${SOON} days`, { tone: n((x) => x.med.state === 'soon') ? 'y' : '' })}
+        ${App.tile('people', n(due), 'due home in 3 days or overdue')}</div>
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${seg.map(([k, l]) => `<button data-act="activeFilter" data-k="${k}" class="${filter === k ? 'on' : ''}" aria-pressed="${filter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="activeCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === coFilter ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${coFilter === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>

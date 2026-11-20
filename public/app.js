@@ -41,6 +41,39 @@ window.App = (() => {
   const company = (id) => (S.me && (S.me.companies || []).find((c) => c.id === id)) || null;
   const coTag = (id, big) => { const c = company(id); return c ? `<a class="co c${c.color % 8}${big ? ' big' : ''}" href="#/company/${c.id}">${esc(c.name)}</a>` : ''; };
   const coOptions = (sel, none = 'No company yet') => `<option value="">${esc(none)}</option>${(S.me.companies || []).map((c) => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}`;
+  // A page's title, one line about it, and its main buttons.
+  const pageHead = (title, sub, actions = '') => `<div class="phead"><div><h1>${esc(title)}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${actions ? `<div class="pacts">${actions}</div>` : ''}</div>`;
+  // A person's initials in a circle.
+  const initials = (name) => String(name || '?').trim().split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w[0] || '')).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+  const avatar = (name, cls = '') => `<span class="av ${cls}" aria-hidden="true">${esc(initials(name))}</span>`;
+  const plus = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 2.5v11M2.5 8h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  // Drawings for empty pages and the dashboard (decoration only)
+  const ART = {
+    truck: `<svg class="art" viewBox="0 0 340 150" aria-hidden="true"><circle cx="170" cy="78" r="70" fill="#E4EFE7"/><circle cx="118" cy="70" r="30" fill="#F6ECCB"/>
+      <path d="M8 120c40-30 70-36 104-22s58-18 96-20 70 18 124 30v12H8z" fill="#C2DBC9"/><path d="M60 126c30-22 64-26 92-12s50-6 80-10 50 8 90 22v4H60z" fill="#A5CAB1"/>
+      <path d="M20 134h300" stroke="#9DBFA8" stroke-width="2"/><path d="M40 140h260" stroke="#E4EFE7" stroke-width="5" stroke-dasharray="14 10"/>
+      <rect x="92" y="62" width="104" height="52" rx="3" fill="#fff" stroke="#24553B" stroke-width="2.5"/><path d="M100 104h88" stroke="#CFE2D6" stroke-width="2"/>
+      <path d="M196 76h28l16 16v22h-44z" fill="#fff" stroke="#24553B" stroke-width="2.5" stroke-linejoin="round"/><path d="M206 82h14l10 10h-24z" fill="#BFD8C8" stroke="#24553B" stroke-width="2"/>
+      <rect x="230" y="100" width="12" height="8" rx="1" fill="#E7EFEA" stroke="#24553B" stroke-width="1.6"/>
+      ${[110, 130, 206, 230].map((x) => `<circle cx="${x}" cy="118" r="8.5" fill="#24553B"/><circle cx="${x}" cy="118" r="3.4" fill="#E4EFE7"/>`).join('')}</svg>`,
+    carrier: `<svg class="art" viewBox="0 0 380 180" aria-hidden="true"><path d="M250 70a70 70 0 0 1 120 30H200a70 70 0 0 1 50-30z" fill="#E4EFE7"/>
+      <path d="M80 36q4-12 16-10 8-10 20-2 12-2 14 10H76z M276 50q4-12 16-10 8-10 20-2 12-2 14 10h-54z" fill="#fff" stroke="#24553B" stroke-width="1.6"/>
+      <circle cx="58" cy="118" r="26" fill="#BFD8C8"/><path d="M58 150v-38M58 126l-10-10M58 120l9-8" stroke="#24553B" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M86 150V74l46-16 46 16v76z" fill="#fff" stroke="#24553B" stroke-width="2.4" stroke-linejoin="round"/><rect x="104" y="84" width="56" height="16" rx="2" fill="#DCEDE2" stroke="#24553B" stroke-width="1.6"/>
+      <text x="132" y="96" text-anchor="middle" font-size="10" font-weight="800" fill="#24553B" letter-spacing="1.5" font-family="inherit">CARRIER</text>
+      <path d="M118 150v-28h28v28M132 122v28" fill="#BFD8C8" stroke="#24553B" stroke-width="2"/><path d="M96 110h14v12H96zM154 110h14v12h-14z" fill="#E4EFE7" stroke="#24553B" stroke-width="1.6"/>
+      <path d="M178 150V88h120v62" fill="#fff" stroke="#24553B" stroke-width="2.4" stroke-linejoin="round"/>${[190, 230, 270].map((x) => `<rect x="${x}" y="98" width="24" height="18" fill="#DCEDE2" stroke="#24553B" stroke-width="1.6"/>`).join('')}
+      ${[[186, 0], [246, 1]].map(([x]) => `<g><rect x="${x}" y="120" width="40" height="24" rx="2" fill="#fff" stroke="#24553B" stroke-width="2"/><path d="M${x + 40} 126h10l8 8v10h-18z" fill="#fff" stroke="#24553B" stroke-width="2" stroke-linejoin="round"/><circle cx="${x + 10}" cy="146" r="4.5" fill="#24553B"/><circle cx="${x + 48}" cy="146" r="4.5" fill="#24553B"/></g>`).join('')}
+      <circle cx="330" cy="140" r="16" fill="#BFD8C8"/><path d="M30 152h330" stroke="#9DBFA8" stroke-width="2.4" stroke-linecap="round"/></svg>`,
+    road: `<svg class="art hero" viewBox="0 0 560 150" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+      <path d="M120 120l70-70 50 40 60-62 70 60 50-34 70 52 70-46v140H120z" fill="#DCEBE1"/><path d="M220 130l60-44 50 30 60-40 60 46 50-24 60 32v40H220z" fill="#C3DCCB"/>
+      ${[[470, 92], [490, 100], [512, 88], [534, 98], [440, 104]].map(([x, y]) => `<path d="M${x} ${y}l9 -24 9 24z" fill="#5E9C77"/><path d="M${x + 9} ${y}v6" stroke="#5E9C77" stroke-width="2"/>`).join('')}
+      <path d="M300 150c40-30 90-36 150-44s90-20 110-34" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round"/><path d="M300 150c40-30 90-36 150-44s90-20 110-34" fill="none" stroke="#C9D4CD" stroke-width="2" stroke-dasharray="8 8"/>
+      <g transform="translate(390 82)"><rect x="0" y="0" width="58" height="26" rx="2" fill="#fff" stroke="#24553B" stroke-width="2"/><path d="M58 8h14l9 9v9H58z" fill="#2E8B57" stroke="#24553B" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="28" r="4.5" fill="#24553B"/><circle cx="70" cy="28" r="4.5" fill="#24553B"/></g></svg>`
+  };
+  // Activity with the person's initials: "M. Keller moved James Delgado to Interested, 10 minutes ago"
+  const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); if (m < 1) return 'just now'; if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`; const h = Math.round(m / 60); if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`; return teamWhen(iso); };
+  const feedAv = (rows) => (rows.length ? `<ol class="feedav">${rows.map((f) => `<li>${avatar(f.user, 'sm')}<div><div><b>${esc(f.user)}</b> ${f.driver ? (f.driverId ? `<a href="#/driver/${f.driverId}">${esc(f.driver)}</a>: ` : `${esc(f.driver)}: `) : ''}${esc(f.text || '')}</div><time title="${esc(when(f.at))}">${esc(ago(f.at))}</time></div></li>`).join('')}</ol>` : '<p class="hint">Nothing yet.</p>');
   const reloadMe = async () => { S.me = await api('/api/me'); S.meAt = Date.now(); };
   const presenceHtml = (p, now) => { const x = presence(p, now); return `<span class="pres ${x.state}"><i></i>${esc(x.label)}</span>`; };
 
@@ -129,7 +162,7 @@ window.App = (() => {
     const items = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
     const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
-        <div class="brand"><a href="#/">Recruiting</a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>
+        <div class="brand"><a href="#/" aria-label="FleetHire Recruiting, home"><svg class="logo" viewBox="0 0 40 28" width="38" height="27" aria-hidden="true"><path d="M2 5.5h21v15H2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M23 10h8.5l5.5 5.6v4.9H23z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="9" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><path d="M6 10.5h9M6 14.5h6" stroke="#F4B400" stroke-width="2.4" stroke-linecap="round"/></svg><span><b>FleetHire</b><small>Recruiting</small></span></a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>
         <div class="railnav" id="railnav">
           <nav aria-label="Sections">${items.map(link).join('')}</nav>
           <span class="grow"></span>
@@ -181,7 +214,7 @@ window.App = (() => {
 
   // ---------- sign-in ----------
   function viewLogin() {
-    drawing(); document.title = 'Sign in · Recruiting';
+    drawing(); document.title = 'Sign in · FleetHire';
     view.innerHTML = `<div class="login"><div class="o"><div class="plate"><h1>Recruiting</h1><div>Leads, follow-ups and onboarding</div></div></div>
       <form id="lf"><label class="fld">Email<input type="email" name="email" autocomplete="username" required></label>
       <label class="fld">Password<input type="password" name="password" autocomplete="current-password" required></label>
@@ -214,5 +247,5 @@ window.App = (() => {
   onChange('weekDay', (el) => { const r = el.closest('.wrow'); r.querySelectorAll('input[type=time]').forEach((t) => { t.disabled = !el.checked; }); r.classList.toggle('offd', !el.checked); r.querySelector('.wnote').textContent = el.checked ? '' : 'Day off'; });
 
   return { $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
-    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, icon, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS };
+    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS };
 })();

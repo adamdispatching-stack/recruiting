@@ -7,6 +7,7 @@
     <span class="hint">Days and times are in ${esc(tzName())}.${S.me.role === 'admin' ? ' <a href="#/settings">Change</a>' : ''}</span><span class="grow"></span>`;
   on('period', (b) => { period = b.dataset.k; App.render(); });
   const num = (n) => (n ? n.toLocaleString() : '<span class="none">0</span>');
+  const hl = (n) => (n ? `<span class="hl">${n.toLocaleString()}</span>` : '<span class="none">0</span>'); // work done stands out
   // A day of attendance in words. Off = a working day without enough active time.
   const DAY = { worked: 'Worked', extra: 'Extra day', off: 'Off', approved: 'Off, approved', rest: 'Not a working day', today: 'Not worked yet', future: '', before: 'Before the account' };
   const hoursText = (sch) => (sch ? `${App.hm(sch.s)} to ${App.hm(sch.e)}` : 'Not a working day');
@@ -20,19 +21,19 @@
   async function viewTeam() {
     if (S.me.role !== 'admin') return go('#/team/me');
     const live = App.drawing(); const r = await api('/api/team?period=' + period); if (!live()) return; const day = r.days === 1;
-    document.title = 'Team · Recruiting';
+    document.title = 'Team · FleetHire';
     const cols = ['clicks', 'opened', 'notes', 'contacts', 'added', 'forward', 'onboarded', 'hired', 'due', 'cold', 'owned'];
     const act = r.people.filter((p) => p.active); const tot = Object.fromEntries(cols.map((k) => [k, act.reduce((a, p) => a + p[k], 0)]));
     const row = (p) => `<tr class="${p.active ? '' : 'off'}"><th scope="row"><a href="#/team/${p.id}">${esc(p.name)}</a>${p.role === 'admin' ? '<span class="rtag">Admin</span>' : ''}${p.active ? presenceHtml(p, r.now) : '<span class="pres never"><i></i>No access</span>'}</th>
       ${day ? `<td>${todayCell(p.day)}</td><td>${p.firstAt ? esc(teamTime(p.firstAt)) : '<span class="none">Not seen</span>'}</td><td>${p.lastAt ? esc(teamTime(p.lastAt)) : ''}</td>`
         : `<td class="n" title="${esc(p.weekText)}">${p.att.worked - p.att.extra} of ${p.att.scheduled}${p.att.extra ? `<div class="small mut">+${plural(p.att.extra, 'extra day')}</div>` : ''}</td><td class="n${p.att.off ? ' bad' : ''}">${num(p.att.off)}${p.att.approved ? `<div class="small mut">+${p.att.approved} approved</div>` : ''}</td><td class="n${p.att.late ? ' bad' : ''}">${num(p.att.late)}</td>`}
       <td class="n">${dur(p.openSeconds)}</td><td class="n strong">${dur(p.activeSeconds)}</td><td class="n">${num(p.clicks)}</td>
-      <td class="n g">${num(p.opened)}</td><td class="n">${num(p.notes)}</td><td class="n">${num(p.contacts)}</td><td class="n">${num(p.added)}</td><td class="n">${num(p.forward)}</td>
-      <td class="n g">${num(p.onboarded)}</td><td class="n">${num(p.hired)}</td>
+      <td class="n g">${hl(p.opened)}</td><td class="n">${hl(p.notes)}</td><td class="n">${hl(p.contacts)}</td><td class="n">${hl(p.added)}</td><td class="n">${hl(p.forward)}</td>
+      <td class="n g">${hl(p.onboarded)}</td><td class="n">${hl(p.hired)}</td>
       <td class="n g${p.due ? ' bad' : ''}">${num(p.due)}</td><td class="n${p.cold ? ' bad' : ''}">${num(p.cold)}</td><td class="n">${num(p.owned)}</td></tr>`;
-    view.innerHTML = header('team') + `<main>${periodBar()}<button class="btn primary" data-act="personAdd">Add a person</button></div>
+    view.innerHTML = header('team') + `<main>${App.pageHead('Team performance', "Who is active, what they are working on, and the leads and hires they are moving forward.", `<button class="btn primary lg" data-act="personAdd">${App.plus} Add a person</button>`)}${periodBar()}</div>
       <div class="sheet"><table class="team"><thead>
-        <tr class="grp"><th></th><th colspan="6">${day ? (r.period === 'today' ? 'Today' : 'Yesterday') : 'Days and time'}</th><th colspan="5" class="g">Work on leads</th><th colspan="2" class="g">Their leads reached</th><th colspan="3" class="g">Right now</th></tr>
+        <tr class="grp"><th></th><th colspan="6">${day ? 'Presence and activity, ' + (r.period === 'today' ? 'today' : 'yesterday') : 'Days and time'}</th><th colspan="5" class="g">Recruiting work</th><th colspan="2" class="g">Hires</th><th colspan="3" class="g">Lead follow-up</th></tr>
         <tr><th>Person</th>${day ? '<th style="width:150px">Working day</th><th>First seen</th><th>Last seen</th>' : '<th class="n" title="Working days with at least the minimum active time (Settings, Working hours)">Days worked</th><th class="n" title="Working days without enough active time">Days off</th><th class="n">Late starts</th>'}<th class="n" title="The site was open and on screen">On site</th><th class="n" title="Time with clicks, typing or scrolling">Active</th><th class="n">Clicks</th>
           <th class="n g" title="Different leads opened">Leads opened</th><th class="n">Notes</th><th class="n" title="Calls, texts and emails logged">Calls, texts</th><th class="n">Leads added</th><th class="n" title="Status changes they made that moved a lead forward">Moved forward</th>
           <th class="n g">Onboarding</th><th class="n">Hired</th>
@@ -196,7 +197,7 @@
     const [r, m] = await Promise.all([api(`/api/team/${id}?period=${period}`), api(`/api/team/${id}/month?m=${month}`)]); if (!live()) return;
     const p = r.person; shown = p; shownMonth = m; month = m.month;
     const admin = S.me.role === 'admin', self = p.id === S.me.id, day = r.days === 1;
-    document.title = `${p.name} · Recruiting`;
+    document.title = `${p.name} · FleetHire`;
     const fig = (v, l, hint) => `<div${hint ? ` title="${esc(hint)}"` : ''}><dd>${v}</dd><dt>${l}</dt></div>`;
     view.innerHTML = header('team') + `<main>
       ${admin ? '<a class="back" href="#/team">← Team</a>' : ''}

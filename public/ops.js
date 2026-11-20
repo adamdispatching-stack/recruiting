@@ -10,66 +10,76 @@
   const figures = (list) => `<dl class="figs">${list.map(([v, l, hint]) => `<div${hint ? ` title="${esc(hint)}"` : ''}><dd>${v}</dd><dt>${l}</dt></div>`).join('')}</dl>`;
 
   // ---------- dashboard ----------
+  const greet = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
+  const firstName = () => esc(String(S.me.name || '').split(/\s+/)[0]);
+  function trendHtml([now, before]) {
+    if (!before && !now) return '<span class="trend"><b class="flat">No change</b> vs. prior 30 days</span>';
+    if (!before) return '<span class="trend"><b>New</b> none in the prior 30 days</span>';
+    const p = Math.round(((now - before) / before) * 100);
+    return `<span class="trend"><b class="${p > 0 ? '' : p < 0 ? 'down' : 'flat'}">${p > 0 ? '↑ +' : p < 0 ? '↓ ' : ''}${p}%</b> vs. prior 30 days</span>`;
+  }
+  // Needs attention: one row per thing that is not zero, with a button to the list behind it.
+  function attnList(items) {
+    const shown = items.filter((x) => x[0]);
+    return shown.length ? `<ul class="alist">${shown.map(([n, title, sub, href, btn, tone]) => `<li><i class="adot ${tone}"></i><div class="grow"><b>${title(n)}</b><span>${sub}</span></div><a class="btn plain sm" href="${href}">${btn} <span aria-hidden="true">→</span></a></li>`).join('')}</ul>`
+      : '<p class="allok">Nothing needs attention right now.</p>';
+  }
   function adminHome(r) {
     const a = r.attention; const c = Object.fromEntries(r.pipeline.map((x) => [x.status, x.n]));
-    const stages = S.me.route.filter((s) => s !== 'Invited'); const max = Math.max(1, ...stages.map((s) => c[s] || 0));
+    const stages = S.me.route.filter((s) => s !== 'Invited'); const inRoute = stages.reduce((n, s) => n + (c[s] || 0), 0); const max = Math.max(1, ...stages.map((s) => c[s] || 0));
     const srcMax = Math.max(1, ...r.sources.map((s) => s.leads)); const lostMax = Math.max(1, ...r.lost.map((s) => s.n));
     const off = S.me.other.filter((s) => c[s]).map((s) => `<a href="#/leads?status=${q(s)}">${esc(s)} ${c[s]}</a>`).join(', ');
-    return `<main class="dash">
-      <section class="card attn" aria-labelledby="attnH"><h3 id="attnH">Needs attention</h3><div class="agroups">
-        <div><h4>Leads</h4>
-          ${attn(a.due, 'follow-up due', 'follow-ups due', '#/leads?due=1')}
-          ${attn(a.unassigned, 'lead in progress with no recruiter', 'leads in progress with no recruiter', '#/leads?owner=none&working=1')}
-          ${attn(a.cold, `lead going cold (quiet ${S.me.coldDays}+ days, no follow-up set)`, `leads going cold (quiet ${S.me.coldDays}+ days, no follow-up set)`, '#/leads?cold=1')}</div>
-        <div><h4>Onboarding</h4>
-          ${attn(a.late, 'driver past the expected arrival date', 'drivers past the expected arrival date', '#/onboarding')}
-          ${attn(a.stuck, 'onboarding with no step done for 3 days', 'onboardings with no step done for 3 days', '#/onboarding')}
-          ${attn(a.ready, 'driver with every step done, ready to mark hired', 'drivers with every step done, ready to mark hired', '#/onboarding')}
-          ${attn(a.arriving, 'driver arriving in the next 7 days', 'drivers arriving in the next 7 days', '#/onboarding', false)}</div>
-        <div><h4>Active drivers</h4>
-          ${attn(a.expiring, 'driver with a CDL or medical card expired or expiring in 30 days', 'drivers with a CDL or medical card expired or expiring in 30 days', '#/active')}
-          ${attn(a.dueHome, 'driver due home in 3 days or overdue', 'drivers due home in 3 days or overdue', '#/active')}
-          ${attn(a.missingDocs, 'driver without CDL or medical card dates', 'drivers without CDL or medical card dates', '#/active', false)}</div>
-        <div><h4>Trucks</h4>
-          ${attn(a.emptyTrucks, 'empty truck', 'empty trucks', '#/trucks', false)}
-          <span class="aline plain"><b>${a.onboarding}</b><span>${a.onboarding === 1 ? 'driver' : 'drivers'} in onboarding</span></span>
-          ${a.trucks ? '' : '<span class="aline none"><span>No trucks listed yet. <a href="#/trucks">Add them</a> to see which are empty.</span></span>'}</div>
-      </div></section>
+    const pl = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const items = [
+      [a.due, (n) => `${pl(n, 'follow-up', 'follow-ups')} due`, 'Leads waiting for a call back today or earlier', '#/leads?due=1', 'View follow-ups', 'r'],
+      [a.late, (n) => `${pl(n, 'driver', 'drivers')} past the arrival date`, 'Expected and not arrived yet', '#/onboarding', 'Review onboarding', 'r'],
+      [a.expiring, (n) => `${pl(n, 'CDL or medical card', 'CDLs or medical cards')} expiring`, 'Expired, or expiring in the next 30 days', '#/active', 'View drivers', 'r'],
+      [a.unassigned, (n) => `${pl(n, 'lead', 'leads')} with no recruiter`, 'In progress and nobody working them', '#/leads?owner=none&working=1', 'Assign', 'y'],
+      [a.cold, (n) => `${pl(n, 'lead', 'leads')} going cold`, `Quiet for ${S.me.coldDays}+ days with no follow-up set`, '#/leads?cold=1', 'View leads', 'y'],
+      [a.stuck, (n) => `${pl(n, 'onboarding', 'onboardings')} waiting 3 days`, 'No step done for 3 days', '#/onboarding', 'Review onboarding', 'y'],
+      [a.dueHome, (n) => `${pl(n, 'driver', 'drivers')} due home`, 'In the next 3 days, or overdue', '#/active', 'View drivers', 'y'],
+      [a.ready, (n) => `${pl(n, 'driver', 'drivers')} ready to hire`, 'Every onboarding step is done', '#/onboarding', 'Mark hired', 'g'],
+      [a.arriving, (n) => `${pl(n, 'driver', 'drivers')} arriving this week`, 'Coordinate orientation and the truck', '#/onboarding', 'View details', 'g'],
+      [a.missingDocs, (n) => `${pl(n, 'driver', 'drivers')} without document dates`, 'CDL or medical card expiry not entered', '#/active', 'Add dates', 'g'],
+      [a.emptyTrucks, (n) => `${pl(n, 'empty truck', 'empty trucks')}`, 'Ready for a driver', '#/trucks', 'View trucks', 'g']];
+    const urgent = items.filter((x) => x[0] && x[5] === 'r').length;
+    const nextStep = (d) => d.followUp ? (d.followUp <= r.today ? `<span class="fu due">${esc(fuText(d.followUp))}</span>` : esc(fuText(d.followUp))) : '<span class="none">No follow-up</span>';
+    return `<main class="dash"><div class="hero">${App.ART.road}
+        ${App.pageHead('Recruiting overview', '', '<button class="btn primary lg" data-act="addLead">' + App.plus + ' Add lead</button>')}
+        <div class="greet"><h2>${greet()}, ${firstName()}</h2>${urgent ? `<span class="ok warn">${pl(urgent, 'thing needs', 'things need')} attention</span>` : '<span class="ok">Your team is on track</span>'}</div></div>
+      <div class="tiles">${App.tile('lead', r.trend.leads[0], 'new leads, last 30 days', { href: '#/leads', trend: trendHtml(r.trend.leads) })}${App.tile('clip', r.trend.onboarded[0], 'started onboarding, 30 days', { href: '#/onboarding', trend: trendHtml(r.trend.onboarded) })}
+        ${App.tile('award', r.trend.hired[0], 'hired, last 30 days', { trend: trendHtml(r.trend.hired) })}${App.tile('wheel', a.activeDrivers, 'active drivers', { href: '#/active' })}</div>
       <div class="dgrid">
-        <div>
-          <section class="card"><h3>Pipeline now</h3>
-            ${figures([[r.week.newLeads, 'new leads, last 7 days', 'People who answered for the first time or were added by hand'], [r.week.forward, 'moved forward, last 7 days', 'Leads that reached Interested or a later step'], [r.month.onboarded, 'started onboarding, last 30 days'], [r.month.hired, 'hired, last 30 days']])}
-            <div class="mlist">${stages.map((s) => meterRow(esc(s), c[s] || 0, max, '', `#/leads?status=${q(s)}`)).join('')}</div>
-            <p class="hint foot">${(c.Invited || 0).toLocaleString()} invited on Indeed with no reply yet (<a href="#/leads?status=Invited">show</a>).${off ? ` Off the route: ${off}.` : ''}</p>
-          </section>
-          <section class="card"><h3>Where leads came from, last 30 days</h3>
-            ${r.sources.length ? `<div class="mlist src">${r.sources.map((s) => meterRow(esc(s.source), s.leads, srcMax, `<span class="mextra">${s.engaged} interested or further, ${s.won} onboarding or hired</span>`, `#/leads?source=${q(s.source)}`)).join('')}</div>
-              <p class="hint foot">A lead counts from the day the person first answered or was added by hand. Invites with no reply are left out.</p>` : '<p class="hint">No new leads in the last 30 days.</p>'}
-          </section>
-          ${r.lost.length ? `<section class="card"><h3>Why leads were lost, last 30 days</h3><div class="mlist">${r.lost.map((s) => meterRow(esc(s.reason), s.n, lostMax)).join('')}</div>
-            <p class="hint foot">Recruiters pick a reason when they set Stalled, Not interested or Rejected.</p></section>` : ''}
-        </div>
-        <div>
-          <section class="card"><h3>Team today<span class="grow"></span><a class="h3link" href="#/team">All numbers</a></h3>
-            <div class="scroll"><table class="mini"><thead><tr><th>Person</th><th>First seen</th><th class="n">Active</th><th class="n">Leads opened</th><th class="n">Notes</th><th class="n">Calls, texts</th><th class="n">Due</th></tr></thead><tbody>
+        <section class="card"><h3>Recruiting pipeline</h3><p class="hint lead">Driver leads from first reply to hire</p>
+          <div class="pipe">${stages.map((s) => `<a href="#/leads?status=${q(s)}"><span class="pn">${esc(s)}</span><span class="pc">${c[s] || 0}</span><span class="pb"><i style="width:${(c[s] || 0) ? Math.max(1.5, ((c[s] || 0) / max) * 100) : 0}%"></i></span><span class="pp">${inRoute ? Math.round(((c[s] || 0) / inRoute) * 100) : 0}%</span></a>`).join('')}</div>
+          <p class="hint foot">${(c.Invited || 0).toLocaleString()} invited on Indeed with no reply yet (<a href="#/leads?status=Invited">show</a>).${off ? ` Off the route: ${off}.` : ''}</p></section>
+        <section class="card"><h3><span class="warnico" aria-hidden="true">${TI.warn}</span>Needs attention</h3><p class="hint lead">Items that need your team's action</p>${attnList(items)}</section>
+      </div>
+      <div class="dgrid wide1">
+        <section class="card"><h3>Recent leads<span class="grow"></span><a class="h3link" href="#/leads">View all leads →</a></h3><p class="hint lead">The latest driver leads in your pipeline</p>
+          ${r.recent.length ? `<div class="scroll"><table class="mini recent"><thead><tr><th>Driver</th><th>Source</th><th>Stage</th><th>Recruiter</th><th>Next step</th></tr></thead><tbody>${r.recent.map((d) => `<tr><td><div class="who1">${App.avatar(d.name, 'sm')}<div><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><div class="small mut">${[d.mode === 'Owner-operators' ? 'Owner operator' : d.mode ? 'Company driver' : '', d.expYears !== null ? `${d.expYears} yrs exp` : ''].filter(Boolean).join(', ') || 'No details yet'}</div></div></div></td>
+            <td><span class="srcpill">${esc(d.source || 'Not set')}</span></td><td>${badge(d.status)}</td><td>${d.ownerId ? `<span class="who2">${App.avatar(person(d.ownerId), 'xs')}${esc(person(d.ownerId))}</span>` : '<span class="none">Nobody</span>'}</td><td class="small">${nextStep(d)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">No leads yet.</p>'}</section>
+        <section class="card"><h3>Team activity<span class="grow"></span><a class="h3link" href="#/team">Team →</a></h3><p class="hint lead">Recent updates from your recruiting team</p>${App.feedAv(r.feed.slice(0, 8))}</section>
+      </div>
+      <div class="dgrid three">
+        <section class="card"><h3>Where leads came from</h3><p class="hint lead">Last 30 days</p>
+            ${r.sources.length ? `<div class="mlist src">${r.sources.map((s) => meterRow(esc(s.source), s.leads, srcMax, `<span class="mextra">${s.engaged} interested or further, ${s.won} onboarding or hired</span>`, `#/leads?source=${q(s.source)}`)).join('')}</div>` : '<p class="hint">No new leads in the last 30 days.</p>'}</section>
+        ${r.lost.length ? `<section class="card"><h3>Why leads were lost</h3><p class="hint lead">Last 30 days</p><div class="mlist">${r.lost.map((s) => meterRow(esc(s.reason), s.n, lostMax)).join('')}</div></section>` : ''}
+      </div>
+          <section class="card"><h3>Team today<span class="grow"></span><a class="h3link" href="#/team">All numbers →</a></h3>
+            <div class="scroll"><table class="mini teamtoday"><thead><tr><th>Person</th><th>First seen</th><th class="n">Active</th><th class="n">Leads opened</th><th class="n">Notes</th><th class="n">Calls, texts</th><th class="n">Due</th></tr></thead><tbody>
               ${r.team.filter((p) => p.active).map((p) => `<tr><td><a href="#/team/${p.id}"><b>${esc(p.name)}</b></a>${presenceHtml(p, r.now)}</td><td>${p.firstAt ? esc(teamTime(p.firstAt)) : '<span class="none">Not today</span>'}</td><td class="n">${dur(p.activeSeconds)}</td><td class="n">${p.opened}</td><td class="n">${p.notes}</td><td class="n">${p.contacts}</td><td class="n${p.due ? ' bad' : ''}">${p.due}</td></tr>`).join('')}
             </tbody></table></div><p class="hint foot">Times in ${esc(tzName())}. Due = follow-ups due today or earlier on their leads.</p></section>
-          <section class="card"><h3>Latest activity</h3>${feedHtml(r.feed, true)}</section>
-        </div>
-      </div></main>`;
+      </main>`;
   }
   function myDay(r) {
     const s = r.stats; const c = Object.fromEntries(r.pipeline.map((x) => [x.status, x.n]));
     const stages = S.me.route.filter((x) => x !== 'Invited'); const max = Math.max(1, ...stages.map((x) => c[x] || 0));
-    return `<main class="dash">
-      <section class="card attn" aria-labelledby="attnH"><h3 id="attnH">Today</h3><div class="agroups">
-        <div><h4>Your leads</h4>
-          ${attn(s.due, 'follow-up due', 'follow-ups due', '#/leads?owner=me&due=1')}
-          ${attn(s.cold, `lead going cold (quiet ${S.me.coldDays}+ days, no follow-up set)`, `leads going cold (quiet ${S.me.coldDays}+ days, no follow-up set)`, '#/leads?owner=me&cold=1')}
-          <a class="aline plain" href="#/leads?owner=me&working=1"><b>${s.owned}</b><span>${s.owned === 1 ? 'lead' : 'leads'} in progress</span></a></div>
-        <div><h4>Up for grabs</h4>${attn(r.unassigned, 'lead in progress with no recruiter yet', 'leads in progress with no recruiter yet', '#/leads?owner=none&working=1', false)}</div>
-        <div><h4>Onboarding</h4><a class="aline plain" href="#/onboarding"><b>${r.onboarding.length}</b><span>of your drivers being set up</span></a></div>
-      </div></section>
+    return `<main class="dash"><div class="hero">${App.ART.road}
+        ${App.pageHead('My day', '', '<button class="btn primary lg" data-act="addLead">' + App.plus + ' Add lead</button>')}
+        <div class="greet"><h2>${greet()}, ${firstName()}</h2>${s.due ? `<span class="ok warn">${plural(s.due, 'follow-up')} due</span>` : '<span class="ok">No follow-ups waiting</span>'}</div></div>
+      <div class="tiles">${App.tile('cal', s.due, 'follow-ups due', { tone: s.due ? 'r' : '', href: '#/leads?owner=me&due=1' })}${App.tile('warn', s.cold, 'leads going cold', { tone: s.cold ? 'y' : '', href: '#/leads?owner=me&cold=1' })}
+        ${App.tile('lead', s.owned, 'your leads in progress', { href: '#/leads?owner=me&working=1' })}${App.tile('clip', r.onboarding.length, 'your drivers in onboarding', { href: '#/onboarding' })}${App.tile('people', r.unassigned, 'leads up for grabs', { href: '#/leads?owner=none&working=1' })}</div>
       <div class="dgrid">
         <div>
           <section class="card"><h3>Call list</h3>
@@ -93,41 +103,67 @@
   }
   async function viewHome() {
     const live = App.drawing(); const r = await api('/api/dashboard'); if (!live()) return;
-    document.title = (r.role === 'admin' ? 'Dashboard' : 'My day') + ' · Recruiting';
+    document.title = (r.role === 'admin' ? 'Dashboard' : 'My day') + ' · FleetHire';
     view.innerHTML = header('home') + (r.role === 'admin' ? adminHome(r) : myDay(r));
     App.every(60000, viewHome);
   }
 
   // ---------- onboarding board: one row per driver, one column per step ----------
   const LOCKED = ['truck', 'arrival', 'arrived'];
+  // Icons for the figure tiles
+  const TI = {
+    people: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.4 3-5.4 6-5.4s5.4 2 6 5.4"/><path d="M16 4.9a3.2 3.2 0 0 1 0 6.2M18.2 14.8c1.6.8 2.6 2.6 2.8 5.2"/></svg>',
+    cal: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+    warn: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.3v.2"/></svg>',
+    check: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.3 2.6 2.6 5-5.2"/></svg>',
+    truck: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6h11v10H2z"/><path d="M13 9h4.5l3.5 3.8V16h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>',
+    lead: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="8" r="3.4"/><path d="M3.5 20c.7-3.6 3.2-5.6 6.5-5.6 1.4 0 2.6.3 3.6 1"/><path d="M18 14v6M15 17h6"/></svg>',
+    clip: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.8h6V4"/><path d="m8.5 12.5 2.2 2.2 4.8-4.8"/></svg>',
+    award: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="9.5" r="6"/><path d="m9.6 9.6 1.7 1.7 3.2-3.3M8.5 14.6 7 21l5-2.6 5 2.6-1.5-6.4"/></svg>',
+    wheel: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M3.8 10.5c2.6-.9 5.3-1.2 8.2-1.2s5.6.3 8.2 1.2M10.4 13.6 7 19.6M13.6 13.6l3.4 6"/></svg>'
+  };
+  App.TI = TI;
+  const tile = (icon, n, label, { tone = '', href = '', on = false, trend = '' } = {}) => `<${href ? `a href="${href}"` : 'div'} class="tile${on ? ' on' : ''}"><span class="ti ${tone}">${TI[icon]}</span><span class="tv"><span class="num">${n}</span><span class="lab">${label}</span>${trend}</span></${href ? 'a' : 'div'}>`;
+  App.tile = tile;
+
+  const open = new Set(); // drivers whose checklist is unfolded on the board
   async function viewOnboarding() {
     const live = App.drawing(); const r = await api('/api/onboarding'); if (!live()) return; const t = r.today;
-    document.title = 'Onboarding · Recruiting';
-    const cols = r.template; const keys = new Set(cols.map((c) => c.key));
-    const extraCol = r.drivers.some((d) => d.items.some((i) => !keys.has(i.key)));
+    document.title = 'Onboarding · FleetHire';
     const arriving = r.drivers.filter((d) => !d.arrivedOn && d.expectedArrival && d.expectedArrival >= t && d.expectedArrival <= addDays(t, 7)).length;
     const late = r.drivers.filter((d) => !d.arrivedOn && d.expectedArrival && d.expectedArrival < t).length;
     const ready = r.drivers.filter((d) => d.items.length && d.items.every((i) => i.done)).length;
     const rows = r.drivers.map((d) => {
-      const by = Object.fromEntries(d.items.map((i) => [i.key, i])); const extra = d.items.filter((i) => !keys.has(i.key));
-      const done = d.items.filter((i) => i.done).length, total = d.items.length;
+      const done = d.items.filter((i) => i.done).length, total = d.items.length, isOpen = open.has(d.id);
       const isLate = !d.arrivedOn && d.expectedArrival && d.expectedArrival < t;
       const arrival = d.arrivedOn ? `<span class="okt">Arrived ${esc(dateText(d.arrivedOn))}</span>` : d.expectedArrival ? `${esc(dateText(d.expectedArrival, { weekday: 'short' }))}${isLate ? '<span class="latetag">Late</span>' : ''}` : '<span class="none">No date yet</span>';
-      return `<tr data-driver="${d.id}"><th scope="row"><a href="#/driver/${d.id}">${esc(d.name)}</a><div class="small mut">${d.ownerId ? esc(person(d.ownerId)) : 'No recruiter'}, day ${daysSince(d.startedAt) + 1}</div>${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}${d.telegramLink ? `<a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram group</a>` : ''}</th>
-        <td class="tk">${d.truck ? `<b>${esc(d.truck.unit)}</b>` : '<span class="none">None yet</span>'}</td><td class="arr" title="${esc(d.arrivalNote || '')}">${arrival}${d.arrivalNote ? `<div class="small mut clamp1">${esc(d.arrivalNote)}</div>` : ''}</td>
-        ${cols.map((c) => { const i = by[c.key]; return `<td class="ck">${i ? `<span class="ckw"><input type="checkbox" data-ch="boardStep" data-step="${i.id}" data-fk="b${i.id}" ${i.done ? 'checked' : ''} ${LOCKED.includes(i.auto) ? 'disabled' : ''} title="${esc(i.note || '')}" aria-label="${esc(c.label)}, ${esc(d.name)}">${i.note ? '<i class="hasnote" title="' + esc(i.note) + '"></i>' : ''}</span>` : '<span class="none" title="Not on this driver\'s list">n/a</span>'}</td>`; }).join('')}
-        ${extraCol ? `<td class="n">${extra.length ? `<a href="#/driver/${d.id}">${extra.filter((i) => i.done).length} of ${extra.length}</a>` : ''}</td>` : ''}
-        <td class="n"><span class="prog${done === total ? ' full' : ''}"><b>${done} of ${total}</b></span></td></tr>`;
+      const step = (i, k) => `<li class="${i.done ? 'done' : ''}${d.items[k + 1] && d.items[k + 1].done && i.done ? ' linked' : ''}">
+          <button class="dot" data-act="boardStep" data-step="${i.id}" data-done="${i.done ? 1 : 0}" ${LOCKED.includes(i.auto) ? 'disabled title="Ticks itself from the driver\'s page"' : ''} aria-pressed="${i.done}" aria-label="${esc(i.label)}: ${i.done ? 'done' : 'not done'}${LOCKED.includes(i.auto) ? ', ticks itself' : ''}">${i.done ? '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 8.4 3 3 6-6.4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}</button>
+          <span>${esc(i.label)}</span>${i.note ? `<small title="${esc(i.note)}">Note</small>` : ''}</li>`;
+      return `<tr class="brow${isOpen ? ' open' : ''}" data-driver="${d.id}"><th scope="row"><div class="who1">${App.avatar(d.name, 'sm')}<div><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>
+          <div class="small mut"><span class="gdot"></span>Onboarding, day ${daysSince(d.startedAt) + 1}</div>${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}</div></div></th>
+        <td>${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}</td>
+        <td><span class="daypill">Day ${daysSince(d.startedAt) + 1}</span></td>
+        <td class="tk">${d.truck ? `<b>${esc(d.truck.unit)}</b>` : '<span class="none">None yet</span>'}</td>
+        <td class="arr" title="${esc(d.arrivalNote || '')}">${arrival}${d.telegramLink ? `<div><a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram group</a></div>` : ''}</td>
+        <td><div class="small"><b>${done} of ${total}</b> steps done</div><span class="pbar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span></td>
+        <td class="n"><span class="cpill${done === total && total ? ' full' : ''}">${done} of ${total}</span></td>
+        <td><button class="caret" data-act="boardOpen" aria-expanded="${isOpen}" aria-label="${isOpen ? 'Hide' : 'Show'} the checklist for ${esc(d.name)}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td></tr>
+        ${isOpen ? `<tr class="ostep"><td colspan="8"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
+          <ol class="stepper">${d.items.map(step).join('')}</ol>
+          <p class="note-i">Truck and arrival steps tick themselves when you fill them in on the driver's page. Click a circle to tick or untick a step.</p></td></tr>` : ''}`;
     }).join('');
-    view.innerHTML = header('onboarding') + `<main>
-      <section class="card">${`<dl class="figs">${[[r.drivers.length, 'in onboarding'], [arriving, 'arriving in the next 7 days'], [late, 'past the expected arrival date'], [ready, 'ready to mark hired'], [r.emptyTrucks, 'empty trucks']].map(([v, l]) => `<div><dd>${v}</dd><dt>${l}</dt></div>`).join('')}</dl>`}</section>
-      ${r.drivers.length ? `<div class="sheet"><table class="board"><thead><tr><th>Driver</th><th>Truck</th><th>Arrival</th>${cols.map((c) => `<th class="ck">${esc(c.label)}</th>`).join('')}${extraCol ? '<th class="n">Own steps</th>' : ''}<th class="n">Done</th></tr></thead><tbody>${rows}</tbody></table></div>
-        <p class="hint foot">Tick a step here or on the driver's page. Truck and arrival steps tick themselves when you fill them in on the driver's page. A dot marks a step with a note.</p>`
-        : '<div class="empty"><p>Nobody is in onboarding.</p>Open a lead and choose Start onboarding. The driver gets this checklist: ' + esc(cols.map((c) => c.label).join(', ')) + '.</div>'}
-      ${r.hired.length ? `<section class="card" style="margin-top:14px"><h3>Hired in the last 30 days</h3><ul class="list">${r.hired.map((d) => `<li><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> ${App.coTag(d.companyId)} <span class="small mut">${d.ownerId ? esc(person(d.ownerId)) + "'s lead" : ''}</span></span>
+    view.innerHTML = header('onboarding') + `<main>${App.pageHead('Driver onboarding', "Track each driver's onboarding progress and readiness to be hired.")}
+      <div class="tiles">${tile('people', r.drivers.length, 'in onboarding', { on: true })}${tile('cal', arriving, 'arriving in the next 7 days')}${tile('warn', late, 'past the expected arrival date', { tone: late ? 'y' : '' })}${tile('check', ready, 'ready to mark hired')}${tile('truck', r.emptyTrucks, 'empty trucks', { href: '#/trucks' })}</div>
+      ${r.drivers.length ? `<div class="sheet"><table class="board2"><colgroup><col style="width:26%"><col style="width:13%"><col style="width:90px"><col style="width:90px"><col style="width:13%"><col><col style="width:90px"><col style="width:50px"></colgroup>
+        <thead><tr><th>Driver</th><th>Recruiter</th><th>Day</th><th>Truck</th><th>Arrival</th><th>Onboarding progress</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : `<div class="emptycard"><div class="emptyart">${App.ART.truck}<h2>Nobody is in onboarding.</h2><p>Open a lead and choose Start onboarding. The driver gets these steps: ${esc(r.template.map((c) => c.label).join(', '))}.</p><a class="btn primary lg" href="#/leads">Go to leads</a></div></div>`}
+      ${r.hired.length ? `<section class="card" style="margin-top:16px"><h3>Hired in the last 30 days</h3><ul class="list">${r.hired.map((d) => `<li><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> ${App.coTag(d.companyId)} <span class="small mut">${d.ownerId ? esc(person(d.ownerId)) + "'s lead" : ''}</span></span>
         <span class="small mut">${d.truck ? 'Truck ' + esc(d.truck) + ', ' : ''}hired ${esc(dateText(dayOf(d.hiredAt)))}, ${plural(Math.max(1, Math.round((new Date(d.hiredAt) - new Date(d.startedAt)) / 864e5)), 'day')} in onboarding</span></li>`).join('')}</ul></section>` : ''}
     </main>`;
   }
+  on('boardOpen', (b) => { const id = +b.closest('[data-driver]').dataset.driver; if (open.has(id)) open.delete(id); else open.add(id); redraw(viewOnboarding); });
+  on('boardStep', async (b) => { try { await api('/api/checklist/' + b.dataset.step, { method: 'PATCH', body: { done: b.dataset.done !== '1' } }); } catch (e) { fail(e); } await redraw(viewOnboarding); });
   onChange('boardStep', async (el) => { try { await api('/api/checklist/' + el.dataset.step, { method: 'PATCH', body: { done: el.checked } }); } catch (e) { fail(e); } await redraw(viewOnboarding); });
 
   // ---------- trucks ----------
@@ -136,14 +172,14 @@
   async function viewTrucks() {
     const live = App.drawing(); const got = (await api('/api/trucks')).trucks; if (!live()) return;
     trucks = got; const admin = S.me.role === 'admin';
-    document.title = 'Trucks · Recruiting';
+    document.title = 'Trucks · FleetHire';
     const n = (s) => trucks.filter((t) => t.state === s).length;
     const inCo = (t) => !truckCo || (truckCo === 'none' ? !t.companyId : t.companyId === +truckCo);
     const shown = trucks.filter((t) => (!truckFilter || t.state === truckFilter) && inCo(t));
-    view.innerHTML = header('trucks') + `<main>
+    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck, which company it belongs to, and who drives it.', admin ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : '')}
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${[['', `All ${trucks.length}`], ['empty', `Empty ${n('empty')}`], ['assigned', `With a driver ${n('assigned')}`], ['out', `Out of service ${n('out')}`]].map(([k, l]) => `<button data-act="truckFilter" data-k="${k}" class="${truckFilter === k ? 'on' : ''}" aria-pressed="${truckFilter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="truckCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === truckCo ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${truckCo === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
-        <span class="grow"></span>${admin ? '<button class="btn primary" data-act="truckAdd">Add truck</button>' : ''}</div>
+        <span class="grow"></span></div>
       ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:170px">Company</th><th>Truck</th><th>Where it is</th><th style="width:150px">Status</th><th>Driver</th><th>Notes</th>${admin ? '<th style="width:70px"></th>' : ''}</tr></thead><tbody>
         ${shown.map((t) => `<tr data-truck="${t.id}"><td><b class="unit">${esc(t.unit)}</b></td><td>${App.coTag(t.companyId) || '<span class="none">None</span>'}</td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}</td><td>${esc(t.location || '') || '<span class="none">Not filled in</span>'}</td>
           <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>

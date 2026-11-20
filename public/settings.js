@@ -10,12 +10,12 @@
   const drawSteps = () => { $('#tplList').innerHTML = stepRows(); };
 
   async function viewSettings() {
-    document.title = 'Settings · Recruiting';
+    document.title = 'Settings · FleetHire';
     const admin = S.me.role === 'admin';
     let keys = [], cfg = null; const live = App.drawing();
     if (admin) { keys = await api('/api/keys'); cfg = await api('/api/settings'); if (!live()) return; steps = cfg.checklist.map((x) => ({ ...x })); }
     const people = S.me.people.filter((p) => p.active);
-    view.innerHTML = header('settings') + `<main class="narrow">
+    view.innerHTML = header('settings') + `<main class="narrow">${App.pageHead(admin ? 'Settings' : 'Your password', admin ? 'Time zone, working hours, lead sources, the onboarding checklist and the Chrome extension.' : '')}
       ${admin ? `
       <section class="card"><h3>Team time zone</h3>
         <p class="hint lead">Reports count a day from midnight to midnight in this time zone, and "today" for follow-ups starts here. Pick the zone your recruiters' working day belongs to, so one shift is one day.</p>

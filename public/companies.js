@@ -10,17 +10,17 @@
   async function viewCompanies() {
     const live = App.drawing(); const r = await api('/api/companies'); if (!live()) return;
     const admin = S.me.role === 'admin';
-    document.title = 'Companies · Recruiting';
+    document.title = 'Companies · FleetHire';
     const card = (c) => `<a class="cocard k${c.color % 8}" href="#/company/${c.id}">
         <div class="cohead"><b>${esc(c.name)}</b><span class="small mut">${[c.mc ? 'MC ' + esc(c.mc) : '', c.dot ? 'DOT ' + esc(c.dot) : ''].filter(Boolean).join(', ') || 'No MC or DOT yet'}</span></div>
         <dl class="figs">${fig(c.trucks, plural(c.trucks, 'truck').replace(/^\d+ /, ''))}${fig(c.empty, 'empty')}${fig(c.withDriver, 'with a driver')}${c.outOfService ? fig(c.outOfService, 'out of service') : ''}</dl>
         <dl class="figs">${fig(c.onboarding, 'in onboarding')}${fig(c.hired, 'hired')}${fig(c.inProgress, 'leads in progress')}</dl></a>`;
+    const loose = r.unassigned.trucks || r.unassigned.drivers ? `Not with any company yet: ${r.unassigned.trucks ? `<a href="#/trucks" data-act="trucksNoCo">${plural(r.unassigned.trucks, 'truck')}</a>` : ''}${r.unassigned.trucks && r.unassigned.drivers ? ' and ' : ''}${r.unassigned.drivers ? `<a href="#/leads?company=none&status=Onboarding">${plural(r.unassigned.drivers, 'driver')} in onboarding or hired</a>` : ''}` : '';
     view.innerHTML = header('companies') + `<main>
-      <div class="pagebar"><p class="hint" style="margin:0">The carriers we dispatch for. Each truck belongs to one company, and a driver works for the company of their truck.</p>
-        <span class="grow"></span>${admin ? '<button class="btn primary" data-act="coAdd">Add company</button>' : ''}</div>
+      ${App.pageHead('Companies', 'The carriers your team dispatches for.', admin ? `<button class="btn primary lg" data-act="coAdd">${App.plus} Add company</button>` : '')}
       ${r.companies.length ? `<div class="cogrid">${r.companies.map(card).join('')}</div>`
-        : `<div class="empty"><p>No companies yet.</p>${admin ? 'Add each company you dispatch for. Then give each truck its company on the Trucks page, and pick a company on each driver.' : 'An admin adds the companies.'}</div>`}
-      ${r.unassigned.trucks || r.unassigned.drivers ? `<p class="hint foot">Not with any company yet: ${r.unassigned.trucks ? `<a href="#/trucks" data-act="trucksNoCo">${plural(r.unassigned.trucks, 'truck')}</a>` : ''}${r.unassigned.trucks && r.unassigned.drivers ? ' and ' : ''}${r.unassigned.drivers ? `<a href="#/leads?company=none&status=Onboarding">${plural(r.unassigned.drivers, 'driver')} in onboarding or hired</a>` : ''}.</p>` : ''}
+        : `<div class="emptycard"><div class="emptyart">${App.ART.carrier}<h2>No companies added yet</h2><p>Each truck belongs to a company, and drivers are assigned through their truck.</p>${admin ? `<button class="btn primary lg" data-act="coAdd">${App.plus} Add your first company</button>` : '<p>An admin adds the companies.</p>'}${loose ? `<div><span class="more">${loose}</span></div>` : ''}</div></div>`}
+      ${r.companies.length && loose ? `<p class="hint foot">${loose}.</p>` : ''}
     </main>`;
   }
 
@@ -30,7 +30,7 @@
     const live = App.drawing(); let r;
     try { r = await api('/api/companies/' + id); } catch (e) { if (live()) view.innerHTML = header('companies') + `<main><a class="back" href="#/companies">← Companies</a><div class="empty"><p>${esc(e.message)}</p></div></main>`; return; }
     if (!live()) return; shown = r; const c = r.company; const admin = S.me.role === 'admin';
-    document.title = `${c.name} · Recruiting`;
+    document.title = `${c.name} · FleetHire`;
     const n = (s) => r.trucks.filter((t) => t.state === s).length;
     const ds = (s) => r.drivers.filter((d) => d.status === s).length;
     const truckRow = (t) => `<tr data-truck="${t.id}"><td><b class="unit">${esc(t.unit)}</b></td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}</td><td>${esc(t.location || '') || '<span class="none">Not filled in</span>'}</td>

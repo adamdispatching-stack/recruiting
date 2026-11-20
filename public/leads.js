@@ -20,13 +20,14 @@
     if (!more) list.sel.clear();
   }
   async function viewLeads(params) {
-    document.title = 'Leads · Recruiting';
+    document.title = 'Leads · FleetHire';
     if ([...params.keys()].length) { // a link from the dashboard, like "follow-ups due"
       FILTERS.forEach((k) => { list[k] = ''; });
       for (const [k, v] of params) if (FILTERS.includes(k)) list[k] = v;
       history.replaceState(null, '', '#/leads');
     }
-    view.innerHTML = header('leads', `<div class="tools">
+    view.innerHTML = header('leads') + `<main>${App.pageHead('Driver leads', 'Track and move driver candidates from first contact to hire.', `<button class="btn primary lg" data-act="addLead">${App.plus} Add lead</button>`)}
+      <section class="fcard" aria-label="Filters"><div class="tools">
         <label class="search">${ICON_SEARCH}<input id="q" type="search" placeholder="Search name, phone, email, city, notes" aria-label="Search leads"></label>
         <select id="fOwner" class="pick" aria-label="Recruiter"><option value="">All recruiters</option><option value="me">My leads</option><option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id).map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
         <select id="fSource" class="pick" aria-label="Source"><option value="">All sources</option>${S.me.sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
@@ -34,14 +35,16 @@
         <select id="fMode" class="pick" aria-label="Driver type"><option value="">All types</option><option value="Company drivers">Company drivers</option><option value="Owner-operators">Owner operators</option></select>
         ${(S.me.companies || []).length ? `<select id="fCo" class="pick" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="none">No company</option></select>` : ''}
         <select id="fSort" class="pick" aria-label="Sort"><option value="updated">Newest activity</option><option value="followup">Follow-up date</option><option value="name">Name A to Z</option><option value="created">Newest added</option></select>
-        <span class="grow"></span><button class="btn solid" data-act="addLead">Add lead</button></div>
-      <nav id="route" class="route" aria-label="Filter by status"></nav>`) + `<main><div id="bulk" class="bulk" hidden></div><div id="lst"></div></main>`;
+        </div>
+      <nav id="route" class="route" aria-label="Filter by status"></nav></section><div id="bulk" class="bulk" hidden></div><div id="lst"></div></main>`;
     $('#q').value = list.q; $('#fMode').value = list.mode; $('#fSort').value = list.sort; $('#fOwner').value = list.owner; $('#fSource').value = list.source;
     let t; $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { list.q = e.target.value; refresh(); }, 250); };
     if ($('#fCo')) $('#fCo').value = list.company;
     for (const [id, key] of [['fAcct', 'account'], ['fMode', 'mode'], ['fSort', 'sort'], ['fOwner', 'owner'], ['fSource', 'source'], ['fCo', 'company']]) if ($('#' + id)) $('#' + id).onchange = (e) => { list[key] = e.target.value; refresh(); };
     await refresh();
   }
+  // A small team's list stays short at first: invite them to add the next driver.
+  const addMoreArt = () => `<div class="emptyart">${App.ART.truck}<h2>Your next great driver is one conversation away.</h2><p>Add a lead to start recruiting, track their progress, and move them toward hire.</p><button class="btn primary lg" data-act="addLead">${App.plus} Add a lead</button></div>`;
   async function refresh(more) {
     const live = App.drawing();
     try { await load(more); } catch (e) { return fail(e); }
@@ -64,7 +67,7 @@
       const isDue = d.followUp && d.followUp <= t;
       const where = [one(d.mode), d.location || (d.answers || {}).home].filter(Boolean).map(esc).join(', ');
       return `<tr data-id="${d.id}">${admin ? `<td class="cb"><input type="checkbox" data-sel="${d.id}" ${list.sel.has(d.id) ? 'checked' : ''} aria-label="Select ${esc(d.name)}"></td>` : ''}
-        <td><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div>${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}</td>
+        <td><div class="who1">${App.avatar(d.name)}<div><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div>${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}</div></div></td>
         <td>${badge(d.status)}</td>
         <td>${d.followUp ? `<span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : '<span class="none">None</span>'}</td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
@@ -74,10 +77,11 @@
         <td class="small mut" title="${esc(when(d.updatedAt))}">${esc(shortWhen(d.updatedAt))}</td></tr>`;
     }).join('');
     const any = sum('n');
-    $('#lst').innerHTML = list.rows.length ? `<div class="sheet"><table class="leads"><colgroup>${admin ? '<col style="width:38px">' : ''}<col style="width:21%"><col style="width:150px"><col style="width:124px"><col><col style="width:190px"><col style="width:150px"><col style="width:120px"><col style="width:86px"></colgroup>
+    $('#lst').innerHTML = list.rows.length ? `<div class="sheet"><table class="leads"><colgroup>${admin ? '<col style="width:40px">' : ''}<col style="width:220px"><col style="width:130px"><col style="width:112px"><col><col style="width:170px"><col style="width:130px"><col style="width:105px"><col style="width:78px"></colgroup>
         <thead><tr>${admin ? '<th class="cb"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th>Driver</th><th>Status</th><th>Follow-up</th><th>Notes</th><th>Contact</th><th>Source</th><th>Recruiter</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>
-        ${list.rows.length < list.total ? `<button class="btn plain more" data-act="moreLeads">Show more (${list.total - list.rows.length} left)</button>` : ''}`
-      : `<div class="empty">${any || list.q || list.owner || list.source || list.mode || list.account ? '<p>No leads match these filters.</p><button class="btn plain" data-act="clearFilters">Clear filters</button>' : '<p>No leads yet.</p>Add one with the Add lead button, or connect the Chrome extension under Settings.'}</div>`;
+        ${list.rows.length < list.total ? `<button class="btn plain more" data-act="moreLeads">Show more (${list.total - list.rows.length} left)</button>` : ''}
+        ${any < 5 && !list.q ? addMoreArt() : ''}`
+      : (any || list.q || list.owner || list.source || list.mode || list.account || list.company ? '<div class="empty"><p>No leads match these filters.</p><button class="btn plain" data-act="clearFilters">Clear filters</button></div>' : addMoreArt());
     drawBulk();
   }
   function drawBulk() {
@@ -231,7 +235,7 @@
     if (!live()) return;
     const draft = cur && cur.driver.id === id && $('#newNote') ? $('#newNote').value : ''; // a half-written note survives a redraw
     cur = r; const d = r.driver, a = d.answers || {}, ob = r.onboarding, admin = S.me.role === 'admin', t = today();
-    document.title = `${d.name} · Recruiting`;
+    document.title = `${d.name} · FleetHire`;
     const answerKeys = Object.keys(LABELS).filter((k) => a[k]).concat(Object.keys(a).filter((k) => !(k in LABELS) && a[k]));
     const all = S.me.route.concat(S.me.other); const lostish = S.me.lost.concat('Stalled').includes(d.status);
     const owner = admin
