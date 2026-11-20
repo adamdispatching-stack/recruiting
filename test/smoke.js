@@ -121,7 +121,8 @@ const sql = async (text, params) => {
   ok((await sam('/api/drivers/' + frank)).status === 200, 'shared mode again: everyone sees every lead');
 
   console.log('\n# trucks');
-  ok((await post(don, '/api/trucks', { unit: '104' })).status === 403, 'a recruiter cannot add trucks');
+  { const rt = await post(don, '/api/trucks', { unit: '300' }); // recruiters add trucks; only an admin removes one
+    ok(rt.status === 200 && (await don('/api/trucks/' + rt.body.id, { method: 'DELETE' })).status === 403 && (await admin('/api/trucks/' + rt.body.id, { method: 'DELETE' })).status === 200, 'a recruiter can add a truck but not remove it'); }
   const t104 = (await post(admin, '/api/trucks', { unit: '104', details: '2021 Freightliner Cascadia', location: 'Newark yard' })).body.id;
   const t9 = (await post(admin, '/api/trucks', { unit: '9', details: '2019 Cascadia' })).body.id;
   const t220 = (await post(admin, '/api/trucks', { unit: '220', driverName: 'Mike (current driver)' })).body.id;

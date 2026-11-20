@@ -17,9 +17,9 @@
         <dl class="figs">${fig(c.onboarding, 'in onboarding')}${fig(c.hired, 'hired')}${fig(c.inProgress, 'leads in progress')}</dl></a>`;
     const loose = r.unassigned.trucks || r.unassigned.drivers ? `Not with any company yet: ${r.unassigned.trucks ? `<a href="#/trucks" data-act="trucksNoCo">${plural(r.unassigned.trucks, 'truck')}</a>` : ''}${r.unassigned.trucks && r.unassigned.drivers ? ' and ' : ''}${r.unassigned.drivers ? `<a href="#/leads?company=none&status=Onboarding">${plural(r.unassigned.drivers, 'driver')} in onboarding or hired</a>` : ''}` : '';
     view.innerHTML = header('companies') + `<main>
-      ${App.pageHead('Companies', 'The carriers your team dispatches for.', admin ? `<button class="btn primary lg" data-act="coAdd">${App.plus} Add company</button>` : '')}
+      ${App.pageHead('Companies', 'The carriers your team dispatches for.', true ? `<button class="btn primary lg" data-act="coAdd">${App.plus} Add company</button>` : '')}
       ${r.companies.length ? `<div class="cogrid">${r.companies.map(card).join('')}</div>`
-        : `<div class="emptycard"><div class="emptyart">${App.ART.carrier}<h2>No companies added yet</h2><p>Each truck belongs to a company, and drivers are assigned through their truck.</p>${admin ? `<button class="btn primary lg" data-act="coAdd">${App.plus} Add your first company</button>` : '<p>An admin adds the companies.</p>'}${loose ? `<div><span class="more">${loose}</span></div>` : ''}</div></div>`}
+        : `<div class="emptycard"><div class="emptyart">${App.ART.carrier}<h2>No companies added yet</h2><p>Each truck belongs to a company, and drivers are assigned through their truck.</p>${true ? `<button class="btn primary lg" data-act="coAdd">${App.plus} Add your first company</button>` : '<p>An admin adds the companies.</p>'}${loose ? `<div><span class="more">${loose}</span></div>` : ''}</div></div>`}
       ${r.companies.length && loose ? `<p class="hint foot">${loose}.</p>` : ''}
     </main>`;
   }
@@ -36,7 +36,7 @@
     const truckRow = (t) => `<tr data-truck="${t.id}"><td><b class="unit">${esc(t.unit)}</b></td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}</td><td>${esc(t.location || '') || '<span class="none">Not filled in</span>'}</td>
       <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>
       <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="#/driver/${t.driver.id}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? esc(t.driverName) : '<span class="none">Nobody</span>'}</td>
-      ${admin ? '<td><button class="linkbtn" data-act="coTruckEdit">Edit</button></td>' : ''}</tr>`;
+      ${'<td><button class="linkbtn" data-act="coTruckEdit">Edit</button></td>'}</tr>`;
     const driverRow = (d) => `<tr><td>${d.id ? `<a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>` : `<b>${esc(d.name)}</b>`}${d.phone ? `<div class="small">${App.phone(d.phone, '')}</div>` : ''}</td>
       <td>${esc(one(d.mode)) || '<span class="none">Not set</span>'}</td><td>${badge(d.status)}</td>
       <td>${d.truck ? `Truck <b>${esc(d.truck)}</b>` : d.ownTruck ? `Own truck: ${esc(d.ownTruck)}` : '<span class="none">None yet</span>'}</td>
@@ -47,17 +47,17 @@
       <section class="dhead cobar k${c.color % 8}"><div class="top"><div class="who"><h2>${esc(c.name)}</h2>
           <div class="sub">${[c.mc ? 'MC ' + esc(c.mc) : '', c.dot ? 'USDOT ' + esc(c.dot) : ''].filter(Boolean).join(', ') || 'No MC or DOT number yet'}</div>
           ${c.notes ? `<p class="conotes">${esc(c.notes)}</p>` : ''}</div>
-        ${admin ? '<div class="acts"><button class="btn plain" data-act="coEdit">Edit company</button><button class="btn primary" data-act="coTruckAdd">Add truck</button></div>' : ''}</div></section>
+        <div class="acts"><button class="btn plain" data-act="coEdit">Edit company</button><button class="btn primary" data-act="coTruckAdd">Add truck</button></div></div></section>
       <section class="card"><dl class="figs wide">${fig(r.trucks.length, 'trucks')}${fig(n('empty'), 'empty trucks')}${fig(n('assigned'), 'with a driver')}${fig(n('out'), 'out of service')}
         ${fig(ds('Onboarding'), 'drivers in onboarding')}${fig(ds('Hired'), 'drivers hired')}${fig(r.drivers.length - ds('Onboarding') - ds('Hired'), 'other leads', `#/leads?company=${c.id}`)}</dl></section>
-      <section class="card"><h3>Trucks</h3>${r.trucks.length ? `<div class="scroll"><table class="mini cotbl"><thead><tr><th>Unit</th><th>Truck</th><th>Where it is</th><th>Status</th><th>Driver</th>${admin ? '<th></th>' : ''}</tr></thead><tbody>${r.trucks.map(truckRow).join('')}</tbody></table></div>`
-        : `<p class="hint">No trucks for ${esc(c.name)} yet.${admin ? ' Add one here, or give an existing truck this company on the Trucks page.' : ''}</p>`}</section>
+      <section class="card"><h3>Trucks</h3>${r.trucks.length ? `<div class="scroll"><table class="mini cotbl"><thead><tr><th>Unit</th><th>Truck</th><th>Where it is</th><th>Status</th><th>Driver</th><th></th></tr></thead><tbody>${r.trucks.map(truckRow).join('')}</tbody></table></div>`
+        : `<p class="hint">No trucks for ${esc(c.name)} yet. Add one here, or give an existing truck this company on the Trucks page.</p>`}</section>
       <section class="card"><h3>Drivers</h3>${r.drivers.length ? `<div class="scroll"><table class="mini cotbl"><thead><tr><th>Driver</th><th>Type</th><th>Status</th><th>Truck</th><th>Arrival</th><th>Recruiter</th></tr></thead><tbody>${r.drivers.map(driverRow).join('')}</tbody></table></div>`
         : '<p class="hint">No drivers with this company yet. Pick the company on a driver\'s page, or give the driver one of this company\'s trucks during onboarding.</p>'}</section>
     </main>`;
   }
 
-  // ---------- add or edit a company (admin) ----------
+  // ---------- add or edit a company (anyone; only an admin removes one) ----------
   function coDialog(c) {
     const color = c ? c.color % 8 : (S.me.companies || []).length % 8;
     dialog(`<form id="coForm" class="dform"><h2>${c ? 'Edit ' + esc(c.name) : 'Add a company'}</h2><div class="grid2">
@@ -68,7 +68,7 @@
       <label class="fld">Notes<textarea name="notes" maxlength="1000" placeholder="Insurance, ELD provider, who to call">${esc(c ? c.notes || '' : '')}</textarea></label>
       <p class="err" id="coErr" role="alert"></p>
       <div class="drow"><button class="btn primary">${c ? 'Save' : 'Add company'}</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button><span class="grow"></span>
-        ${c ? '<button type="button" class="btn danger" id="coDelete">Remove company</button>' : ''}</div></form>`, (d) => {
+        ${c && S.me.role === 'admin' ? '<button type="button" class="btn danger" id="coDelete">Remove company</button>' : ''}</div></form>`, (d) => {
       $('#coForm', d).onsubmit = async (e) => {
         e.preventDefault(); const b = Object.fromEntries(new FormData(e.target));
         try { const res = await api(c ? '/api/companies/' + c.id : '/api/companies', { method: c ? 'PATCH' : 'POST', body: b }); await App.reloadMe(); d.close(); toast(c ? 'Company saved' : 'Company added'); if (c) App.render(); else App.go('#/company/' + res.id); }

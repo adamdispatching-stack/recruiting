@@ -5,6 +5,7 @@
   const LABELS = { cdl: 'License', qualify: 'CDL and record', qualifyNote: 'Screening', endorsements: 'Endorsements', freight: 'Freight hauled', relay: 'Amazon Relay', relayApp: 'Relay sign-up', telegram: 'Telegram', equipment: 'Truck', currentJob: 'Working now', availability: 'Can start', interest: 'Interest', lookingFor: 'Looking for', homeTimeWanted: 'Home time', payExpectation: 'Pay wanted', home: 'Home', declineReason: 'Declined because', notes: 'Other details', fullName: 'Full name', zip: 'Zip' };
   const label = (k) => LABELS[k] || k.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
   const ICON_SEARCH = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  const relayTag = (v) => (v === true ? '<span class="rbtag yes">Yes</span>' : v === false ? '<span class="rbtag no">No</span>' : '<span class="none">Not asked</span>');
   const one = (mode) => (mode || '').replace(/s$/, '').replace('Owner-operator', 'Owner operator');
   const people = () => S.me.people.filter((p) => p.active);
 
@@ -75,6 +76,7 @@
         <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}<div class="small fuline">${d.followUp ? `Follow up <span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : ''}</div><div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
         <td>${contact || '<span class="none">No contact yet</span>'}</td>
+        <td>${relayTag(d.relayBefore)}</td>
         <td>${esc(d.source || '') || '<span class="none">Not set</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}</td>
         <td>${App.coTag(d.companyId) || '<span class="none">Not assigned</span>'}</td>
         <td>${admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. An admin will give the lead to someone else.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}</td>
@@ -82,7 +84,7 @@
     }).join('');
     const any = sum('n');
     $('#lst').innerHTML = list.rows.length ? `<div class="sheet"><table class="leads"><colgroup>${admin ? '<col style="width:40px">' : ''}<col style="width:205px"><col style="width:150px"><col><col style="width:180px"><col style="width:115px"><col style="width:140px"><col style="width:190px"></colgroup>
-        <thead><tr>${admin ? '<th class="cb"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th>Driver</th><th>Status, follow-up</th><th>Notes</th><th>Contact</th><th>Source</th><th>Company</th><th>Recruiter</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <thead><tr>${admin ? '<th class="cb"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th>Driver</th><th>Status, follow-up</th><th>Notes</th><th>Contact</th><th title="Has the driver run Amazon Relay loads before?">Relay before</th><th>Source</th><th>Company</th><th>Recruiter</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${list.rows.length < list.total ? `<button class="btn plain more" data-act="moreLeads">Show more (${list.total - list.rows.length} left)</button>` : ''}
         ${any < 5 && !list.q ? addMoreArt() : ''}`
       : S.me.role !== 'admin' && list.owner === 'me' && !(any || list.q || list.source || list.mode || list.account || list.company) ? '<div class="empty"><p>No leads are assigned to you yet. New leads are shared between recruiters as they come in.</p><button class="btn plain" data-act="allLeads">See all leads</button></div>'
@@ -141,6 +143,7 @@
       <div class="grid2">
         <label class="fld">Years driving with a CDL-A<input name="expYears" type="number" min="0" max="60" step="0.5" placeholder="e.g. 3"></label>
         <label class="fld">What they drove<input name="experience" type="text" maxlength="1000" placeholder="Dry van OTR, reefer, Amazon loads, past carriers"></label>
+        <label class="fld">Ran Amazon Relay before?<select name="relayBefore"><option value="">Not asked yet</option><option value="yes">Yes</option><option value="no">No</option></select></label>
         <label class="fld">Weeks out before going home<input name="weeksOut" type="number" min="0.5" max="26" step="0.5" placeholder="e.g. 3"></label>
         <label class="fld">Then days at home<input name="daysHome" type="number" min="0" max="60" step="1" placeholder="e.g. 4"></label>
       </div>
@@ -252,7 +255,7 @@
     } else {
       add(has(d.experience, a.freight), 'Hauled before', 'What have you hauled? Any drop and hook, intermodal or rail yard work?', 'Most loads start at rail yards');
     }
-    add(a.relay, 'Amazon Relay before', 'Have you run Amazon Relay loads before?', 'Relay drivers start faster');
+    add(a.relay || (d.relayBefore !== null && d.relayBefore !== undefined), 'Amazon Relay before', 'Have you run Amazon Relay loads before?', 'Relay drivers start faster');
     add(d.medExpires || a.medical, 'Medical card expires', 'Is your medical card current? When does it expire?', 'Cannot drive without it');
     add(has(a.currentJob, a.current_job), 'Working now, notice', 'Are you working now? How much notice do you need to give?', 'Tells you their real start date');
     add(has(a.pay, a.payExpectation, a.pay_expectation), 'Weekly pay needed', 'What do you need to make a week?', 'Check it fits before going further');
@@ -378,6 +381,7 @@
         <label class="fld">Driver type<select name="mode" data-ch="editMode"><option value="">Not set</option>${[['Company drivers', 'Company driver'], ['Owner-operators', 'Owner operator']].map(([m, l]) => `<option value="${m}" ${m === d.mode ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="fld">Years with a CDL-A<input name="expYears" type="number" min="0" max="60" step="0.5" value="${d.expYears ?? ''}" style="min-width:90px;width:110px"></label>
         <label class="fld">What they drove<input name="experience" type="text" maxlength="1000" value="${esc(d.experience || '')}"></label>
+        <label class="fld">Ran Amazon Relay before?<select name="relayBefore"><option value="" ${d.relayBefore === null || d.relayBefore === undefined ? 'selected' : ''}>Not asked yet</option><option value="yes" ${d.relayBefore === true ? 'selected' : ''}>Yes</option><option value="no" ${d.relayBefore === false ? 'selected' : ''}>No</option></select></label>
         <label class="fld">Weeks out<input name="weeksOut" type="number" min="0.5" max="26" step="0.5" value="${d.weeksOut ?? ''}" style="min-width:90px;width:100px"></label>
         <label class="fld">Days home<input name="daysHome" type="number" min="0" max="60" value="${d.daysHome ?? ''}" style="min-width:90px;width:100px"></label>
         <span class="ootruck" ${d.mode === 'Owner-operators' ? '' : 'hidden'}><label class="fld">Truck year<input name="truckYear" type="number" min="1980" max="${new Date().getFullYear() + 1}" value="${d.truckYear ?? ''}" style="min-width:90px;width:100px"></label>
@@ -410,7 +414,7 @@
           ${d.aiSummary ? `<section class="card"><div class="ai"><b>AI summary</b>${esc(d.aiSummary)}</div></section>` : ''}
           <section class="card"><h3>Profile</h3><dl class="facts">
             ${[['Status', `${badge(d.status)}${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Company', App.coTag(d.companyId)], ['Driver type', esc(one(d.mode))],
-              ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Working period', esc(App.periodText(d))], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
+              ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Ran Amazon Relay before', d.relayBefore === true ? 'Yes' : d.relayBefore === false ? 'No' : ''], ['Working period', esc(App.periodText(d))], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
               .concat(answerKeys.map((k) => [label(k), esc(a[k])])).filter(([, v]) => v).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}
           </dl></section>
           <section class="card"><h3>History</h3>${r.events.length ? `<ol class="tl">${r.events.map((e) => `<li><time>${esc(when(e.t))}${e.who ? `, ${esc(e.who)}` : ''}</time>${esc(e.text)}</li>`).join('')}</ol>` : '<p class="hint">No activity yet.</p>'}</section>
@@ -426,7 +430,7 @@
       e.preventDefault(); const f = new FormData(e.target); const split = (v) => String(v || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
       const oo = f.get('mode') === 'Owner-operators';
       patch({ name: f.get('name'), phones: split(f.get('phones')), emails: split(f.get('emails')), location: f.get('location'), zip: f.get('zip'), mode: f.get('mode'), source: f.get('source'), sourceDetail: f.get('sourceDetail'),
-        expYears: f.get('expYears'), experience: f.get('experience'), weeksOut: f.get('weeksOut'), daysHome: f.get('daysHome'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
+        expYears: f.get('expYears'), experience: f.get('experience'), relayBefore: f.get('relayBefore'), weeksOut: f.get('weeksOut'), daysHome: f.get('daysHome'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
     };
     const sf = $('#stepForm'); if (sf) sf.onsubmit = async (e) => { e.preventDefault(); const v = sf.label.value.trim(); if (!v) return; try { await api(`/api/drivers/${d.id}/checklist`, { method: 'POST', body: { label: v } }); toast('Step added'); again(); } catch (err) { fail(err); } };
   }

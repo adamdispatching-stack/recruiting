@@ -122,7 +122,7 @@ module.exports = (app) => {
   app.get('/api/export.csv', needUser, needAdmin, wrap(async (req, res) => {
     const r = await q(`SELECT d.*, u.name recruiter, (SELECT string_agg(${lib.NOTE_TEXT}, ' | ' ORDER BY n.created_at) FROM notes n WHERE n.driver_id = d.id) all_notes
       FROM drivers d LEFT JOIN users u ON u.id = d.owner_id ORDER BY d.updated_at DESC`);
-    const cols = ['name', 'status', 'recruiter', 'phones', 'emails', 'location', 'zip', 'source', 'source_detail', 'account', 'mode', 'job', 'follow_up', 'tags', 'all_notes', 'red_flags', 'ai_summary', 'answers', 'lost_reason', 'last_contact_at', 'updated_at', 'conversation_url'];
+    const cols = ['name', 'status', 'recruiter', 'phones', 'emails', 'location', 'zip', 'source', 'source_detail', 'account', 'mode', 'job', 'follow_up', 'tags', 'all_notes', 'red_flags', 'ai_summary', 'answers', 'relay_before', 'amazon_step', 'lost_reason', 'lost_note', 'last_contact_at', 'updated_at', 'conversation_url'];
     const cell = (v) => {
       let t = String(Array.isArray(v) ? v.join('; ') : v && typeof v === 'object' && !(v instanceof Date) ? Object.entries(v).map(([k, x]) => `${k}: ${x}`).join('; ') : v instanceof Date ? v.toISOString() : v ?? '');
       if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; // a spreadsheet must never run a cell as a formula

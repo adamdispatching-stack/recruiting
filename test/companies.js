@@ -73,7 +73,9 @@ const uniq = Date.now().toString().slice(-6);
   await A('/api/users', { method: 'POST', body: { name: 'Rec Test', email: mail, password: 'rec-password-123', role: 'member' } });
   const R = session(); await R('/api/login', { method: 'POST', body: { email: mail, password: 'rec-password-123' } });
   ok((await R('/api/companies')).status === 200 && (await R('/api/companies/' + bob)).status === 200, 'recruiters can see companies');
-  ok((await R('/api/companies', { method: 'POST', body: { name: 'Nope' } })).status === 403 && (await R('/api/companies/' + bob, { method: 'DELETE' })).status === 403, 'but not add or remove them');
+  { const nc = await R('/api/companies', { method: 'POST', body: { name: 'Rec Added Co' } });
+    ok(nc.status === 200 && (await R('/api/companies/' + bob, { method: 'DELETE' })).status === 403, 'they can add a company, not remove one');
+    await A('/api/companies/' + nc.body.id, { method: 'DELETE' }); }
   r = await R('/api/drivers', { method: 'POST', body: { name: `Rita Rec ${uniq}`, source: 'Referral', mode: 'Company drivers', companyId: bob } });
   ok(r.status === 200, 'a recruiter can pick the company on a lead');
 

@@ -18,7 +18,7 @@ function toClient(d) {
     lastContactAt: d.last_contact_at, followUp: d.follow_up || null, tags: d.tags, ownerId: d.owner_id, createdBy: d.created_by, lostReason: d.lost_reason, leadAt: d.lead_at,
     weeksOut: d.weeks_out === null || d.weeks_out === undefined ? null : +d.weeks_out, daysHome: d.days_home ?? null, cdlExpires: d.cdl_expires || null, medExpires: d.med_expires || null,
     outSince: d.out_since || null, leftOn: d.left_on || null, leftReason: d.left_reason || null,
-    callPrep: d.call_prep || null, callPrepAt: d.call_prep_at || null, amazonStep: d.amazon_step || null, amazonLog: d.amazon_log || {}, lostNote: d.lost_note || null,
+    relayBefore: d.relay_before === undefined ? null : d.relay_before, callPrep: d.call_prep || null, callPrepAt: d.call_prep_at || null, amazonStep: d.amazon_step || null, amazonLog: d.amazon_log || {}, lostNote: d.lost_note || null,
     expYears: d.exp_years === null || d.exp_years === undefined ? null : +d.exp_years, experience: d.experience, truckYear: d.truck_year, truckModel: d.truck_model, companyId: d.company_id,
     createdAt: d.created_at, updatedAt: d.updated_at, noteCount: d.note_count !== undefined ? +d.note_count : undefined, lastNote: d.last_note };
 }
@@ -50,6 +50,7 @@ function profileFields(b) {
     const s = String(b.daysHome ?? '').trim();
     if (!s) set.days_home = null; else { const n = +s; if (!Number.isInteger(n) || n < 0 || n > 60) return { error: 'Days home: a whole number from 0 to 60' }; set.days_home = n; }
   }
+  if (b.relayBefore !== undefined) set.relay_before = b.relayBefore === 'yes' || b.relayBefore === true ? true : b.relayBefore === 'no' || b.relayBefore === false ? false : null;
   for (const [k, col, label] of [['cdlExpires', 'cdl_expires', 'CDL expiry'], ['medExpires', 'med_expires', 'Medical card expiry'], ['outSince', 'out_since', 'Out since']]) {
     if (b[k] === undefined) continue;
     const v = String(b[k] || '').trim();
@@ -145,6 +146,7 @@ module.exports = (app) => {
       [name, db.keyOf(name), phones, emails, String(b.location || '').trim() || null, String(b.zip || '').trim().slice(0, 10) || null, mode, source, String(b.sourceDetail || '').trim().slice(0, 200) || null, ownerId, req.user.id, b.followUp || null, status,
         db.LOCKING.includes(status), pf.set.exp_years ?? null, pf.set.experience ?? null, pf.set.truck_year ?? null, pf.set.truck_model ?? null, co ? co.id : null, pf.set.weeks_out ?? null, pf.set.days_home ?? null]); // the starting status is a first guess: if the same person also chats on Indeed, the extension may move them forward
     const d = r.rows[0];
+    if (pf.set.relay_before !== undefined && pf.set.relay_before !== null) await q(`UPDATE drivers SET relay_before = $2 WHERE id = $1`, [d.id, pf.set.relay_before]);
     await db.statusChanged(db.pool, { id: d.id, status: null }, status, { userId: req.user.id });
     await record(req, 'lead_add', d, `Added the lead (${source}${b.sourceDetail ? ': ' + String(b.sourceDetail).trim().slice(0, 80) : ''})`);
     const note = String(b.note || '').trim();
@@ -215,7 +217,8 @@ module.exports = (app) => {
       for (const [col, v] of Object.entries(pf.set)) {
         if (String(v ?? '') === String(cur[col] ?? '')) continue;
         set[col] = v;
-        if (SAY[col]) log.push(['edit', v ? `${SAY[col]} ${fullDate(v)}` : `${SAY[col]}: cleared`]); else edited = true;
+        if (col === 'relay_before') log.push(['edit', `Ran Amazon Relay before: ${v === true ? 'yes' : v === false ? 'no' : 'not known'}`]);
+        else if (SAY[col]) log.push(['edit', v ? `${SAY[col]} ${fullDate(v)}` : `${SAY[col]}: cleared`]); else edited = true;
       }
     }
     // a hired driver who left: no longer an active driver, and a fleet truck is freed

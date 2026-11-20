@@ -149,7 +149,7 @@
       const alt = k % 2 ? ' alt' : '';
       const done = d.items.filter((i) => i.done).length, total = d.items.length, isOpen = open.has(d.id);
       const next = d.items.find((i) => !i.done); const oo = d.mode === 'Owner-operators';
-      const facts = [d.location, d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'yr')} CDL` : '', App.periodText(d)].filter(Boolean).map(esc).join(' · ');
+      const facts = [d.location, d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'yr')} CDL` : '', d.relayBefore === true ? 'ran Relay before' : d.relayBefore === false ? 'new to Relay' : '', App.periodText(d)].filter(Boolean).map(esc).join(' · ');
       const truck = oo && !d.truck ? (d.ownTruck ? `<b>Own</b> <span class="small mut">${esc(d.ownTruck)}</span>` : '<span class="none">Own truck, not noted</span>')
         : d.truck ? `<b>${esc(d.truck.unit)}</b>${d.truck.details ? ` <span class="small mut">${esc(d.truck.details)}</span>` : ''}` : '<span class="latetag">No truck yet</span>';
       const azv = d.amazonStep === 'verified'; const az = (S.me.amazon || []).find((x) => x.key === d.amazonStep);
@@ -199,22 +199,22 @@
   const STATE = { empty: 'Empty', assigned: 'With a driver', out: 'Out of service' };
   async function viewTrucks() {
     const live = App.drawing(); const got = (await api('/api/trucks')).trucks; if (!live()) return;
-    trucks = got; const admin = S.me.role === 'admin';
+    trucks = got; const admin = S.me.role === 'admin'; const canEdit = true; // anyone adds and edits trucks; only an admin removes one
     document.title = 'Trucks · FleetHire';
     const n = (s) => trucks.filter((t) => t.state === s).length;
     const inCo = (t) => !truckCo || (truckCo === 'none' ? !t.companyId : t.companyId === +truckCo);
     const shown = trucks.filter((t) => (!truckFilter || t.state === truckFilter) && inCo(t));
-    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck, which company it belongs to, and who drives it.', admin ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : '')}
+    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck, which company it belongs to, and who drives it.', canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : '')}
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${[['', `All ${trucks.length}`], ['empty', `Empty ${n('empty')}`], ['assigned', `With a driver ${n('assigned')}`], ['out', `Out of service ${n('out')}`]].map(([k, l]) => `<button data-act="truckFilter" data-k="${k}" class="${truckFilter === k ? 'on' : ''}" aria-pressed="${truckFilter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="truckCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === truckCo ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${truckCo === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>
-      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:170px">Company</th><th>Truck</th><th>Where it is</th><th style="width:150px">Status</th><th>Driver</th><th>Notes</th>${admin ? '<th style="width:70px"></th>' : ''}</tr></thead><tbody>
+      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:170px">Company</th><th>Truck</th><th>Where it is</th><th style="width:150px">Status</th><th>Driver</th><th>Notes</th>${canEdit ? '<th style="width:70px"></th>' : ''}</tr></thead><tbody>
         ${shown.map((t) => `<tr data-truck="${t.id}"><td><b class="unit">${esc(t.unit)}</b></td><td>${App.coTag(t.companyId) || '<span class="none">None</span>'}</td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}</td><td>${esc(t.location || '') || '<span class="none">Not filled in</span>'}</td>
           <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>
           <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="#/driver/${t.driver.id}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? esc(t.driverName) : '<span class="none">Nobody</span>'}</td>
-          <td><div class="clamp small">${esc(t.notes || '')}</div></td>${admin ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${admin ? 8 : 7}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
+          <td><div class="clamp small">${esc(t.notes || '')}</div></td>${canEdit ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${canEdit ? 8 : 7}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
         </tbody></table></div><p class="hint foot">A truck gets its driver on the driver's onboarding card. It is freed again when that driver is rejected or drops out${admin ? ', or when you release it here' : ''}.</p>`
-        : `<div class="empty"><p>No trucks listed yet.</p>${admin ? 'Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.' : 'An admin adds the trucks. Empty ones can then be picked during onboarding.'}</div>`}
+        : `<div class="empty"><p>No trucks listed yet.</p>${canEdit ? 'Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.' : 'An admin adds the trucks. Empty ones can then be picked during onboarding.'}</div>`}
     </main>`;
   }
   on('truckFilter', (b) => { truckFilter = b.dataset.k; viewTrucks(); });
@@ -233,7 +233,7 @@
       <label class="chk"><input type="checkbox" name="outOfService" ${t && t.outOfService ? 'checked' : ''}><span>Out of service (in the shop, not to be assigned)</span></label>
       <p class="err" id="truckErr" role="alert"></p>
       <div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button><span class="grow"></span>
-        ${has ? '<button type="button" class="btn plain" id="truckRelease">Free this truck</button>' : ''}${t ? '<button type="button" class="btn danger" id="truckDelete">Remove truck</button>' : ''}</div></form>`, (d) => {
+        ${has ? '<button type="button" class="btn plain" id="truckRelease">Free this truck</button>' : ''}${t && S.me.role === 'admin' ? '<button type="button" class="btn danger" id="truckDelete">Remove truck</button>' : ''}</div></form>`, (d) => {
       const f = $('#truckForm', d); const fin = async (p, msg) => { try { await p; d.close(); toast(msg); after(); } catch (e) { $('#truckErr').textContent = e.message; } };
       f.onsubmit = (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(f)); b.outOfService = f.outOfService.checked; b.companyId = b.companyId ? +b.companyId : null; fin(api(t ? '/api/trucks/' + t.id : '/api/trucks', { method: t ? 'PATCH' : 'POST', body: b }), t ? 'Truck saved' : 'Truck added'); };
       if ($('#truckRelease')) $('#truckRelease').onclick = () => fin(api('/api/trucks/' + t.id, { method: 'PATCH', body: { release: true } }), 'Truck is free again');

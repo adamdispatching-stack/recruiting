@@ -1045,3 +1045,7 @@ table.obt tbody tr.brow.azrow:hover>th,table.obt tbody tr.brow.azrow:hover>td{ba
 .whyopts legend{padding:0 6px;font-weight:700;font-size:13.5px}
 .whyopts .chk{align-items:center}
 @media (max-width:700px){ .azsteps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:12px} .azsteps li:nth-child(3)::after{display:none} }
+/* ran Amazon Relay before */
+.rbtag{display:inline-block;padding:1px 9px;border-radius:7px;font-size:12.5px;font-weight:700;white-space:nowrap}
+.rbtag.yes{background:#FFE9C7;color:#7A4B00}
+.rbtag.no{background:#EEF0EC;color:#5C635E}

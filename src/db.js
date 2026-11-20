@@ -233,6 +233,7 @@ async function migrate() {
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS out_since DATE;          -- when the current stretch on the road began
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS left_on DATE;            -- a hired driver who left: no longer active
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS left_reason TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS relay_before BOOLEAN;      -- ran Amazon Relay loads before: yes / no / not known yet
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS amazon_step TEXT;          -- where the driver is with Amazon Relay (AMAZON keys)
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS amazon_log JSONB NOT NULL DEFAULT '{}'::jsonb; -- step -> when it was reached
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS lost_note TEXT;            -- the recruiter's words on why a lead was lost
@@ -253,6 +254,14 @@ async function migrate() {
     // An invite with no reply is not a lead yet. lead_at = when someone first answered or was added by hand.
     await q(`UPDATE drivers SET lead_at = created_at WHERE lead_at IS NULL AND status <> 'Invited'`);
     up.sources = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
+  if (!up.relayBefore) {
+    // "Ran Amazon Relay before" from what drivers already answered in the chat
+    for (const r of (await q(`SELECT id, answers->>'relay' t FROM drivers WHERE relay_before IS NULL AND answers ? 'relay'`)).rows) {
+      const v = relayFrom(r.t); if (v !== null) await q(`UPDATE drivers SET relay_before = $2 WHERE id = $1`, [r.id, v]);
+    }
+    up.relayBefore = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
   if (!up.amazon) {
@@ -351,6 +360,15 @@ const AMAZON = [
   { key: 'waiting', label: 'Waiting for Amazon', long: 'Waiting for Amazon to verify the driver' },
   { key: 'verified', label: 'Verified', long: 'Verified by Amazon' }
 ];
+// The driver's answer to "Ever pulled loads on Amazon Relay before?" -> true / false / null (can't tell)
+function relayFrom(text) {
+  const t = String(text || '').toLowerCase(); if (!t.trim()) return null;
+  const no = /\b(no|nope|nah|never|not yet|haven'?t|have not|havent|first time|new to (it|relay|amazon)|didn'?t|did not)\b/.test(t);
+  const yes = /\b(yes|yeah|yea|yep|yup|sure|i have|i did|did it|ran|run|pulled|worked|work(ing)? (on|with|for)|currently|been on|have an? (relay|account)|years?|months?)\b/.test(t);
+  if (no && !/\byes|yeah|yep\b/.test(t)) return false;
+  if (yes) return true;
+  return null;
+}
 const amazonIdx = (k) => AMAZON.findIndex((x) => x.key === k);
 // Move the Amazon step forward (never back) and log when each step was reached.
 async function amazonTo(c, driverId, key, userId) {
@@ -439,6 +457,7 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
     const forward = a >= 0 && b >= 0 ? a > b : newer;
     if ((byHand && !d.status_locked) || (!d.status_locked && forward)) { set.status = st; set.status_locked = byHand || LOCKING.includes(st); set.status_at = recAt; }
   }
+  if (d.relay_before === null && rec.answers && typeof rec.answers === 'object' && rec.answers.relay) { const v = relayFrom(rec.answers.relay); if (v !== null) set.relay_before = v; }
   // a lead nobody owns gets a recruiter: the next one in line when leads are shared evenly,
   // otherwise the recruiter this Chrome profile's key is set up for
   let given = null;
@@ -518,5 +537,5 @@ async function statusChanged(c, d, to, { userId = null, via = 'web', at = null, 
   return notes;
 }
 
-module.exports = { AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, COLD_DAYS,
+module.exports = { relayFrom, AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, COLD_DAYS,
   settings, DEFAULTS, saveSetting, ensureOnboarding, syncAuto, releaseTruck, statusChanged };

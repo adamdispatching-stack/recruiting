@@ -48,7 +48,7 @@ module.exports = (app) => {
         truck: d.truck_unit, ownTruck: [d.truck_year, d.truck_model].filter(Boolean).join(' ') || null, expectedArrival: d.expected_arrival, arrivedOn: d.arrived_on, hiredAt: d.completed_at })) });
   }));
 
-  app.post('/api/companies', needUser, needAdmin, wrap(async (req, res) => {
+  app.post('/api/companies', needUser, wrap(async (req, res) => {
     const set = fields(req.body || {});
     if (!set.name) return res.status(400).json({ error: 'The company name is required' });
     if (set.color === undefined) set.color = (await q(`SELECT count(*)::int n FROM companies`)).rows[0].n % COLORS; // a different color for each new company
@@ -59,7 +59,7 @@ module.exports = (app) => {
       res.json({ id: r.rows[0].id });
     } catch (e) { if (e.code === '23505') return res.status(400).json({ error: `${set.name} is already in the list` }); throw e; }
   }));
-  app.patch('/api/companies/:id', needUser, needAdmin, wrap(async (req, res) => {
+  app.patch('/api/companies/:id', needUser, wrap(async (req, res) => {
     const c = (await q(`SELECT * FROM companies WHERE id = $1`, [+req.params.id || 0])).rows[0];
     if (!c) return res.status(404).json({ error: 'Company not found' });
     const set = fields(req.body || {});

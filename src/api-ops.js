@@ -24,7 +24,7 @@ module.exports = (app) => {
   // ---------- the onboarding board: every driver being set up, with every step ----------
   app.get('/api/onboarding', needUser, wrap(async (req, res) => {
     const params = []; const vis = visSql(req.user, params);
-    const rows = await q(`SELECT d.id, d.name, d.owner_id, d.phones, d.mode, d.location, d.company_id, d.amazon_step, d.truck_year, d.truck_model, d.exp_years, d.weeks_out, d.days_home, o.started_at, o.expected_arrival, o.arrival_note, o.arrived_on, o.telegram_link, o.progress_at, t.unit truck_unit, t.details truck_details
+    const rows = await q(`SELECT d.id, d.name, d.owner_id, d.phones, d.mode, d.location, d.company_id, d.amazon_step, d.relay_before, d.truck_year, d.truck_model, d.exp_years, d.weeks_out, d.days_home, o.started_at, o.expected_arrival, o.arrival_note, o.arrived_on, o.telegram_link, o.progress_at, t.unit truck_unit, t.details truck_details
       FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
       WHERE d.status = 'Onboarding' ${vis ? 'AND ' + vis : ''} ORDER BY o.expected_arrival NULLS LAST, o.started_at`, params);
     const ids = rows.rows.map((r) => r.id);
@@ -36,7 +36,7 @@ module.exports = (app) => {
     res.json({ today: await lib.today(), template: db.settings.checklist, emptyTrucks: empty.rows[0].n,
       drivers: rows.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
         arrivedOn: r.arrived_on, telegramLink: r.telegram_link, progressAt: r.progress_at, companyId: r.company_id, truck: r.truck_unit ? { unit: r.truck_unit, details: r.truck_details } : null,
-        amazonStep: r.amazon_step, ownTruck: [r.truck_year, r.truck_model].filter(Boolean).join(' ') || null, expYears: r.exp_years === null ? null : +r.exp_years, weeksOut: r.weeks_out === null ? null : +r.weeks_out, daysHome: r.days_home,
+        amazonStep: r.amazon_step, relayBefore: r.relay_before, ownTruck: [r.truck_year, r.truck_model].filter(Boolean).join(' ') || null, expYears: r.exp_years === null ? null : +r.exp_years, weeksOut: r.weeks_out === null ? null : +r.weeks_out, daysHome: r.days_home,
         items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),
       hired: hired.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, companyId: r.company_id, hiredAt: r.completed_at, startedAt: r.started_at, truck: r.truck_unit })) });
   }));
@@ -142,7 +142,7 @@ module.exports = (app) => {
     if (b.companyId !== undefined) set.company_id = b.companyId ? +b.companyId : null;
     return set;
   };
-  app.post('/api/trucks', needUser, needAdmin, wrap(async (req, res) => {
+  app.post('/api/trucks', needUser, wrap(async (req, res) => {
     const set = truckFields(req.body || {});
     if (!set.unit) return res.status(400).json({ error: 'The unit number is required' });
     if (set.company_id && !(await q(`SELECT 1 FROM companies WHERE id = $1`, [set.company_id])).rows[0]) return res.status(400).json({ error: 'That company is not in the list' });
@@ -153,7 +153,7 @@ module.exports = (app) => {
       res.json({ id: r.rows[0].id });
     } catch (e) { if (e.code === '23505') return res.status(400).json({ error: `Truck ${set.unit} is already in the list` }); throw e; }
   }));
-  app.patch('/api/trucks/:id', needUser, needAdmin, wrap(async (req, res) => {
+  app.patch('/api/trucks/:id', needUser, wrap(async (req, res) => {
     const t = (await q(`SELECT * FROM trucks WHERE id = $1`, [+req.params.id || 0])).rows[0];
     if (!t) return res.status(404).json({ error: 'Truck not found' });
     const b = req.body || {}; const set = truckFields(b);
