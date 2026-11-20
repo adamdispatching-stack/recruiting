@@ -180,14 +180,22 @@ async function migrate() {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS checklist_key ON checklist(driver_id, key);
   `);
-  // Where a lead came from is now a short list (Indeed, Facebook, Referral…). Older rows kept the
-  // extension's wording there; move that wording to the detail and file them under Indeed.
-  await q(`UPDATE drivers SET source_detail = COALESCE(source_detail, source), source = 'Indeed'
-    WHERE source IS NOT NULL AND source <> 'Indeed' AND (source ILIKE '%indeed%' OR source ILIKE '%matched candidate%' OR account IS NOT NULL OR cardinality(conv_ids) > 0)`);
-  await q(`UPDATE drivers SET source = 'Indeed' WHERE source IS NULL AND (account IS NOT NULL OR cardinality(conv_ids) > 0)`);
-  await q(`UPDATE drivers SET source = 'Other', source_detail = COALESCE(source_detail, 'Added by hand') WHERE source = 'Added by hand'`);
-  // An invite with no reply is not a lead yet. lead_at = when someone first answered or was added by hand.
-  await q(`UPDATE drivers SET lead_at = created_at WHERE lead_at IS NULL AND status <> 'Invited'`);
+  // One-time clean-up of rows from before this version. It must never run again: later, a lead added by hand
+  // (say from Facebook) can also pick up an Indeed account, and must keep its own source.
+  const ran = (await q(`SELECT value FROM settings WHERE key = 'upgrades'`)).rows[0];
+  const up = ran ? ran.value : {};
+  if (!up.sources) {
+    // Where a lead came from is now a short list (Indeed, Facebook, Referral…). Older rows kept the
+    // extension's wording there; move that wording to the detail and file them under Indeed.
+    await q(`UPDATE drivers SET source_detail = COALESCE(source_detail, source), source = 'Indeed'
+      WHERE source IS NOT NULL AND source <> 'Indeed' AND (source ILIKE '%indeed%' OR source ILIKE '%matched candidate%' OR account IS NOT NULL OR cardinality(conv_ids) > 0)`);
+    await q(`UPDATE drivers SET source = 'Indeed' WHERE source IS NULL AND (account IS NOT NULL OR cardinality(conv_ids) > 0)`);
+    await q(`UPDATE drivers SET source = 'Other', source_detail = COALESCE(source_detail, 'Added by hand') WHERE source = 'Added by hand'`);
+    // An invite with no reply is not a lead yet. lead_at = when someone first answered or was added by hand.
+    await q(`UPDATE drivers SET lead_at = created_at WHERE lead_at IS NULL AND status <> 'Invited'`);
+    up.sources = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   await loadSettings();
 }
 
