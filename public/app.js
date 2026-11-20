@@ -85,6 +85,16 @@ window.App = (() => {
   const feedAv = (rows) => (rows.length ? `<ol class="feedav">${rows.map((f) => `<li>${avatar(f.user, 'sm')}<div><div><b>${esc(f.user)}</b> ${f.driver ? (f.driverId ? `<a href="#/driver/${f.driverId}">${esc(f.driver)}</a>: ` : `${esc(f.driver)}: `) : ''}${esc(f.text || '')}</div><time title="${esc(when(f.at))}">${esc(ago(f.at))}</time></div></li>`).join('')}</ol>` : '<p class="hint">Nothing yet.</p>');
   // Admin: pick the recruiter for a lead right where it is listed (lead list, dashboard, lead page)
   const assignPick = (d, cls = '') => `<label class="assign ${cls}">${avatar(d.ownerId ? (S.me.people.find((p) => p.id === d.ownerId) || {}).name || '?' : '?', 'xs')}<select data-ch="assign" data-id="${d.id}" data-fk="assign${d.id}" aria-label="Recruiter for ${esc(d.name)}"><option value="">Nobody yet</option>${S.me.people.filter((p) => p.active || p.id === d.ownerId).map((p) => `<option value="${p.id}" ${p.id === d.ownerId ? 'selected' : ''}>${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select></label>`;
+  // A phone number: tap to call, and a button that copies it
+  const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 5.5V3.6c0-.9-.7-1.6-1.6-1.6H4.1c-.9 0-1.6.7-1.6 1.6v5.3c0 .9.7 1.6 1.6 1.6h1.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+  const phone = (p, cls = 'ph') => `<span class="phw"><a class="${cls}" href="tel:${esc(p)}">${esc(fmtPhone(p))}</a><button type="button" class="cpy" data-copy="${esc(fmtPhone(p))}" title="Copy ${esc(fmtPhone(p))}" aria-label="Copy phone number ${esc(fmtPhone(p))}">${COPY_ICON}</button></span>`;
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('button.cpy'); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    try { await navigator.clipboard.writeText(b.dataset.copy); }
+    catch (err) { const t = document.createElement('textarea'); t.value = b.dataset.copy; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); }
+    toast(`Copied ${b.dataset.copy}`); b.classList.add('done'); setTimeout(() => b.classList.remove('done'), 1500);
+  }, true);
   const reloadMe = async () => { S.me = await api('/api/me'); S.meAt = Date.now(); };
   const presenceHtml = (p, now) => { const x = presence(p, now); return `<span class="pres ${x.state}"><i></i>${esc(x.label)}</span>`; };
 
@@ -265,5 +275,5 @@ window.App = (() => {
   onChange('weekDay', (el) => { const r = el.closest('.wrow'); r.querySelectorAll('input[type=time]').forEach((t) => { t.disabled = !el.checked; }); r.classList.toggle('offd', !el.checked); r.querySelector('.wnote').textContent = el.checked ? '' : 'Day off'; });
 
   return { $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
-    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS };
+    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS };
 })();

@@ -62,23 +62,23 @@
     acc.innerHTML = '<option value="">All Indeed accounts</option>' + list.accounts.map((a) => `<option ${a === list.account ? 'selected' : ''}>${esc(a)}</option>`).join('');
     const t = today();
     const rows = list.rows.map((d) => {
-      const contact = (d.phones || []).map((p) => `<a class="ph" href="tel:${esc(p)}">${esc(fmtPhone(p))}</a>`).join('') + (d.emails || []).slice(0, 1).map((e) => `<a class="em" href="mailto:${esc(e)}">${esc(e)}</a>`).join('');
+      const contact = (d.phones || []).map((p) => App.phone(p)).join('') + (d.emails || []).slice(0, 1).map((e) => `<a class="em" href="mailto:${esc(e)}">${esc(e)}</a>`).join('');
       const note = d.redFlags ? `<span class="k flag">Flag</span>${esc(d.redFlags)}` : d.lastNote ? `<span class="k you">Note</span>${esc(d.lastNote)}` : d.aiSummary ? `<span class="k ai">AI</span>${esc(d.aiSummary)}` : '';
       const isDue = d.followUp && d.followUp <= t;
       const where = [one(d.mode), d.location || (d.answers || {}).home].filter(Boolean).map(esc).join(', ');
       return `<tr data-id="${d.id}">${admin ? `<td class="cb"><input type="checkbox" data-sel="${d.id}" ${list.sel.has(d.id) ? 'checked' : ''} aria-label="Select ${esc(d.name)}"></td>` : ''}
-        <td><div class="who1">${App.avatar(d.name)}<div><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div>${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}</div></div></td>
-        <td>${badge(d.status)}</td>
-        <td>${d.followUp ? `<span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : '<span class="none">None</span>'}</td>
+        <td><div class="who1">${App.avatar(d.name)}<div><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div></div></div></td>
+        <td>${badge(d.status)}<div class="small fuline">${d.followUp ? `Follow up <span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : ''}</div><div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
         <td>${contact || '<span class="none">No contact yet</span>'}</td>
         <td>${esc(d.source || '') || '<span class="none">Not set</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}</td>
+        <td>${App.coTag(d.companyId) || '<span class="none">Not assigned</span>'}</td>
         <td>${admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. Anyone can take the lead.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}</td>
-        <td class="small mut" title="${esc(when(d.updatedAt))}">${esc(shortWhen(d.updatedAt))}</td></tr>`;
+        </tr>`;
     }).join('');
     const any = sum('n');
-    $('#lst').innerHTML = list.rows.length ? `<div class="sheet"><table class="leads"><colgroup>${admin ? '<col style="width:40px">' : ''}<col style="width:220px"><col style="width:130px"><col style="width:112px"><col><col style="width:170px"><col style="width:130px"><col style="width:105px"><col style="width:78px"></colgroup>
-        <thead><tr>${admin ? '<th class="cb"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th>Driver</th><th>Status</th><th>Follow-up</th><th>Notes</th><th>Contact</th><th>Source</th><th>Recruiter</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>
+    $('#lst').innerHTML = list.rows.length ? `<div class="sheet"><table class="leads"><colgroup>${admin ? '<col style="width:40px">' : ''}<col style="width:205px"><col style="width:150px"><col><col style="width:180px"><col style="width:115px"><col style="width:140px"><col style="width:190px"></colgroup>
+        <thead><tr>${admin ? '<th class="cb"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th>Driver</th><th>Status, follow-up</th><th>Notes</th><th>Contact</th><th>Source</th><th>Company</th><th>Recruiter</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${list.rows.length < list.total ? `<button class="btn plain more" data-act="moreLeads">Show more (${list.total - list.rows.length} left)</button>` : ''}
         ${any < 5 && !list.q ? addMoreArt() : ''}`
       : (any || list.q || list.owner || list.source || list.mode || list.account || list.company ? '<div class="empty"><p>No leads match these filters.</p><button class="btn plain" data-act="clearFilters">Clear filters</button></div>' : addMoreArt());
@@ -252,7 +252,7 @@
         <div class="top">
           <div class="who"><h2>${esc(d.name)}${App.coTag(d.companyId, true)}</h2>
             <div class="sub">${[one(d.mode), d.location, d.zip].filter(Boolean).map(esc).join(', ') || 'No details yet'}${expText(d) ? `<span class="src">${esc(expText(d))}</span>` : ''}${sourceLine ? `<span class="src">Found through ${sourceLine}</span>` : ''}</div>
-            <div class="contact">${(d.phones || []).map((p) => `<a href="tel:${esc(p)}">${esc(fmtPhone(p))}</a>`).join('')}${(d.emails || []).map((e) => `<a href="mailto:${esc(e)}">${esc(e)}</a>`).join('')}<button class="linkbtn" data-act="editContact">Edit details</button></div>
+            <div class="contact">${(d.phones || []).map((p) => App.phone(p, '')).join('')}${(d.emails || []).map((e) => `<a href="mailto:${esc(e)}">${esc(e)}</a>`).join('')}<button class="linkbtn" data-act="editContact">Edit details</button></div>
             <div class="tags" id="tags">${(d.tags || []).map((x) => `<span class="tag">${esc(x)}<button data-tag="${esc(x)}" aria-label="Remove tag ${esc(x)}">×</button></span>`).join('')}<input id="tagIn" type="text" placeholder="Add a tag, press Enter" aria-label="Add a tag" data-fk="tag"></div>
           </div>
           <div class="acts">

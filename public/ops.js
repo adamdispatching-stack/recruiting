@@ -84,7 +84,7 @@
         <div>
           <section class="card"><h3>Call list</h3>
             ${r.calls.length ? `<div class="scroll"><table class="mini calls"><thead><tr><th>Driver</th><th>Phone</th><th>Follow-up</th><th>Last note</th></tr></thead><tbody>${r.calls.map((d) => `<tr><td><a href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><div>${badge(d.status)}</div></td>
-              <td>${(d.phones || []).map((p) => `<a class="ph" href="tel:${esc(p)}">${esc(fmtPhone(p))}</a>`).join('') || '<span class="none">No phone</span>'}</td>
+              <td>${(d.phones || []).map((p) => App.phone(p)).join('') || '<span class="none">No phone</span>'}</td>
               <td><span class="fu${d.followUp <= r.today ? ' due' : ''}">${esc(fuText(d.followUp))}</span></td><td><div class="clamp small">${esc(d.lastNote || '') || '<span class="none">No notes</span>'}</div></td></tr>`).join('')}</tbody></table></div>`
               : '<p class="hint">No follow-ups due. Put a follow-up date on every lead you are working, and it shows up here on the right day.</p>'}
           </section>

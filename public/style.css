@@ -875,3 +875,18 @@ table.team td.n .hl{background:var(--green-t);color:#12451F}
 .assign.big .av{width:36px;height:36px;font-size:13px}
 .ownbox{display:flex;flex-direction:column;gap:4px;margin-right:6px}
 .ownbox>span{color:var(--mut);font-size:12.5px;font-weight:600}
+/* phone with its copy button */
+.phw{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.phw a{min-width:0}
+.cpy{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid transparent;border-radius:6px;background:none;color:var(--mut);cursor:pointer}
+.cpy:hover{border-color:var(--line);background:var(--card);color:var(--green)}
+.cpy.done{color:var(--green);border-color:#9FCF86;background:var(--green-t)}
+.contact .phw{display:inline-flex;margin-right:10px}
+table.leads .upd{margin-top:4px}
+table.leads td .co{max-width:100%}
+table.leads .assign select{max-width:122px}
+table.leads{min-width:1080px}
+table.leads .fuline:empty{display:none}
+table.leads .fuline{margin-top:5px}
+table.leads td .co,table.active td .co{white-space:normal;line-height:1.3;padding-top:2px;padding-bottom:2px}
+table.leads .assign select{max-width:145px}

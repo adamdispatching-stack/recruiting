@@ -37,7 +37,7 @@
       <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>
       <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="#/driver/${t.driver.id}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? esc(t.driverName) : '<span class="none">Nobody</span>'}</td>
       ${admin ? '<td><button class="linkbtn" data-act="coTruckEdit">Edit</button></td>' : ''}</tr>`;
-    const driverRow = (d) => `<tr><td>${d.id ? `<a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>` : `<b>${esc(d.name)}</b>`}${d.phone ? `<div class="small"><a href="tel:${esc(d.phone)}">${esc(fmtPhone(d.phone))}</a></div>` : ''}</td>
+    const driverRow = (d) => `<tr><td>${d.id ? `<a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>` : `<b>${esc(d.name)}</b>`}${d.phone ? `<div class="small">${App.phone(d.phone, '')}</div>` : ''}</td>
       <td>${esc(one(d.mode)) || '<span class="none">Not set</span>'}</td><td>${badge(d.status)}</td>
       <td>${d.truck ? `Truck <b>${esc(d.truck)}</b>` : d.ownTruck ? `Own truck: ${esc(d.ownTruck)}` : '<span class="none">None yet</span>'}</td>
       <td class="small">${d.status === 'Hired' && d.hiredAt ? `Hired ${esc(dateText(dayOf(d.hiredAt)))}` : d.arrivedOn ? `Arrived ${esc(dateText(d.arrivedOn))}` : d.expectedArrival ? `Arriving ${esc(dateText(d.expectedArrival, { weekday: 'short' }))}` : ''}</td>

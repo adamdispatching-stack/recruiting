@@ -41,8 +41,8 @@
     const shown = rows.filter((x) => inCo(x) && tests[filter](x));
     const n = (f) => rows.filter((x) => inCo(x) && f(x)).length;
     const row = ({ d, cdl, med, road: rd }) => `<tr data-id="${d.id}">
-      <td><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>${d.phone ? `<div class="small"><a href="tel:${esc(d.phone)}">${esc(fmtPhone(d.phone))}</a></div>` : ''}${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}</td>
-      <td>${esc(one(d.mode)) || '<span class="none">Not set</span>'}<div class="small mut">${d.truck ? `Truck <b>${esc(d.truck.unit)}</b>` : d.ownTruck ? `Own: ${esc(d.ownTruck)}` : 'No truck'}</div></td>
+      <td><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>${d.phone ? `<div class="small">${App.phone(d.phone, '')}</div>` : ''}<div class="small mut">${[esc(one(d.mode)), d.truck ? `truck <b>${esc(d.truck.unit)}</b>` : d.ownTruck ? `own truck: ${esc(d.ownTruck)}` : 'no truck'].filter(Boolean).join(', ')}</div></td>
+      <td>${App.coTag(d.companyId) || '<span class="none">Not assigned</span>'}</td>
       <td class="exp ${cdl.state}">${cdl.html}</td><td class="exp ${med.state}">${med.html}</td>
       <td>${esc(periodText(d)) || '<span class="none">Not entered</span>'}</td>
       <td>${rd.html}</td>
@@ -58,8 +58,8 @@
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${seg.map(([k, l]) => `<button data-act="activeFilter" data-k="${k}" class="${filter === k ? 'on' : ''}" aria-pressed="${filter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="activeCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === coFilter ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${coFilter === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>
-      ${r.drivers.length ? `<div class="sheet"><table class="active"><colgroup><col style="width:20%"><col style="width:150px"><col style="width:170px"><col style="width:170px"><col style="width:150px"><col style="width:180px"><col style="width:120px"><col style="width:56px"></colgroup>
-        <thead><tr><th>Driver</th><th>Type, truck</th><th>CDL expires</th><th>Medical card expires</th><th>Working period</th><th>On the road</th><th>Hired</th><th></th></tr></thead>
+      ${r.drivers.length ? `<div class="sheet"><table class="active"><colgroup><col><col style="width:140px"><col style="width:160px"><col style="width:160px"><col style="width:140px"><col style="width:180px"><col style="width:110px"><col style="width:50px"></colgroup>
+        <thead><tr><th>Driver</th><th>Company</th><th>CDL expires</th><th>Medical card expires</th><th>Working period</th><th>On the road</th><th>Hired</th><th></th></tr></thead>
         <tbody>${shown.map(row).join('') || '<tr><td colspan="8" class="none" style="padding:24px;text-align:center">No drivers in this group.</td></tr>'}</tbody></table></div>
         <p class="hint foot">Dates turn yellow ${SOON} days before they expire and red once expired. Enter only the expiry dates here, never license numbers. A driver is listed here once marked hired.</p>`
         : '<div class="empty"><p>No active drivers yet.</p>Drivers appear here once they are marked hired at the end of onboarding.</div>'}
