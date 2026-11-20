@@ -13,28 +13,49 @@ function toClient(d) {
     mode: d.mode, source: d.source, sourceDetail: d.source_detail, job: d.job, account: d.account, answers: d.answers, aiSummary: d.ai_summary, redFlags: d.red_flags, transcript: d.transcript,
     conversationUrl: d.conversation_url, lastMessage: d.last_message, profileSummary: d.profile_summary, lastActive: d.last_active, invitedAt: d.invited_at,
     lastContactAt: d.last_contact_at, followUp: d.follow_up || null, tags: d.tags, ownerId: d.owner_id, createdBy: d.created_by, lostReason: d.lost_reason, leadAt: d.lead_at,
+    expYears: d.exp_years === null || d.exp_years === undefined ? null : +d.exp_years, experience: d.experience, truckYear: d.truck_year, truckModel: d.truck_model, companyId: d.company_id,
     createdAt: d.created_at, updatedAt: d.updated_at, noteCount: d.note_count !== undefined ? +d.note_count : undefined, lastNote: d.last_note };
 }
 const cleanPhones = (list) => [...new Set((list || []).map(db.digits).filter(Boolean))];
 const cleanEmails = (list) => [...new Set((list || []).map((e) => String(e || '').trim().toLowerCase()).filter((e) => /^\S+@\S+\.\S+$/.test(e)))];
+// Experience and an owner-operator's own truck, from the add-lead form or the details form. Returns { set, error }.
+const MODES = ['Company drivers', 'Owner-operators'];
+function profileFields(b) {
+  const set = {};
+  if (b.expYears !== undefined) {
+    const s = String(b.expYears ?? '').trim();
+    if (!s) set.exp_years = null;
+    else { const n = Math.round(Number(s) * 2) / 2; if (!(n >= 0 && n <= 60)) return { error: 'Years of experience: a number from 0 to 60' }; set.exp_years = n; }
+  }
+  if (b.experience !== undefined) set.experience = String(b.experience || '').trim().slice(0, 1000) || null;
+  if (b.truckYear !== undefined) {
+    const s = String(b.truckYear ?? '').trim(); const max = new Date().getFullYear() + 1;
+    if (!s) set.truck_year = null;
+    else { const n = +s; if (!Number.isInteger(n) || n < 1980 || n > max) return { error: `Truck year: from 1980 to ${max}` }; set.truck_year = n; }
+  }
+  if (b.truckModel !== undefined) set.truck_model = String(b.truckModel || '').trim().slice(0, 80) || null;
+  return { set };
+}
+async function companyOf(id) { return id ? (await q(`SELECT id, name FROM companies WHERE id = $1`, [+id || 0])).rows[0] || null : null; }
 const personName = async (id) => { const r = await q(`SELECT name FROM users WHERE id = $1`, [id]); return r.rows[0] ? r.rows[0].name : 'someone'; };
 
 module.exports = (app) => {
   // ---------- list ----------
   app.get('/api/drivers', needUser, wrap(async (req, res) => {
-    const { q: text = '', status = '', account = '', mode = '', due = '', cold = '', working = '', owner = '', source = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
+    const { q: text = '', status = '', account = '', mode = '', due = '', cold = '', working = '', owner = '', source = '', company = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
     const where = []; const params = [];
     const P = (v) => { params.push(v); return '$' + params.length; };
     const vis = visSql(req.user, params); if (vis) where.push(vis);
     if (account) where.push(`d.account = ${P(account)}`);
     if (mode) where.push(`d.mode = ${P(mode)}`);
     if (source) where.push(`d.source = ${P(source)}`);
+    if (company === 'none') where.push('d.company_id IS NULL'); else if (+company) where.push(`d.company_id = ${P(+company)}`);
     if (owner === 'none') where.push(lib.unownedSql());
     else if (owner === 'me') where.push(`d.owner_id = ${P(req.user.id)}`);
     else if (+owner) where.push(`d.owner_id = ${P(+owner)}`);
     if (String(text).trim()) {
       const t = String(text).trim(); const dg = t.replace(/\D/g, ''); const i = P('%' + t.toLowerCase() + '%');
-      let s = `(lower(d.name) LIKE ${i} OR lower(coalesce(d.location,'')) LIKE ${i} OR lower(array_to_string(d.emails,' ')) LIKE ${i} OR lower(coalesce(d.ai_summary,'')) LIKE ${i} OR lower(coalesce(d.red_flags,'')) LIKE ${i} OR lower(d.answers::text) LIKE ${i} OR lower(array_to_string(d.tags,' ')) LIKE ${i} OR lower(coalesce(d.source_detail,'')) LIKE ${i} OR EXISTS (SELECT 1 FROM notes n WHERE n.driver_id = d.id AND lower(n.body) LIKE ${i})`;
+      let s = `(lower(d.name) LIKE ${i} OR lower(coalesce(d.location,'')) LIKE ${i} OR lower(coalesce(d.experience,'') || ' ' || coalesce(d.truck_model,'')) LIKE ${i} OR lower(array_to_string(d.emails,' ')) LIKE ${i} OR lower(coalesce(d.ai_summary,'')) LIKE ${i} OR lower(coalesce(d.red_flags,'')) LIKE ${i} OR lower(d.answers::text) LIKE ${i} OR lower(array_to_string(d.tags,' ')) LIKE ${i} OR lower(coalesce(d.source_detail,'')) LIKE ${i} OR EXISTS (SELECT 1 FROM notes n WHERE n.driver_id = d.id AND lower(n.body) LIKE ${i})`;
       if (dg.length >= 3) s += ` OR array_to_string(d.phones,' ') LIKE ${P('%' + dg + '%')}`;
       where.push(s + ')');
     }
@@ -91,11 +112,16 @@ module.exports = (app) => {
     let ownerId = req.user.id;
     if (req.user.role === 'admin' && b.ownerId !== undefined) ownerId = b.ownerId ? +b.ownerId : null;
     if (ownerId && !(await q(`SELECT 1 FROM users WHERE id = $1 AND active`, [ownerId])).rows[0]) return res.status(400).json({ error: 'That person cannot take leads' });
-    const mode = ['Company drivers', 'Owner-operators'].includes(b.mode) ? b.mode : null;
-    const r = await q(`INSERT INTO drivers (name, name_key, phones, emails, location, zip, mode, source, source_detail, status, status_locked, status_at, owner_id, created_by, assigned_at, follow_up, lead_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$13,$14,now(),$10::int,$11,CASE WHEN $10::int IS NULL THEN NULL ELSE now() END,$12::date,now()) RETURNING *`,
+    const mode = MODES.includes(b.mode) ? b.mode : null;
+    const pf = profileFields(b); if (pf.error) return res.status(400).json({ error: pf.error });
+    if (mode !== 'Owner-operators') { pf.set.truck_year = null; pf.set.truck_model = null; } // only owner-operators bring a truck
+    const co = b.companyId ? await companyOf(b.companyId) : null;
+    if (b.companyId && !co) return res.status(400).json({ error: 'That company is not in the list' });
+    const r = await q(`INSERT INTO drivers (name, name_key, phones, emails, location, zip, mode, source, source_detail, status, status_locked, status_at, owner_id, created_by, assigned_at, follow_up, lead_at,
+        exp_years, experience, truck_year, truck_model, company_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$13,$14,now(),$10::int,$11,CASE WHEN $10::int IS NULL THEN NULL ELSE now() END,$12::date,now(),$15,$16,$17,$18,$19) RETURNING *`,
       [name, db.keyOf(name), phones, emails, String(b.location || '').trim() || null, String(b.zip || '').trim().slice(0, 10) || null, mode, source, String(b.sourceDetail || '').trim().slice(0, 200) || null, ownerId, req.user.id, b.followUp || null, status,
-        db.LOCKING.includes(status)]); // the starting status is a first guess: if the same person also chats on Indeed, the extension may move them forward
+        db.LOCKING.includes(status), pf.set.exp_years ?? null, pf.set.experience ?? null, pf.set.truck_year ?? null, pf.set.truck_model ?? null, co ? co.id : null]); // the starting status is a first guess: if the same person also chats on Indeed, the extension may move them forward
     const d = r.rows[0];
     await db.statusChanged(db.pool, { id: d.id, status: null }, status, { userId: req.user.id });
     await record(req, 'lead_add', d, `Added the lead (${source}${b.sourceDetail ? ': ' + String(b.sourceDetail).trim().slice(0, 80) : ''})`);
@@ -135,7 +161,22 @@ module.exports = (app) => {
       if (b[k] !== undefined) { const v = String(b[k]).trim() || null; if (v !== cur[col]) { set[col] = v; edited = true; } }
     }
     if (set.name === null) delete set.name; if (set.name) set.name_key = db.keyOf(set.name);
-    if (b.mode !== undefined) { const v = ['Company drivers', 'Owner-operators'].includes(b.mode) ? b.mode : null; if (v !== cur.mode) { set.mode = v; edited = true; } }
+    if (b.mode !== undefined) { const v = MODES.includes(b.mode) ? b.mode : null; if (v !== cur.mode) { set.mode = v; log.push(['edit', `Driver type: ${v ? v.replace(/s$/, '') : 'not set'}`]); } }
+    {
+      const pf = profileFields(b); if (pf.error) return res.status(400).json({ error: pf.error });
+      for (const [col, v] of Object.entries(pf.set)) if (String(v ?? '') !== String(cur[col] ?? '')) { set[col] = v; edited = true; }
+    }
+    // the company the driver works for. A driver in one of the fleet's trucks belongs to that truck's company.
+    if (b.companyId !== undefined) {
+      const to = b.companyId ? +b.companyId : null;
+      if (to !== cur.company_id) {
+        const co = to ? await companyOf(to) : null;
+        if (to && !co) return res.status(400).json({ error: 'That company is not in the list' });
+        const t = (await q(`SELECT t.unit, t.company_id, c.name FROM trucks t LEFT JOIN companies c ON c.id = t.company_id WHERE t.driver_id = $1`, [id])).rows[0];
+        if (t && t.company_id && t.company_id !== to) return res.status(400).json({ error: `This driver has truck ${t.unit}, which belongs to ${t.name}. Pick a truck of the other company first, or release the truck.` });
+        set.company_id = to; log.push(['edit', co ? `Company: ${co.name}` : 'Company removed']);
+      }
+    }
     if (b.source && b.source !== cur.source) {
       if (!db.settings.sources.includes(b.source)) return res.status(400).json({ error: 'Choose a source from the list' });
       set.source = b.source; log.push(['edit', `Source changed to ${b.source}`]);

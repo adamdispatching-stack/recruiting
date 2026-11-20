@@ -5,7 +5,7 @@ const { q, token } = db;
 const { wrap, needUser, needAdmin, act, record, loadDriver, visSql, canSee, isDate, niceDate } = lib;
 
 const AUTO_HINT = { truck: 'This step ticks itself when a truck is chosen for the driver', arrival: 'This step ticks itself when the expected arrival date is set', arrived: 'This step ticks itself when the arrival date is filled in' };
-const truckOut = (t) => ({ id: t.id, unit: t.unit, details: t.details, location: t.location });
+const truckOut = (t) => ({ id: t.id, unit: t.unit, details: t.details, location: t.location, companyId: t.company_id });
 
 // Everything the driver page shows about onboarding, or null when it has not started.
 async function onboardingOf(driverId) {
@@ -24,20 +24,20 @@ module.exports = (app) => {
   // ---------- the onboarding board: every driver being set up, with every step ----------
   app.get('/api/onboarding', needUser, wrap(async (req, res) => {
     const params = []; const vis = visSql(req.user, params);
-    const rows = await q(`SELECT d.id, d.name, d.owner_id, d.phones, d.mode, d.location, o.started_at, o.expected_arrival, o.arrival_note, o.arrived_on, o.telegram_link, o.progress_at, t.unit truck_unit, t.details truck_details
+    const rows = await q(`SELECT d.id, d.name, d.owner_id, d.phones, d.mode, d.location, d.company_id, o.started_at, o.expected_arrival, o.arrival_note, o.arrived_on, o.telegram_link, o.progress_at, t.unit truck_unit, t.details truck_details
       FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
       WHERE d.status = 'Onboarding' ${vis ? 'AND ' + vis : ''} ORDER BY o.expected_arrival NULLS LAST, o.started_at`, params);
     const ids = rows.rows.map((r) => r.id);
     const items = ids.length ? (await q(`SELECT id, driver_id, key, label, auto, done, note FROM checklist WHERE driver_id = ANY($1::int[]) ORDER BY position, id`, [ids])).rows : [];
     const p2 = []; const v2 = visSql(req.user, p2);
-    const hired = await q(`SELECT d.id, d.name, d.owner_id, o.completed_at, o.started_at, t.unit truck_unit FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
+    const hired = await q(`SELECT d.id, d.name, d.owner_id, d.company_id, o.completed_at, o.started_at, t.unit truck_unit FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
       WHERE d.status = 'Hired' AND o.completed_at > now() - interval '30 days' ${v2 ? 'AND ' + v2 : ''} ORDER BY o.completed_at DESC LIMIT 30`, p2);
     const empty = await q(`SELECT count(*)::int n FROM trucks WHERE driver_id IS NULL AND driver_name IS NULL AND NOT out_of_service`);
     res.json({ today: await lib.today(), template: db.settings.checklist, emptyTrucks: empty.rows[0].n,
       drivers: rows.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
-        arrivedOn: r.arrived_on, telegramLink: r.telegram_link, progressAt: r.progress_at, truck: r.truck_unit ? { unit: r.truck_unit, details: r.truck_details } : null,
+        arrivedOn: r.arrived_on, telegramLink: r.telegram_link, progressAt: r.progress_at, companyId: r.company_id, truck: r.truck_unit ? { unit: r.truck_unit, details: r.truck_details } : null,
         items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),
-      hired: hired.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, hiredAt: r.completed_at, startedAt: r.started_at, truck: r.truck_unit })) });
+      hired: hired.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, companyId: r.company_id, hiredAt: r.completed_at, startedAt: r.started_at, truck: r.truck_unit })) });
   }));
 
   // Arrival dates, the Telegram group link, and the truck.
@@ -71,6 +71,10 @@ module.exports = (app) => {
           const r = await q(`UPDATE trucks SET driver_id = $2, updated_at = now() WHERE id = $1 AND driver_id IS NULL AND driver_name IS NULL`, [to, d.id]);
           if (!r.rowCount) return res.status(409).json({ error: `Truck ${t.unit} was just taken. Pick another one.` });
           log.push(['truck', `Truck ${t.unit} assigned${cur ? ` (was ${cur.unit})` : ''}`]);
+          if (t.company_id && t.company_id !== d.company_id) { // the driver now works for the truck's company
+            const co = (await q(`UPDATE drivers SET company_id = $2 WHERE id = $1 RETURNING (SELECT name FROM companies WHERE id = $2) n`, [d.id, t.company_id])).rows[0];
+            log.push(['edit', `Company: ${co.n} (with truck ${t.unit})`]);
+          }
         } else { await db.releaseTruck(db.pool, d.id); log.push(['truck', `Truck ${cur.unit} released`]); }
       }
     }
@@ -125,7 +129,7 @@ module.exports = (app) => {
   // ---------- trucks ----------
   app.get('/api/trucks', needUser, wrap(async (req, res) => {
     const r = await q(`SELECT t.*, d.name d_name, d.status d_status, d.owner_id d_owner FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id ORDER BY length(t.unit), t.unit`);
-    res.json({ trucks: r.rows.map((t) => ({ id: t.id, unit: t.unit, details: t.details, location: t.location, notes: t.notes, outOfService: t.out_of_service, driverName: t.driver_name,
+    res.json({ trucks: r.rows.map((t) => ({ id: t.id, unit: t.unit, details: t.details, location: t.location, notes: t.notes, outOfService: t.out_of_service, driverName: t.driver_name, companyId: t.company_id,
       driver: t.driver_id ? { id: canSee(req.user, { owner_id: t.d_owner }) ? t.driver_id : null, name: t.d_name, status: t.d_status } : null,
       state: t.out_of_service ? 'out' : t.driver_id || t.driver_name ? 'assigned' : 'empty', updatedAt: t.updated_at })) });
   }));
@@ -134,11 +138,13 @@ module.exports = (app) => {
     if (b.unit !== undefined) set.unit = String(b.unit).trim().slice(0, 30);
     for (const [k, col, max] of [['details', 'details', 120], ['location', 'location', 120], ['notes', 'notes', 500], ['driverName', 'driver_name', 80]]) if (b[k] !== undefined) set[col] = String(b[k]).trim().slice(0, max) || null;
     if (b.outOfService !== undefined) set.out_of_service = !!b.outOfService;
+    if (b.companyId !== undefined) set.company_id = b.companyId ? +b.companyId : null;
     return set;
   };
   app.post('/api/trucks', needUser, needAdmin, wrap(async (req, res) => {
     const set = truckFields(req.body || {});
     if (!set.unit) return res.status(400).json({ error: 'The unit number is required' });
+    if (set.company_id && !(await q(`SELECT 1 FROM companies WHERE id = $1`, [set.company_id])).rows[0]) return res.status(400).json({ error: 'That company is not in the list' });
     try {
       const cols = Object.keys(set);
       const r = await q(`INSERT INTO trucks (${cols.join(', ')}) VALUES (${cols.map((_, i) => '$' + (i + 1)).join(', ')}) RETURNING id`, cols.map((k) => set[k]));
@@ -153,9 +159,15 @@ module.exports = (app) => {
     if (set.unit === '') return res.status(400).json({ error: 'The unit number is required' });
     if (b.release) { set.driver_id = null; set.driver_name = null; }
     if (set.driver_name && t.driver_id && !b.release) return res.status(400).json({ error: 'This truck has a driver from the list. Release it first.' });
+    if (set.company_id && !(await q(`SELECT 1 FROM companies WHERE id = $1`, [set.company_id])).rows[0]) return res.status(400).json({ error: 'That company is not in the list' });
     const cols = Object.keys(set); if (!cols.length) return res.json({ ok: true });
     try { await q(`UPDATE trucks SET ${cols.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_at = now() WHERE id = $1`, [t.id, ...cols.map((k) => set[k])]); }
     catch (e) { if (e.code === '23505') return res.status(400).json({ error: `Truck ${set.unit} is already in the list` }); throw e; }
+    // the truck moved to another company: its driver goes along
+    if (set.company_id !== undefined && set.company_id && set.company_id !== t.company_id && t.driver_id && !b.release) {
+      const d = (await q(`UPDATE drivers SET company_id = $2 WHERE id = $1 RETURNING id, name, (SELECT name FROM companies WHERE id = $2) co`, [t.driver_id, set.company_id])).rows[0];
+      if (d) await record(req, 'edit', d, `Company: ${d.co} (truck ${t.unit} moved there)`);
+    }
     if (b.release && t.driver_id) {
       await db.syncAuto(db.pool, t.driver_id, req.user.id);
       const d = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [t.driver_id])).rows[0];

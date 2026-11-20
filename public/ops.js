@@ -109,7 +109,7 @@
       const done = d.items.filter((i) => i.done).length, total = d.items.length;
       const isLate = !d.arrivedOn && d.expectedArrival && d.expectedArrival < t;
       const arrival = d.arrivedOn ? `<span class="okt">Arrived ${esc(dateText(d.arrivedOn))}</span>` : d.expectedArrival ? `${esc(dateText(d.expectedArrival, { weekday: 'short' }))}${isLate ? '<span class="latetag">Late</span>' : ''}` : '<span class="none">No date yet</span>';
-      return `<tr data-driver="${d.id}"><th scope="row"><a href="#/driver/${d.id}">${esc(d.name)}</a><div class="small mut">${d.ownerId ? esc(person(d.ownerId)) : 'No recruiter'}, day ${daysSince(d.startedAt) + 1}</div>${d.telegramLink ? `<a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram group</a>` : ''}</th>
+      return `<tr data-driver="${d.id}"><th scope="row"><a href="#/driver/${d.id}">${esc(d.name)}</a><div class="small mut">${d.ownerId ? esc(person(d.ownerId)) : 'No recruiter'}, day ${daysSince(d.startedAt) + 1}</div>${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}${d.telegramLink ? `<a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram group</a>` : ''}</th>
         <td class="tk">${d.truck ? `<b>${esc(d.truck.unit)}</b>` : '<span class="none">None yet</span>'}</td><td class="arr" title="${esc(d.arrivalNote || '')}">${arrival}${d.arrivalNote ? `<div class="small mut clamp1">${esc(d.arrivalNote)}</div>` : ''}</td>
         ${cols.map((c) => { const i = by[c.key]; return `<td class="ck">${i ? `<span class="ckw"><input type="checkbox" data-ch="boardStep" data-step="${i.id}" data-fk="b${i.id}" ${i.done ? 'checked' : ''} ${LOCKED.includes(i.auto) ? 'disabled' : ''} title="${esc(i.note || '')}" aria-label="${esc(c.label)}, ${esc(d.name)}">${i.note ? '<i class="hasnote" title="' + esc(i.note) + '"></i>' : ''}</span>` : '<span class="none" title="Not on this driver\'s list">n/a</span>'}</td>`; }).join('')}
         ${extraCol ? `<td class="n">${extra.length ? `<a href="#/driver/${d.id}">${extra.filter((i) => i.done).length} of ${extra.length}</a>` : ''}</td>` : ''}
@@ -120,39 +120,43 @@
       ${r.drivers.length ? `<div class="sheet"><table class="board"><thead><tr><th>Driver</th><th>Truck</th><th>Arrival</th>${cols.map((c) => `<th class="ck">${esc(c.label)}</th>`).join('')}${extraCol ? '<th class="n">Own steps</th>' : ''}<th class="n">Done</th></tr></thead><tbody>${rows}</tbody></table></div>
         <p class="hint foot">Tick a step here or on the driver's page. Truck and arrival steps tick themselves when you fill them in on the driver's page. A dot marks a step with a note.</p>`
         : '<div class="empty"><p>Nobody is in onboarding.</p>Open a lead and choose Start onboarding. The driver gets this checklist: ' + esc(cols.map((c) => c.label).join(', ')) + '.</div>'}
-      ${r.hired.length ? `<section class="card" style="margin-top:14px"><h3>Hired in the last 30 days</h3><ul class="list">${r.hired.map((d) => `<li><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> <span class="small mut">${d.ownerId ? esc(person(d.ownerId)) + "'s lead" : ''}</span></span>
+      ${r.hired.length ? `<section class="card" style="margin-top:14px"><h3>Hired in the last 30 days</h3><ul class="list">${r.hired.map((d) => `<li><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> ${App.coTag(d.companyId)} <span class="small mut">${d.ownerId ? esc(person(d.ownerId)) + "'s lead" : ''}</span></span>
         <span class="small mut">${d.truck ? 'Truck ' + esc(d.truck) + ', ' : ''}hired ${esc(dateText(dayOf(d.hiredAt)))}, ${plural(Math.max(1, Math.round((new Date(d.hiredAt) - new Date(d.startedAt)) / 864e5)), 'day')} in onboarding</span></li>`).join('')}</ul></section>` : ''}
     </main>`;
   }
   onChange('boardStep', async (el) => { try { await api('/api/checklist/' + el.dataset.step, { method: 'PATCH', body: { done: el.checked } }); } catch (e) { fail(e); } await redraw(viewOnboarding); });
 
   // ---------- trucks ----------
-  let trucks = []; let truckFilter = '';
+  let trucks = []; let truckFilter = ''; let truckCo = '';
   const STATE = { empty: 'Empty', assigned: 'With a driver', out: 'Out of service' };
   async function viewTrucks() {
     const live = App.drawing(); const got = (await api('/api/trucks')).trucks; if (!live()) return;
     trucks = got; const admin = S.me.role === 'admin';
     document.title = 'Trucks · Recruiting';
     const n = (s) => trucks.filter((t) => t.state === s).length;
-    const shown = trucks.filter((t) => !truckFilter || t.state === truckFilter);
+    const inCo = (t) => !truckCo || (truckCo === 'none' ? !t.companyId : t.companyId === +truckCo);
+    const shown = trucks.filter((t) => (!truckFilter || t.state === truckFilter) && inCo(t));
     view.innerHTML = header('trucks') + `<main>
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${[['', `All ${trucks.length}`], ['empty', `Empty ${n('empty')}`], ['assigned', `With a driver ${n('assigned')}`], ['out', `Out of service ${n('out')}`]].map(([k, l]) => `<button data-act="truckFilter" data-k="${k}" class="${truckFilter === k ? 'on' : ''}" aria-pressed="${truckFilter === k}">${l}</button>`).join('')}</div>
+        ${(S.me.companies || []).length ? `<select class="pick line" data-ch="truckCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === truckCo ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${truckCo === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span>${admin ? '<button class="btn primary" data-act="truckAdd">Add truck</button>' : ''}</div>
-      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th>Truck</th><th>Where it is</th><th style="width:150px">Status</th><th>Driver</th><th>Notes</th>${admin ? '<th style="width:70px"></th>' : ''}</tr></thead><tbody>
-        ${shown.map((t) => `<tr data-truck="${t.id}"><td><b class="unit">${esc(t.unit)}</b></td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}</td><td>${esc(t.location || '') || '<span class="none">Not filled in</span>'}</td>
+      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:170px">Company</th><th>Truck</th><th>Where it is</th><th style="width:150px">Status</th><th>Driver</th><th>Notes</th>${admin ? '<th style="width:70px"></th>' : ''}</tr></thead><tbody>
+        ${shown.map((t) => `<tr data-truck="${t.id}"><td><b class="unit">${esc(t.unit)}</b></td><td>${App.coTag(t.companyId) || '<span class="none">None</span>'}</td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}</td><td>${esc(t.location || '') || '<span class="none">Not filled in</span>'}</td>
           <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>
           <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="#/driver/${t.driver.id}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? esc(t.driverName) : '<span class="none">Nobody</span>'}</td>
-          <td><div class="clamp small">${esc(t.notes || '')}</div></td>${admin ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${admin ? 7 : 6}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
+          <td><div class="clamp small">${esc(t.notes || '')}</div></td>${admin ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${admin ? 8 : 7}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
         </tbody></table></div><p class="hint foot">A truck gets its driver on the driver's onboarding card. It is freed again when that driver is rejected or drops out${admin ? ', or when you release it here' : ''}.</p>`
         : `<div class="empty"><p>No trucks listed yet.</p>${admin ? 'Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.' : 'An admin adds the trucks. Empty ones can then be picked during onboarding.'}</div>`}
     </main>`;
   }
   on('truckFilter', (b) => { truckFilter = b.dataset.k; viewTrucks(); });
-  function truckDialog(t) {
+  onChange('truckCo', (el) => { truckCo = el.value; viewTrucks(); });
+  function truckDialog(t, preset = {}, after = viewTrucks) {
     const has = t && (t.driver || t.driverName);
     dialog(`<form id="truckForm" class="dform"><h2>${t ? 'Truck ' + esc(t.unit) : 'Add a truck'}</h2><div class="grid2">
         <label class="fld">Unit number<input name="unit" type="text" required maxlength="30" value="${esc(t ? t.unit : '')}"></label>
         <label class="fld">Year, make, model<input name="details" type="text" maxlength="120" placeholder="2021 Freightliner Cascadia" value="${esc(t ? t.details || '' : '')}"></label>
+        <label class="fld">Company<select name="companyId">${App.coOptions(t ? t.companyId : preset.companyId || null, 'No company')}</select></label>
         <label class="fld">Where it is<input name="location" type="text" maxlength="120" placeholder="Newark yard" value="${esc(t ? t.location || '' : '')}"></label>
         ${t && t.driver ? `<div class="fld">Driver<div class="ownerline"><b>${esc(t.driver.name)}</b> ${badge(t.driver.status)}</div></div>`
           : `<label class="fld">Current driver, if not in the leads list<input name="driverName" type="text" maxlength="80" placeholder="Leave empty if the truck is free" value="${esc(t ? t.driverName || '' : '')}"></label>`}
@@ -162,14 +166,16 @@
       <p class="err" id="truckErr" role="alert"></p>
       <div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button><span class="grow"></span>
         ${has ? '<button type="button" class="btn plain" id="truckRelease">Free this truck</button>' : ''}${t ? '<button type="button" class="btn danger" id="truckDelete">Remove truck</button>' : ''}</div></form>`, (d) => {
-      const f = $('#truckForm', d); const fin = async (p, msg) => { try { await p; d.close(); toast(msg); viewTrucks(); } catch (e) { $('#truckErr').textContent = e.message; } };
-      f.onsubmit = (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(f)); b.outOfService = f.outOfService.checked; fin(api(t ? '/api/trucks/' + t.id : '/api/trucks', { method: t ? 'PATCH' : 'POST', body: b }), t ? 'Truck saved' : 'Truck added'); };
+      const f = $('#truckForm', d); const fin = async (p, msg) => { try { await p; d.close(); toast(msg); after(); } catch (e) { $('#truckErr').textContent = e.message; } };
+      f.onsubmit = (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(f)); b.outOfService = f.outOfService.checked; b.companyId = b.companyId ? +b.companyId : null; fin(api(t ? '/api/trucks/' + t.id : '/api/trucks', { method: t ? 'PATCH' : 'POST', body: b }), t ? 'Truck saved' : 'Truck added'); };
       if ($('#truckRelease')) $('#truckRelease').onclick = () => fin(api('/api/trucks/' + t.id, { method: 'PATCH', body: { release: true } }), 'Truck is free again');
       if ($('#truckDelete')) $('#truckDelete').onclick = () => { if (confirm(`Remove truck ${t.unit} from the list?`)) fin(api('/api/trucks/' + t.id, { method: 'DELETE' }), 'Truck removed'); };
     });
   }
   on('truckAdd', () => truckDialog(null));
   on('truckEdit', (b) => truckDialog(trucks.find((t) => t.id === +b.closest('[data-truck]').dataset.truck)));
+  App.showTrucks = (co) => { truckCo = co; truckFilter = ''; App.go('#/trucks'); };
+  App.truckDialog = truckDialog; // the company page adds and edits trucks with the same form
 
   App.route(/^#\/$/, viewHome);
   App.route(/^#\/onboarding$/, viewOnboarding);

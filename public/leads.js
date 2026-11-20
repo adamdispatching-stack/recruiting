@@ -5,16 +5,16 @@
   const LABELS = { cdl: 'License', qualify: 'CDL and record', qualifyNote: 'Screening', endorsements: 'Endorsements', freight: 'Freight hauled', relay: 'Amazon Relay', relayApp: 'Relay sign-up', equipment: 'Truck', currentJob: 'Working now', availability: 'Can start', interest: 'Interest', lookingFor: 'Looking for', homeTimeWanted: 'Home time', payExpectation: 'Pay wanted', home: 'Home', declineReason: 'Declined because', notes: 'Other details', fullName: 'Full name', zip: 'Zip' };
   const label = (k) => LABELS[k] || k.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
   const ICON_SEARCH = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
-  const one = (mode) => (mode || '').replace(/s$/, '');
+  const one = (mode) => (mode || '').replace(/s$/, '').replace('Owner-operator', 'Owner operator');
   const people = () => S.me.people.filter((p) => p.active);
 
   // ---------- the list ----------
-  const FILTERS = ['q', 'status', 'account', 'mode', 'due', 'cold', 'working', 'owner', 'source'];
+  const FILTERS = ['q', 'status', 'account', 'mode', 'due', 'cold', 'working', 'owner', 'source', 'company'];
   const VIEWS = ['due', 'cold', 'working']; // work lists on the status strip; one chip is on at a time
-  const list = { q: '', status: '', account: '', mode: '', due: '', cold: '', working: '', owner: '', source: '', sort: 'updated', rows: [], total: 0, counts: [], accounts: [], sel: new Set() };
+  const list = { q: '', status: '', account: '', mode: '', due: '', cold: '', working: '', owner: '', source: '', company: '', sort: 'updated', rows: [], total: 0, counts: [], accounts: [], sel: new Set() };
 
   async function load(more) {
-    const p = new URLSearchParams({ q: list.q, status: list.status, account: list.account, mode: list.mode, due: list.due, cold: list.cold, working: list.working, owner: list.owner, source: list.source, sort: list.sort, limit: 100, offset: more ? list.rows.length : 0 });
+    const p = new URLSearchParams({ q: list.q, status: list.status, account: list.account, mode: list.mode, due: list.due, cold: list.cold, working: list.working, owner: list.owner, source: list.source, company: list.company, sort: list.sort, limit: 100, offset: more ? list.rows.length : 0 });
     const r = await api('/api/drivers?' + p);
     list.rows = more ? list.rows.concat(r.drivers) : r.drivers; list.total = r.total; list.counts = r.counts; list.accounts = r.accounts;
     if (!more) list.sel.clear();
@@ -31,13 +31,15 @@
         <select id="fOwner" class="pick" aria-label="Recruiter"><option value="">All recruiters</option><option value="me">My leads</option><option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id).map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
         <select id="fSource" class="pick" aria-label="Source"><option value="">All sources</option>${S.me.sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
         <select id="fAcct" class="pick" aria-label="Indeed account" hidden></select>
-        <select id="fMode" class="pick" aria-label="Driver type"><option value="">All types</option><option>Company drivers</option><option>Owner-operators</option></select>
+        <select id="fMode" class="pick" aria-label="Driver type"><option value="">All types</option><option value="Company drivers">Company drivers</option><option value="Owner-operators">Owner operators</option></select>
+        ${(S.me.companies || []).length ? `<select id="fCo" class="pick" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="none">No company</option></select>` : ''}
         <select id="fSort" class="pick" aria-label="Sort"><option value="updated">Newest activity</option><option value="followup">Follow-up date</option><option value="name">Name A to Z</option><option value="created">Newest added</option></select>
         <span class="grow"></span><button class="btn solid" data-act="addLead">Add lead</button></div>
       <nav id="route" class="route" aria-label="Filter by status"></nav>`) + `<main><div id="bulk" class="bulk" hidden></div><div id="lst"></div></main>`;
     $('#q').value = list.q; $('#fMode').value = list.mode; $('#fSort').value = list.sort; $('#fOwner').value = list.owner; $('#fSource').value = list.source;
     let t; $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { list.q = e.target.value; refresh(); }, 250); };
-    for (const [id, key] of [['fAcct', 'account'], ['fMode', 'mode'], ['fSort', 'sort'], ['fOwner', 'owner'], ['fSource', 'source']]) $('#' + id).onchange = (e) => { list[key] = e.target.value; refresh(); };
+    if ($('#fCo')) $('#fCo').value = list.company;
+    for (const [id, key] of [['fAcct', 'account'], ['fMode', 'mode'], ['fSort', 'sort'], ['fOwner', 'owner'], ['fSource', 'source'], ['fCo', 'company']]) if ($('#' + id)) $('#' + id).onchange = (e) => { list[key] = e.target.value; refresh(); };
     await refresh();
   }
   async function refresh(more) {
@@ -62,7 +64,7 @@
       const isDue = d.followUp && d.followUp <= t;
       const where = [one(d.mode), d.location || (d.answers || {}).home].filter(Boolean).map(esc).join(', ');
       return `<tr data-id="${d.id}">${admin ? `<td class="cb"><input type="checkbox" data-sel="${d.id}" ${list.sel.has(d.id) ? 'checked' : ''} aria-label="Select ${esc(d.name)}"></td>` : ''}
-        <td><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div></td>
+        <td><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div>${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}</td>
         <td>${badge(d.status)}</td>
         <td>${d.followUp ? `<span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : '<span class="none">None</span>'}</td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
@@ -109,27 +111,46 @@
   });
 
   // ---------- add a lead ----------
+  onChange('addMode', (el) => { const box = $('#ooTruck'); if (box) box.hidden = el.value !== 'Owner-operators'; });
   on('addLead', () => {
     const admin = S.me.role === 'admin';
-    dialog(`<form id="addForm" class="dform"><h2>Add a lead</h2>
+    const yr = new Date().getFullYear();
+    dialog(`<form id="addForm" class="dform addlead"><h2>Add a lead</h2>
+      <fieldset class="typepick"><legend>Driver type</legend>
+        <label><input type="radio" name="mode" value="Company drivers" required data-ch="addMode"><span><b>Company driver</b>Drives one of our trucks</span></label>
+        <label><input type="radio" name="mode" value="Owner-operators" required data-ch="addMode"><span><b>Owner operator</b>Has their own truck</span></label></fieldset>
+      <h3 class="fsub">Contact</h3>
       <div class="grid2">
         <label class="fld">Name<input name="name" type="text" required maxlength="120" autocomplete="off"></label>
         <label class="fld">Phone<input name="phone" type="tel" placeholder="10 digits" autocomplete="off"></label>
         <label class="fld">Email<input name="email" type="email" autocomplete="off"></label>
-        <label class="fld">Home city and state<input name="location" type="text" placeholder="Newark, NJ"></label>
+        <div class="grid2 tight"><label class="fld">Home city and state<input name="location" type="text" placeholder="Newark, NJ"></label>
+          <label class="fld">Zip<input name="zip" type="text" inputmode="numeric" maxlength="10" placeholder="07102"></label></div>
+      </div>
+      <h3 class="fsub">Experience</h3>
+      <div class="grid2">
+        <label class="fld">Years driving with a CDL-A<input name="expYears" type="number" min="0" max="60" step="0.5" placeholder="e.g. 3"></label>
+        <label class="fld">What they drove<input name="experience" type="text" maxlength="1000" placeholder="Dry van OTR, reefer, Amazon loads, past carriers"></label>
+      </div>
+      <div id="ooTruck" hidden><h3 class="fsub">Their truck</h3><div class="grid2">
+        <label class="fld">Year<input name="truckYear" type="number" min="1980" max="${yr + 1}" placeholder="${yr - 4}"></label>
+        <label class="fld">Make and model<input name="truckModel" type="text" maxlength="80" placeholder="Freightliner Cascadia"></label></div></div>
+      <h3 class="fsub">Lead</h3>
+      <div class="grid2">
         <label class="fld">Where did this lead come from?<select name="source" required><option value="">Choose a source</option>${S.me.sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select></label>
         <label class="fld">Source details<input name="sourceDetail" type="text" maxlength="200" placeholder="Which group, page or person"></label>
-        <label class="fld">Driver type<select name="mode"><option value="">Not known yet</option><option>Company drivers</option><option>Owner-operators</option></select></label>
+        <label class="fld">Company<select name="companyId">${App.coOptions(null, 'Not decided yet')}</select></label>
         <label class="fld">Status<select name="status">${['Replied', 'Interested', 'Email collected', 'Relay invite sent', 'Signed up on Relay', 'Review'].map((s) => `<option ${s === 'Interested' ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
         <label class="fld">Follow up on<input name="followUp" type="date" min="${today()}"></label>
         ${admin ? `<label class="fld">Recruiter<select name="ownerId">${people().map((p) => `<option value="${p.id}" ${p.id === S.me.id ? 'selected' : ''}>${esc(p.name)}${p.id === S.me.id ? ' (you)' : ''}</option>`).join('')}<option value="">Nobody yet</option></select></label>` : ''}
       </div>
-      <label class="fld">First note<textarea name="note" placeholder="What they said, experience, what to do next"></textarea></label>
+      <label class="fld">First note<textarea name="note" placeholder="What they said, what to do next"></textarea></label>
       <div id="dupBox"></div><p class="err" id="addErr" role="alert"></p>
       <div class="drow"><button class="btn primary">Add lead</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (d) => {
       const f = $('#addForm', d); let force = false;
       f.onsubmit = async (e) => {
         e.preventDefault(); const body = Object.fromEntries(new FormData(f)); if (force) body.force = true;
+        body.companyId = body.companyId ? +body.companyId : null;
         if (admin) body.ownerId = body.ownerId ? +body.ownerId : null;
         $('#addErr').textContent = ''; $('#dupBox').innerHTML = '';
         try { const r = await api('/api/drivers', { method: 'POST', body }); d.close(); toast('Lead added'); go('#/driver/' + r.id); }
@@ -163,13 +184,21 @@
       <span class="sacts"><button class="linkbtn" data-act="stepNote">${i.note ? 'Edit note' : 'Add note'}</button>${i.custom ? '<button class="linkbtn red" data-act="delStep">Remove</button>' : ''}</span>
       ${i.note ? `<div class="snote">${esc(i.note)}</div>` : ''}${i.key === 'bank' ? '<div class="snote hint">Tick only. Never type account or routing numbers here.</div>' : ''}</li>`;
   };
+  // Trucks to pick from, by company: the driver's own company first, then the others, then trucks of no company.
+  function truckGroups(trucks, coId) {
+    const groups = new Map();
+    for (const t of trucks) { const k = t.companyId || 0; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+    return [...groups.entries()].sort(([a], [b]) => (a === coId ? -1 : b === coId ? 1 : !a ? 1 : !b ? -1 : 0))
+      .map(([k, list]) => [k ? (App.company(k) || { name: 'Company' }).name + (k === coId ? " (this driver's company)" : '') : 'No company', list]);
+  }
+  const expText = (d) => [d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'year')} with a CDL-A` : '', d.mode === 'Owner-operators' && (d.truckYear || d.truckModel) ? `own truck: ${[d.truckYear, d.truckModel].filter(Boolean).join(' ')}` : ''].filter(Boolean).join(', ');
   function onbCard(d, ob) {
     const done = ob.items.filter((i) => i.done).length, total = ob.items.length, left = total - done;
     const trucks = (ob.truck ? [ob.truck] : []).concat(ob.freeTrucks);
     return `<section class="card onb" id="onb"><h3>Onboarding<span class="grow"></span><span class="prog"><b>${done} of ${total}</b> steps done<span class="meter"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span></span></h3>
       <p class="hint lead">Started ${esc(dateText(dayOf(ob.startedAt)))}${ob.startedBy ? ' by ' + esc(ob.startedBy) : ''}${ob.completedAt ? `. Hired ${esc(dateText(dayOf(ob.completedAt)))}.` : '.'}</p>
       <div class="ofields">
-        <label class="fld">Truck<select data-ch="onbTruck" data-fk="truck"><option value="">No truck yet</option>${trucks.map((t) => `<option value="${t.id}" ${ob.truck && ob.truck.id === t.id ? 'selected' : ''}>${esc(t.unit)}${t.details ? ', ' + esc(t.details) : ''}${t.location ? ' (' + esc(t.location) + ')' : ''}</option>`).join('')}</select>
+        <label class="fld">Truck<select data-ch="onbTruck" data-fk="truck"><option value="">No truck yet</option>${truckGroups(trucks, d.companyId).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((t) => `<option value="${t.id}" ${ob.truck && ob.truck.id === t.id ? 'selected' : ''}>${esc(t.unit)}${t.details ? ', ' + esc(t.details) : ''}${t.location ? ' (' + esc(t.location) + ')' : ''}</option>`).join('')}</optgroup>`).join('')}</select>
           ${!ob.truck ? `<span class="hint">${ob.freeTrucks.length ? plural(ob.freeTrucks.length, 'empty truck') + ' to choose from' : 'No empty trucks right now.'} <a href="#/trucks">See trucks</a></span>` : ''}</label>
         <label class="fld">Expected arrival<input type="date" data-ch="onbField" data-f="expectedArrival" data-fk="ea" value="${esc(ob.expectedArrival || '')}"></label>
         <label class="fld">Arrived on<input type="date" data-ch="onbField" data-f="arrivedOn" data-fk="ao" value="${esc(ob.arrivedOn || '')}"></label>
@@ -202,8 +231,8 @@
       <a class="back" href="#/leads">← Leads</a>
       <section class="dhead">
         <div class="top">
-          <div class="who"><h2>${esc(d.name)}</h2>
-            <div class="sub">${[one(d.mode), d.location, d.zip].filter(Boolean).map(esc).join(', ') || 'No details yet'}${sourceLine ? `<span class="src">Found through ${sourceLine}</span>` : ''}</div>
+          <div class="who"><h2>${esc(d.name)}${App.coTag(d.companyId, true)}</h2>
+            <div class="sub">${[one(d.mode), d.location, d.zip].filter(Boolean).map(esc).join(', ') || 'No details yet'}${expText(d) ? `<span class="src">${esc(expText(d))}</span>` : ''}${sourceLine ? `<span class="src">Found through ${sourceLine}</span>` : ''}</div>
             <div class="contact">${(d.phones || []).map((p) => `<a href="tel:${esc(p)}">${esc(fmtPhone(p))}</a>`).join('')}${(d.emails || []).map((e) => `<a href="mailto:${esc(e)}">${esc(e)}</a>`).join('')}<button class="linkbtn" data-act="editContact">Edit details</button></div>
             <div class="tags" id="tags">${(d.tags || []).map((x) => `<span class="tag">${esc(x)}<button data-tag="${esc(x)}" aria-label="Remove tag ${esc(x)}">×</button></span>`).join('')}<input id="tagIn" type="text" placeholder="Add a tag, press Enter" aria-label="Add a tag" data-fk="tag"></div>
           </div>
@@ -219,6 +248,7 @@
           <div class="fld">Follow-up<div class="fuline"><input type="date" data-ch="followUp" data-fk="fu" aria-label="Follow-up date" value="${esc(d.followUp || '')}">
             <button class="chip" data-act="fuQuick" data-days="1">Tomorrow</button><button class="chip" data-act="fuQuick" data-days="3">In 3 days</button><button class="chip" data-act="fuQuick" data-days="7">Next week</button>${d.followUp ? '<button class="chip" data-act="fuQuick" data-days="">Clear</button>' : ''}</div>
             ${d.followUp && d.followUp <= t ? `<span class="fu due">${esc(fuText(d.followUp))}</span>` : ''}</div>
+          <label class="fld">Company<select data-ch="company" data-fk="company" class="cosel">${App.coOptions(d.companyId)}</select></label>
           ${owner}
         </div>
       </section>
@@ -228,7 +258,11 @@
         <label class="fld">Emails, comma separated<input name="emails" type="text" value="${esc((d.emails || []).join(', '))}"></label>
         <label class="fld">Home<input name="location" type="text" value="${esc(d.location || '')}"></label>
         <label class="fld">Zip<input name="zip" type="text" value="${esc(d.zip || '')}" style="min-width:90px;width:90px"></label>
-        <label class="fld">Type<select name="mode"><option value="">Not set</option>${['Company drivers', 'Owner-operators'].map((m) => `<option ${m === d.mode ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+        <label class="fld">Driver type<select name="mode" data-ch="editMode"><option value="">Not set</option>${[['Company drivers', 'Company driver'], ['Owner-operators', 'Owner operator']].map(([m, l]) => `<option value="${m}" ${m === d.mode ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="fld">Years with a CDL-A<input name="expYears" type="number" min="0" max="60" step="0.5" value="${d.expYears ?? ''}" style="min-width:90px;width:110px"></label>
+        <label class="fld">What they drove<input name="experience" type="text" maxlength="1000" value="${esc(d.experience || '')}"></label>
+        <span class="ootruck" ${d.mode === 'Owner-operators' ? '' : 'hidden'}><label class="fld">Truck year<input name="truckYear" type="number" min="1980" max="${new Date().getFullYear() + 1}" value="${d.truckYear ?? ''}" style="min-width:90px;width:100px"></label>
+          <label class="fld">Truck make and model<input name="truckModel" type="text" maxlength="80" value="${esc(d.truckModel || '')}"></label></span>
         <label class="fld">Source<select name="source">${d.source && S.me.sources.includes(d.source) ? '' : `<option value="">${esc(d.source || 'Not set')}</option>`}${S.me.sources.map((s) => `<option ${s === d.source ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
         <label class="fld">Source details<input name="sourceDetail" type="text" maxlength="200" value="${esc(d.sourceDetail || '')}"></label>
         <button class="btn primary">Save</button><button type="button" class="btn plain" data-act="cancelContact">Cancel</button></div></form>
@@ -253,7 +287,8 @@
         <div>
           ${d.aiSummary ? `<section class="card"><div class="ai"><b>AI summary</b>${esc(d.aiSummary)}</div></section>` : ''}
           <section class="card"><h3>Profile</h3><dl class="facts">
-            ${[['Status', `${badge(d.status)}${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
+            ${[['Status', `${badge(d.status)}${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Company', App.coTag(d.companyId)], ['Driver type', esc(one(d.mode))],
+              ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
               .concat(answerKeys.map((k) => [label(k), esc(a[k])])).filter(([, v]) => v).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}
           </dl></section>
           <section class="card"><h3>History</h3>${r.events.length ? `<ol class="tl">${r.events.map((e) => `<li><time>${esc(when(e.t))}${e.who ? `, ${esc(e.who)}` : ''}</time>${esc(e.text)}</li>`).join('')}</ol>` : '<p class="hint">No activity yet.</p>'}</section>
@@ -267,7 +302,9 @@
     $('#newNote').onkeydown = (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addNote(); } };
     $('#contactForm').onsubmit = (e) => {
       e.preventDefault(); const f = new FormData(e.target); const split = (v) => String(v || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
-      patch({ name: f.get('name'), phones: split(f.get('phones')), emails: split(f.get('emails')), location: f.get('location'), zip: f.get('zip'), mode: f.get('mode'), source: f.get('source'), sourceDetail: f.get('sourceDetail') }, 'Details saved');
+      const oo = f.get('mode') === 'Owner-operators';
+      patch({ name: f.get('name'), phones: split(f.get('phones')), emails: split(f.get('emails')), location: f.get('location'), zip: f.get('zip'), mode: f.get('mode'), source: f.get('source'), sourceDetail: f.get('sourceDetail'),
+        expYears: f.get('expYears'), experience: f.get('experience'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
     };
     const sf = $('#stepForm'); if (sf) sf.onsubmit = async (e) => { e.preventDefault(); const v = sf.label.value.trim(); if (!v) return; try { await api(`/api/drivers/${d.id}/checklist`, { method: 'POST', body: { label: v } }); toast('Step added'); again(); } catch (err) { fail(err); } };
   }
@@ -281,6 +318,8 @@
   onChange('status', (el) => patch({ status: el.value }, el.value === 'Onboarding' ? 'Onboarding started' : 'Status saved'));
   onChange('lostReason', (el) => patch({ lostReason: el.value }, 'Reason saved'));
   onChange('followUp', (el) => patch({ followUp: el.value || null }, el.value ? 'Follow-up saved' : 'Follow-up cleared'));
+  onChange('company', (el) => patch({ companyId: el.value ? +el.value : null }, el.value ? `Company: ${App.company(+el.value).name}` : 'Company removed'));
+  onChange('editMode', (el) => { const x = $('.ootruck'); if (x) x.hidden = el.value !== 'Owner-operators'; });
   onChange('owner', (el) => patch({ ownerId: el.value ? +el.value : null }, el.value ? `Given to ${person(+el.value)}` : 'No recruiter now'));
   onChange('onbTruck', (el) => patchOnb({ truckId: el.value ? +el.value : null }, el.value ? 'Truck assigned' : 'Truck released'));
   onChange('onbField', (el) => patchOnb({ [el.dataset.f]: el.value }, 'Saved'));

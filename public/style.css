@@ -542,3 +542,43 @@ table.days tr.later td{color:#A9B3AE}
   .sect,.report~*{display:none!important}
 }
 @media print{ .back,.dhead{display:none!important} }
+
+/* ---------- companies: a tag with the name, a colored edge to tell them apart at a glance ---------- */
+.co{display:inline-flex;align-items:center;max-width:100%;margin:3px 4px 0 0;padding:0 8px 0 7px;border-left:4px solid var(--k);border-radius:5px;background:var(--kt);color:var(--ki);font-size:12px;font-weight:700;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none;vertical-align:middle}
+a.co:hover{filter:brightness(.96);text-decoration:underline}
+.co.big{margin:0 0 0 12px;padding:0 10px 0 9px;font-size:14px;line-height:28px;vertical-align:4px}
+.c0,.k0{--k:#1E8A57;--kt:#DDF1E6;--ki:#0B5536} .c1,.k1{--k:#2F6BC7;--kt:#E1ECFB;--ki:#1D4A8F}
+.c2,.k2{--k:#7C4DC4;--kt:#EEE6FA;--ki:#4B2C83} .c3,.k3{--k:#D9771F;--kt:#FDEBD9;--ki:#7A3D06}
+.c4,.k4{--k:#1C8C93;--kt:#DDF2F2;--ki:#0D5257} .c5,.k5{--k:#C9392E;--kt:#FBE3E1;--ki:#8A1F17}
+.c6,.k6{--k:#94653A;--kt:#F1E7DC;--ki:#5C3B1E} .c7,.k7{--k:#6E7B80;--kt:#E9ECEB;--ki:#3B4549}
+.cogrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.cocard{display:block;padding:14px 16px;border:1px solid var(--line);border-top:5px solid var(--k);border-radius:12px;background:#fff;color:var(--ink);text-decoration:none}
+.cocard:hover{border-color:var(--k)}
+.cohead{display:flex;flex-direction:column;margin-bottom:10px}
+.cohead b{font-size:17px;font-weight:800}
+.cocard .figs{gap:8px 22px} .cocard .figs dd{font-size:20px}
+.cocard .figs+.figs{margin-top:8px;padding-top:8px;border-top:1px solid var(--hair)}
+.cobar{border-top:5px solid var(--k)}
+.conotes{margin:8px 0 0;white-space:pre-wrap;font-size:13.5px}
+table.cotbl td{vertical-align:middle}
+.swatches{display:flex;flex-wrap:wrap;gap:6px 10px;margin:0 0 12px;padding:0;border:0}
+.swatches legend{margin-bottom:6px;color:var(--mut);font-size:12.5px;font-weight:600}
+.swatches label{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.swatches input{accent-color:var(--green)}
+.swatches .co{margin:0}
+.cosel{max-width:240px}
+
+/* ---------- adding a lead ---------- */
+.addlead{max-width:720px}
+.fsub{margin:14px 0 8px;padding-top:12px;border-top:1px solid var(--hair);font-size:14px;font-weight:800}
+.typepick{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 4px;padding:0;border:0}
+.typepick legend{margin-bottom:6px;color:var(--mut);font-size:12.5px;font-weight:600}
+.typepick label{position:relative;display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border:1.5px solid #C5CEC9;border-radius:9px;background:#fff;cursor:pointer}
+.typepick label:has(input:checked){border-color:var(--green);background:var(--green-t)}
+.typepick input{margin-top:3px;accent-color:var(--green)}
+.typepick span{display:flex;flex-direction:column;color:var(--mut);font-size:12.5px}
+.typepick b{color:var(--ink);font-size:14.5px}
+.grid2.tight{gap:12px 10px;margin:0;grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+.ootruck{display:contents}
+.ootruck[hidden]{display:none!important}
+@media (max-width:900px){ .typepick{grid-template-columns:1fr} .co.big{margin:6px 0 0;display:flex;width:max-content} }

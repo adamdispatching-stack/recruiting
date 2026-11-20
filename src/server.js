@@ -54,8 +54,9 @@ app.post('/api/logout', wrap(async (req, res) => {
 // Who I am, plus what every screen needs: the team's time zone, lead sources, and the people leads can belong to.
 app.get('/api/me', needUser, wrap(async (req, res) => {
   const people = await q(`SELECT id, name, role, active FROM users ORDER BY lower(name)`);
+  const companies = await q(`SELECT id, name, color FROM companies ORDER BY lower(name)`);
   res.json({ id: req.user.id, email: req.user.email, name: req.user.name, role: req.user.role, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources,
-    people: people.rows, route: db.ROUTE, other: db.OTHER, active: db.ACTIVE, lost: db.LOST, coldDays: db.COLD_DAYS, today: await lib.today() });
+    people: people.rows, companies: companies.rows, route: db.ROUTE, other: db.OTHER, active: db.ACTIVE, lost: db.LOST, coldDays: db.COLD_DAYS, today: await lib.today() });
 }));
 app.post('/api/me/password', needUser, wrap(async (req, res) => {
   const { current, next: nw } = req.body || {};
@@ -67,6 +68,7 @@ app.post('/api/me/password', needUser, wrap(async (req, res) => {
 
 require('./api-team')(app);
 require('./api-hours')(app);
+require('./api-companies')(app);
 require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-admin')(app);

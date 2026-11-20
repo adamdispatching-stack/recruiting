@@ -188,6 +188,21 @@ async function migrate() {
       set_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, day)
     );
+    -- the carriers the drivers are dispatched for; each truck and each driver belongs to one
+    CREATE TABLE IF NOT EXISTS companies (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      mc TEXT, dot TEXT, notes TEXT,
+      color INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS companies_name ON companies(lower(name));
+    ALTER TABLE trucks ADD COLUMN IF NOT EXISTS company_id INT REFERENCES companies(id) ON DELETE SET NULL;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS company_id INT REFERENCES companies(id) ON DELETE SET NULL;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS exp_years NUMERIC(4,1); -- years of CDL-A driving
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS experience TEXT;        -- what they drove: freight, routes, past carriers
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS truck_year INT;         -- owner-operators: their own truck
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS truck_model TEXT;
   `);
   // One-time clean-up of rows from before this version. It must never run again: later, a lead added by hand
   // (say from Facebook) can also pick up an Indeed account, and must keep its own source.
@@ -317,6 +332,13 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
   if (rec.answers && typeof rec.answers === 'object' && Object.keys(rec.answers).length) {
     const merged = { ...d.answers, ...rec.answers };
     if (JSON.stringify(merged) !== JSON.stringify(d.answers)) set.answers = JSON.stringify(merged);
+    // "2019 Freightliner Cascadia" from the chat fills the owner-operator's truck when nobody has yet
+    const eq = clean(rec.answers.equipment);
+    if (eq && !d.truck_model && !d.truck_year) {
+      const y = String(eq).match(/\b(19[89]\d|20\d\d)\b/); const model = String(eq).replace(/\b(19[89]\d|20\d\d)\b/, '').replace(/^[\s,.-]+|[\s,.-]+$/g, '').slice(0, 80);
+      if (y && +y[1] <= new Date().getFullYear() + 1) set.truck_year = +y[1];
+      if (model && model.length > 2) set.truck_model = model;
+    }
   }
   // Status: several Chrome profiles can know the same driver, each with its own view. Along the hiring
   // steps a status only moves forward; a status off the steps (Not interested, No CDL, Review…) wins only
