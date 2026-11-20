@@ -88,6 +88,7 @@ async function migrate() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_visible_at TIMESTAMPTZ;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS hours JSONB; -- own working hours; empty = the team's hours
     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS assign_to INT REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS owner_id INT REFERENCES users(id) ON DELETE SET NULL;
@@ -179,6 +180,14 @@ async function migrate() {
       note TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS checklist_key ON checklist(driver_id, key);
+    CREATE TABLE IF NOT EXISTS days_off (
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day DATE NOT NULL,
+      reason TEXT,
+      set_by INT REFERENCES users(id) ON DELETE SET NULL,
+      set_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, day)
+    );
   `);
   // One-time clean-up of rows from before this version. It must never run again: later, a lead added by hand
   // (say from Facebook) can also pick up an Indeed account, and must keep its own source.
@@ -216,7 +225,10 @@ const DEFAULTS = {
     { key: 'eld_profile', label: 'ELD profile set up' },
     { key: 'acct_group', label: 'Accounting group set up' },
     { key: 'bank', label: 'Bank details taken by accounting' }
-  ]
+  ],
+  // Working hours in the team time zone. week[0] is Sunday; null = not a working day.
+  // A working day counts as worked with at least minMinutes of active time; starting more than grace minutes late is a late start.
+  hours: { week: [null, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, null], minMinutes: 30, grace: 15 }
 };
 const settings = { ...DEFAULTS };
 async function loadSettings() {

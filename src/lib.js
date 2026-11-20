@@ -59,12 +59,16 @@ async function record(req, type, driver, text) { await act(req.user, type, drive
 
 // ---------- days ----------
 // Reports count days in the team's time zone (Settings), so a shift that crosses midnight elsewhere stays one day.
-const PERIODS = { today: [0, 0], yesterday: [1, 1], '7d': [6, 0], '30d': [29, 0] };
+const PERIODS = { today: [0, 0], yesterday: [1, 1], '7d': [6, 0], '30d': [29, 0], month: null, lastmonth: null };
 async function range(period) {
-  const key = PERIODS[period] ? period : 'today'; const [a, b] = PERIODS[key];
-  const r = await q(`SELECT t.today::text today, ((t.today - $2::int)::timestamp AT TIME ZONE $1) from_ts, ((t.today - $3::int + 1)::timestamp AT TIME ZONE $1) to_ts
-    FROM (SELECT (now() AT TIME ZONE $1)::date today) t`, [db.settings.tz, a, b]);
-  return { period: key, today: r.rows[0].today, from: r.rows[0].from_ts, to: r.rows[0].to_ts, days: a - b + 1, tz: db.settings.tz };
+  const key = period in PERIODS ? period : 'today'; const tz = db.settings.tz;
+  // first and last day (inclusive) of the period
+  const r = (await q(`SELECT t.today::text today,
+      (CASE $2 WHEN 'month' THEN date_trunc('month', t.today)::date WHEN 'lastmonth' THEN (date_trunc('month', t.today) - interval '1 month')::date ELSE t.today - $3::int END)::text a,
+      (CASE $2 WHEN 'month' THEN t.today WHEN 'lastmonth' THEN (date_trunc('month', t.today) - interval '1 day')::date ELSE t.today - $4::int END)::text b
+    FROM (SELECT (now() AT TIME ZONE $1)::date today) t`, [tz, key, (PERIODS[key] || [0, 0])[0], (PERIODS[key] || [0, 0])[1]])).rows[0];
+  const ts = (await q(`SELECT ($1::date::timestamp AT TIME ZONE $3) f, (($2::date + 1)::timestamp AT TIME ZONE $3) t, ($2::date - $1::date + 1)::int n`, [r.a, r.b, tz])).rows[0];
+  return { period: key, today: r.today, fromDate: r.a, toDate: r.b, from: ts.f, to: ts.t, days: ts.n, tz };
 }
 const today = async () => (await q(`SELECT (now() AT TIME ZONE $1)::date::text d`, [db.settings.tz])).rows[0].d;
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !isNaN(new Date(v + 'T00:00:00Z'));

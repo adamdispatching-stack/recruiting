@@ -1,6 +1,7 @@
 // Activity tracking, the Team pages, and the dashboard.
 const db = require('./db');
 const lib = require('./lib');
+const hours = require('./api-hours');
 const { q } = db;
 const { wrap, needUser, needAdmin, act, range } = lib;
 
@@ -89,7 +90,10 @@ module.exports = (app) => {
   // ---------- Team ----------
   app.get('/api/team', needUser, needAdmin, wrap(async (req, res) => {
     const r = await range(req.query.period);
-    res.json({ now: new Date().toISOString(), period: r.period, days: r.days, tz: r.tz, today: r.today, people: await teamStats(r) });
+    const people = await teamStats(r);
+    const att = await hours.attendance(await hours.loadPeople(people.map((p) => p.id)), r.fromDate, r.toDate);
+    for (const p of people) { const a = att[p.id]; p.att = a.totals; p.weekText = a.weekText; if (r.days === 1) { const d = a.days[0]; p.day = { status: d.status, late: d.late, early: d.early, sch: d.sch, offReason: d.offReason }; } }
+    res.json({ now: new Date().toISOString(), period: r.period, days: r.days, tz: r.tz, today: r.today, people });
   }));
   // One person: numbers, time by hour or by day, sign-ins, and everything they did. Admins see anyone; a recruiter sees their own page.
   app.get('/api/team/:id', needUser, wrap(async (req, res) => {
@@ -98,6 +102,8 @@ module.exports = (app) => {
     const r = await range(req.query.period);
     const [person] = await teamStats(r, id);
     if (!person) return res.status(404).json({ error: 'Person not found' });
+    { const a = (await hours.attendance(await hours.loadPeople([id]), r.fromDate, r.toDate))[id]; person.att = a.totals; person.weekText = a.weekText;
+      if (r.days === 1) { const d = a.days[0]; person.day = { status: d.status, late: d.late, early: d.early, sch: d.sch, offReason: d.offReason }; } }
     const byHour = r.days === 1;
     const series = byHour
       ? await q(`SELECT to_char(g AT TIME ZONE $4, 'FMHH12 AM') label, COALESCE(h.active_seconds, 0)::int active, COALESCE(h.open_seconds, 0)::int open, COALESCE(h.clicks, 0)::int clicks, COALESCE(h.views, 0)::int views

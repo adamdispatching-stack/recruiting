@@ -15,11 +15,18 @@
     let keys = [], cfg = null; const live = App.drawing();
     if (admin) { keys = await api('/api/keys'); cfg = await api('/api/settings'); if (!live()) return; steps = cfg.checklist.map((x) => ({ ...x })); }
     const people = S.me.people.filter((p) => p.active);
-    view.innerHTML = header('') + `<main class="narrow">
+    view.innerHTML = header('settings') + `<main class="narrow">
       ${admin ? `
       <section class="card"><h3>Team time zone</h3>
         <p class="hint lead">Reports count a day from midnight to midnight in this time zone, and "today" for follow-ups starts here. Pick the zone your recruiters' working day belongs to, so one shift is one day.</p>
         <form id="tzForm" class="form"><label class="fld">Time zone<select name="tz">${(ZONES.some(([z]) => z === cfg.tz) ? ZONES : [[cfg.tz, cfg.tz]].concat(ZONES)).map(([z, l]) => `<option value="${z}" ${z === cfg.tz ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label><button class="btn primary">Save</button></form></section>
+      <section class="card" id="hours"><h3>Working hours</h3>
+        <p class="hint lead">The team's normal week, in ${esc(cfg.tz.split('/').pop().replace(/_/g, ' '))} time. A working day with less active time than the minimum below counts as a day off. You can give one person different hours on their page under Team.</p>
+        <form id="hoursForm">${App.weekFields(cfg.hours.week)}
+          <div class="form" style="margin-top:12px">
+            <label class="fld">A day counts as worked after<span class="fldunit"><input name="minMinutes" type="number" min="1" max="600" required value="${cfg.hours.minMinutes}"> minutes active</span></label>
+            <label class="fld">Late start after<span class="fldunit"><input name="grace" type="number" min="0" max="180" required value="${cfg.hours.grace}"> minutes</span></label>
+            <button class="btn primary">Save working hours</button></div></form></section>
       <section class="card"><h3>Who sees which leads</h3>
         <form id="visForm"><label class="chk radio"><input type="radio" name="visibility" value="all" ${cfg.visibility === 'all' ? 'checked' : ''}><span><b>Everyone sees every lead.</b> Good for a small team that covers for each other.</span></label>
           <label class="chk radio"><input type="radio" name="visibility" value="own" ${cfg.visibility === 'own' ? 'checked' : ''}><span><b>Recruiters see only their own leads and leads nobody has taken.</b> Admins still see everything.</span></label>
@@ -53,6 +60,7 @@
     if (!admin) return;
     const save = async (body, msg) => { try { await api('/api/settings', { method: 'PUT', body }); S.me = await api('/api/me'); toast(msg); viewSettings(); } catch (err) { fail(err); } };
     $('#tzForm').onsubmit = (e) => { e.preventDefault(); save({ tz: new FormData(e.target).get('tz') }, 'Time zone saved'); };
+    $('#hoursForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ hours: { week: App.readWeek(e.target), minMinutes: +f.get('minMinutes'), grace: +f.get('grace') } }, 'Working hours saved'); };
     $('#visForm').onsubmit = (e) => { e.preventDefault(); save({ visibility: new FormData(e.target).get('visibility') }, 'Saved'); };
     $('#srcForm').onsubmit = (e) => { e.preventDefault(); save({ sources: String(new FormData(e.target).get('sources')).split('\n') }, 'Sources saved'); };
     $('#tplForm').onsubmit = (e) => { e.preventDefault(); readSteps(); save({ checklist: steps.filter((s) => s.label.trim()) }, 'Checklist saved'); };

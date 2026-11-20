@@ -102,17 +102,34 @@ window.App = (() => {
   }
   window.addEventListener('hashchange', render);
 
+  // The menu down the left side (a bar with a menu button on a phone). A screen with its own search and filters
+  // passes them as "extra"; they sit in a green strip at the top of the page.
+  const ICON = {
+    home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h5v-6h4v6h5V9"/>',
+    leads: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
+    onboarding: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.8h6V4"/><path d="m8.5 12.5 2.2 2.2 4.8-4.8"/>',
+    trucks: '<path d="M2 6h11v10H2z"/><path d="M13 9h4.5l3.5 3.8V16h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
+    team: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.4 3-5.4 6-5.4s5.4 2 6 5.4"/><path d="M16 4.9a3.2 3.2 0 0 1 0 6.2M18.2 14.8c1.6.8 2.6 2.6 2.8 5.2"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.2 5.6l2.1 2.1M17.7 16.3l2.1 2.1M2.5 12h3M18.5 12h3M4.2 18.4l2.1-2.1M17.7 7.7l2.1-2.1"/>',
+    password: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+    export: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
+    out: '<path d="M10 4H5v16h5"/><path d="M14 8l4 4-4 4M18 12H9"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>'
+  };
+  const icon = (k) => `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
   function header(active, extra = '') {
     const admin = S.me.role === 'admin';
-    const tabs = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/trucks', 'Trucks', 'trucks'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
-    return `<header class="sign"><div class="o"><div class="plate"><div class="bar">
-      <h1><a href="#/">Recruiting</a></h1>
-      <nav class="tabs" aria-label="Sections">${tabs.map(([href, label, key]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a>`).join('')}</nav>
-      <span class="grow"></span>
-      <details class="menu" id="acct"><summary class="btn ghost">${esc(S.me.name)}</summary><div class="pop">
-        <div class="who">${esc(S.me.email)}<br>${admin ? 'Admin' : 'Recruiter'}</div>
-        <a href="#/settings">${admin ? 'Settings' : 'Change password'}</a>${admin ? '<a href="/api/export.csv">Export all leads (CSV)</a>' : ''}<hr><button data-act="logout">Sign out</button></div></details>
-    </div>${extra}</div></div></header>`;
+    const items = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/trucks', 'Trucks', 'trucks'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
+    const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
+    return `<aside class="rail" id="rail"><div class="o"><div class="plate">
+        <div class="brand"><a href="#/">Recruiting</a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>
+        <div class="railnav" id="railnav">
+          <nav aria-label="Sections">${items.map(link).join('')}</nav>
+          <span class="grow"></span>
+          <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : 'Recruiter'}</span></div>
+            <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + `<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a>` : link(['#/settings', 'Password', 'settings', 'password'])}
+              <button data-act="logout">${icon('out')}<span>Sign out</span></button></nav></div>
+        </div></div></div></aside>${extra ? `<header class="sign"><div class="o"><div class="plate">${extra}</div></div></header>` : ''}`;
   }
   document.addEventListener('click', (e) => { $$('details.menu[open]').forEach((m) => { if (!m.contains(e.target)) m.open = false; }); });
 
@@ -132,6 +149,10 @@ window.App = (() => {
     const fn = changes[el.dataset.ch]; if (!fn) return;
     try { await fn(el, e); } catch (err) { fail(err); }
   });
+  // the menu button on a phone
+  on('navToggle', (b) => { const open = document.body.classList.toggle('navopen'); b.setAttribute('aria-expanded', String(open)); });
+  window.addEventListener('hashchange', () => document.body.classList.remove('navopen'));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.body.classList.contains('navopen')) { document.body.classList.remove('navopen'); const b = $('.navbtn'); if (b) { b.setAttribute('aria-expanded', 'false'); b.focus(); } } });
   // Screens redraw after every save; this puts the keyboard focus back where it was.
   async function redraw(fn) {
     const a = document.activeElement; const fk = a && a.dataset ? a.dataset.fk : ''; const y = window.scrollY;
@@ -173,6 +194,18 @@ window.App = (() => {
   // One line of an activity feed.
   const feedHtml = (rows, showUser) => (rows.length ? `<ol class="feed">${rows.map((f) => `<li><time title="${esc(when(f.at))}">${esc(teamWhen(f.at))}</time><span>${showUser ? `<b>${esc(f.user)}</b> ` : ''}${f.driver ? (f.driverId ? `<a href="#/driver/${f.driverId}">${esc(f.driver)}</a>` : `<span class="gone">${esc(f.driver)}</span>`) + ': ' : ''}${esc(f.text || '')}</span></li>`).join('')}</ol>` : '<p class="hint">Nothing yet.</p>');
 
+  // ---------- working hours: one row per day of the week (Settings and each person's page) ----------
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const ORDER = [1, 2, 3, 4, 5, 6, 0]; // the week starts on Monday on screen
+  const hm = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''} ${h < 12 ? 'AM' : 'PM'}`; };
+  const weekFields = (week) => `<div class="week">${ORDER.map((i) => { const d = week[i]; return `<div class="wrow${d ? '' : ' offd'}" data-dow="${i}">
+      <label class="chk"><input type="checkbox" data-ch="weekDay" ${d ? 'checked' : ''}><span>${DAYS[i]}</span></label>
+      <input type="time" step="900" value="${d ? d.s : '09:00'}" aria-label="${DAYS[i]} start" ${d ? '' : 'disabled'}><span class="mut">to</span>
+      <input type="time" step="900" value="${d ? d.e : '18:00'}" aria-label="${DAYS[i]} end" ${d ? '' : 'disabled'}>
+      <span class="small mut wnote">${d ? '' : 'Day off'}</span></div>`; }).join('')}</div>`;
+  const readWeek = (root) => { const w = Array(7).fill(null); root.querySelectorAll('.wrow').forEach((r) => { const [on, s, e] = r.querySelectorAll('input'); if (on.checked) w[+r.dataset.dow] = { s: s.value, e: e.value }; }); return w; };
+  onChange('weekDay', (el) => { const r = el.closest('.wrow'); r.querySelectorAll('input[type=time]').forEach((t) => { t.disabled = !el.checked; }); r.classList.toggle('offd', !el.checked); r.querySelector('.wnote').textContent = el.checked ? '' : 'Day off'; });
+
   return { $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
-    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml };
+    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, icon, weekFields, readWeek, hm, DAYS };
 })();

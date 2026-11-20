@@ -1,5 +1,6 @@
 // Admin tools (people, access keys, settings, import and export) and the API the Chrome extension syncs with.
 const db = require('./db');
+const hours = require('./api-hours');
 const lib = require('./lib');
 const { q, sha, token, hashPassword } = db;
 const { wrap, needUser, needAdmin, needKey, act, validTz } = lib;
@@ -69,7 +70,7 @@ module.exports = (app) => {
   }));
 
   // ---------- settings ----------
-  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist }));
+  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours }));
   app.put('/api/settings', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const changed = [];
     if (b.tz !== undefined) { if (!validTz(b.tz)) return res.status(400).json({ error: 'That time zone is not known. Use a name like America/New_York.' }); if (b.tz !== db.settings.tz) { await db.saveSetting('tz', b.tz); changed.push('time zone'); } }
@@ -90,8 +91,17 @@ module.exports = (app) => {
       if (!list.length) return res.status(400).json({ error: 'The checklist needs at least one step' });
       if (JSON.stringify(list) !== JSON.stringify(db.settings.checklist)) { await db.saveSetting('checklist', list); await applyTemplate(list); changed.push('onboarding checklist'); }
     }
+    if (b.hours !== undefined) {
+      const h = b.hours || {}; let week;
+      try { week = hours.cleanWeek(h.week); } catch (e) { return res.status(400).json({ error: e.message }); }
+      const minMinutes = Math.round(+h.minMinutes), grace = Math.round(+h.grace);
+      if (!(minMinutes >= 1 && minMinutes <= 600)) return res.status(400).json({ error: 'Minimum active time for a worked day: 1 to 600 minutes' });
+      if (!(grace >= 0 && grace <= 180)) return res.status(400).json({ error: 'Late after: 0 to 180 minutes' });
+      const v = { week, minMinutes, grace };
+      if (JSON.stringify(v) !== JSON.stringify(db.settings.hours)) { await db.saveSetting('hours', v); changed.push(`working hours (${hours.weekText(week)})`); }
+    }
     if (changed.length) await act(req.user, 'admin', null, `Changed settings: ${changed.join(', ')}`);
-    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist });
+    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours });
   }));
 
   // ---------- export and import ----------
