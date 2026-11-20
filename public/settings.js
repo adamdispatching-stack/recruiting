@@ -20,6 +20,10 @@
       <section class="card"><h3>Team time zone</h3>
         <p class="hint lead">Reports count a day from midnight to midnight in this time zone, and "today" for follow-ups starts here. Pick the zone your recruiters' working day belongs to, so one shift is one day.</p>
         <form id="tzForm" class="form"><label class="fld">Time zone<select name="tz">${(ZONES.some(([z]) => z === cfg.tz) ? ZONES : [[cfg.tz, cfg.tz]].concat(ZONES)).map(([z, l]) => `<option value="${z}" ${z === cfg.tz ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label><button class="btn primary">Save</button></form></section>
+      <section class="card" id="fbtargets"><h3>Facebook daily targets</h3>
+        <p class="hint lead">What each recruiter should log on the Facebook page every working day. 0 means it is not asked for.</p>
+        <form id="fbtForm" class="form">${[['post', 'Posts in groups (with the ad picture)'], ['comment', 'Comments on ads (with a screenshot)'], ['contact', 'Drivers messaged'], ['chat', 'Group chats joined']].map(([k, l]) => `<label class="fld">${l}<input name="${k}" type="number" min="0" max="200" required value="${(cfg.fbTargets || {})[k] ?? 0}"></label>`).join('')}
+          <button class="btn primary">Save targets</button></form></section>
       <section class="card" id="sharing"><h3>Sharing new leads</h3>
         <p class="hint lead">New leads from the Chrome extension go to the recruiter who has been given the fewest leads today, so everyone gets the same number. Someone on a day off or not working today is skipped. Leads a recruiter adds themselves stay theirs and don't count. Only an admin can change who a lead belongs to.</p>
         <form id="shareForm"><label class="chk"><input type="checkbox" name="on" ${sh.on ? 'checked' : ''}> Share new leads evenly</label>
@@ -78,6 +82,7 @@
     const save = async (body, msg) => { try { await api('/api/settings', { method: 'PUT', body }); S.me = await api('/api/me'); toast(msg); viewSettings(); } catch (err) { fail(err); } };
     $('#tzForm').onsubmit = (e) => { e.preventDefault(); save({ tz: new FormData(e.target).get('tz') }, 'Time zone saved'); };
     $('#callForm').onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target); const lines = (k) => String(f.get(k) || '').split('\n').map((x) => x.trim()).filter(Boolean); await save({ callPoints: { company: lines('company'), owner: lines('owner') } }, 'Talking points saved'); await App.reloadMe(); };
+    $('#fbtForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ fbTargets: { post: +f.get('post'), comment: +f.get('comment'), contact: +f.get('contact'), chat: +f.get('chat') } }, 'Targets saved'); };
     $('#shareForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ share: { on: !!f.get('on'), people: f.getAll('p').map(Number) } }, 'Saved'); };
     $('#hoursForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ hours: { week: App.readWeek(e.target), minMinutes: +f.get('minMinutes'), grace: +f.get('grace'), idleMinutes: +f.get('idleMinutes'), idleAlert: +f.get('idleAlert') } }, 'Working hours saved'); };
     $('#visForm').onsubmit = (e) => { e.preventDefault(); save({ visibility: new FormData(e.target).get('visibility') }, 'Saved'); };

@@ -180,6 +180,40 @@ async function migrate() {
       note TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS checklist_key ON checklist(driver_id, key);
+    -- Facebook work recruiters log each day: posts in groups, comments, drivers messaged, group chats joined
+    CREATE TABLE IF NOT EXISTS fb_images (
+      id SERIAL PRIMARY KEY,
+      user_id INT REFERENCES users(id) ON DELETE SET NULL,
+      mime TEXT NOT NULL,
+      bytes BYTEA NOT NULL,
+      sha TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS fb_images_sha ON fb_images(sha);
+    CREATE TABLE IF NOT EXISTS fb_entries (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day DATE NOT NULL,                       -- the working day it counts for (team time zone)
+      kind TEXT NOT NULL,                      -- post | comment | contact | chat
+      link TEXT,                               -- the post, the commented ad, the driver's profile, the group chat
+      link_key TEXT,                           -- the link without tracking bits, to catch the same one twice
+      group_name TEXT,
+      group_link TEXT,
+      person_name TEXT,
+      answers JSONB NOT NULL DEFAULT '{}'::jsonb,  -- contact: otr, cdlA (yes/no), phone
+      outcome TEXT,                            -- contact: messaged | replied | interested | not interested
+      note TEXT,
+      image_id INT REFERENCES fb_images(id) ON DELETE SET NULL,
+      review TEXT,                             -- ok | problem (admin)
+      review_note TEXT,
+      reviewed_by INT REFERENCES users(id) ON DELETE SET NULL,
+      reviewed_at TIMESTAMPTZ,
+      driver_id INT REFERENCES drivers(id) ON DELETE SET NULL,  -- the lead made from a contact
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS fb_entries_day ON fb_entries(day, user_id);
+    CREATE INDEX IF NOT EXISTS fb_entries_link ON fb_entries(kind, link_key);
     -- a stretch of working hours with no activity on the website (only long ones are kept)
     CREATE TABLE IF NOT EXISTS idle_spells (
       id SERIAL PRIMARY KEY,
@@ -299,6 +333,8 @@ const DEFAULTS = {
   ],
   // Working hours in the team time zone. week[0] is Sunday; null = not a working day.
   // A working day counts as worked with at least minMinutes of active time; starting more than grace minutes late is a late start.
+  // Facebook daily targets for each recruiter (0 = not asked for)
+  fbTargets: { post: 5, comment: 15, contact: 20, chat: 2 },
   // New leads are shared evenly between recruiters (people: null = every active recruiter who is not an admin)
   share: { on: true, people: null },
   // What a recruiter mentions on a call (Settings, Call guide). From the company facts the Chrome extension's AI uses.

@@ -71,7 +71,7 @@ module.exports = (app) => {
   }));
 
   // ---------- settings ----------
-  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share }));
+  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets }));
   app.put('/api/settings', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const changed = [];
     if (b.tz !== undefined) { if (!validTz(b.tz)) return res.status(400).json({ error: 'That time zone is not known. Use a name like America/New_York.' }); if (b.tz !== db.settings.tz) { await db.saveSetting('tz', b.tz); changed.push('time zone'); } }
@@ -91,6 +91,11 @@ module.exports = (app) => {
       }).filter(Boolean).slice(0, 40);
       if (!list.length) return res.status(400).json({ error: 'The checklist needs at least one step' });
       if (JSON.stringify(list) !== JSON.stringify(db.settings.checklist)) { await db.saveSetting('checklist', list); await applyTemplate(list); changed.push('onboarding checklist'); }
+    }
+    if (b.fbTargets !== undefined) {
+      const t = b.fbTargets || {}; const v = {};
+      for (const k of ['post', 'comment', 'contact', 'chat']) { const n = Math.round(+t[k]); if (!(n >= 0 && n <= 200)) return res.status(400).json({ error: 'Daily targets: a number from 0 to 200' }); v[k] = n; }
+      if (JSON.stringify(v) !== JSON.stringify(db.settings.fbTargets)) { await db.saveSetting('fbTargets', v); changed.push(`Facebook daily targets (${v.post} posts, ${v.comment} comments, ${v.contact} drivers messaged, ${v.chat} group chats)`); }
     }
     if (b.share !== undefined) {
       const sh = b.share || {}; const ids = Array.isArray(sh.people) ? [...new Set(sh.people.map((x) => +x).filter(Boolean))] : null;
@@ -115,7 +120,7 @@ module.exports = (app) => {
       if (JSON.stringify(v) !== JSON.stringify(db.settings.hours)) { await db.saveSetting('hours', v); changed.push(`working hours (${hours.weekText(week)})`); }
     }
     if (changed.length) await act(req.user, 'admin', null, `Changed settings: ${changed.join(', ')}`);
-    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share });
+    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets });
   }));
 
   // ---------- export and import ----------

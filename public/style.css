@@ -1049,3 +1049,59 @@ table.obt tbody tr.brow.azrow:hover>th,table.obt tbody tr.brow.azrow:hover>td{ba
 .rbtag{display:inline-block;padding:1px 9px;border-radius:7px;font-size:12.5px;font-weight:700;white-space:nowrap}
 .rbtag.yes{background:#FFE9C7;color:#7A4B00}
 .rbtag.no{background:#EEF0EC;color:#5C635E}
+
+/* Facebook work */
+.fbday{display:flex;align-items:center;gap:10px;margin:0 0 12px;flex-wrap:wrap}
+.fbday b{font-size:16px;color:var(--head)}
+.fbscore{padding:4px 12px;border-radius:9px;background:#FDF1D3;color:#6B4A00;font-weight:800;font-size:13.5px}
+.fbscore.met{background:var(--green-t);color:#12451F}
+.fbtiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:14px}
+.fbtile{display:flex;flex-direction:column;gap:4px;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);text-decoration:none;box-shadow:var(--shadow)}
+.fbtile .n{font-size:14px;color:var(--mut)}
+.fbtile .n b{font-size:24px;color:var(--head);margin-right:3px}
+.fbtile .l{font-weight:700;font-size:13.5px}
+.fbtile .pbar{margin-top:4px}
+.fbtile.done{border-color:#A9D38E;background:#F7FBF1}
+.fbsec h3{display:flex;align-items:center;gap:10px}
+.fbsec h3 .cnt{padding:2px 10px;border-radius:8px;background:#F1F1EE;color:var(--mut);font-size:13px;font-weight:700}
+.fbsec>.hint{margin-top:-4px}
+.fbnone{padding:10px 12px;border:1px dashed var(--hair);border-radius:10px}
+.fblist{margin:6px 0 0;padding:0;list-style:none}
+.fbe{display:flex;align-items:flex-start;gap:12px;padding:10px 4px;border-top:1px solid var(--hair)}
+.fbe:first-child{border-top:0}
+.fbe.problem{background:#FFF5F3;border-radius:10px;padding:10px}
+.fbimg{flex:none;display:block;width:76px;height:76px;border-radius:9px;overflow:hidden;border:1px solid var(--line);background:#F4F4F1}
+.fbimg img{width:100%;height:100%;object-fit:cover;display:block}
+.fbmain{flex:1;min-width:0;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.fbside{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:5px;text-align:right}
+.fbacts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;align-items:center}
+.fbacts .btn.ok{border-color:#9FCBB2;color:#12451F}
+.fbacts .btn.bad{border-color:#E8B4AC;color:#8A2418}
+.rvtag{padding:1px 8px;border-radius:7px;font-size:12px;font-weight:700;white-space:nowrap}
+.rvtag.ok{background:var(--green-t);color:#12451F}
+.rvtag.bad{background:#FBE4E1;color:#7A1D15}
+.rvtag.wait{background:#F1F1EE;color:#6B6F6C}
+.rvnote{margin-top:6px;padding:6px 10px;border-radius:8px;background:#FBE4E1;color:#7A1D15;font-size:13.5px}
+.otag{font-weight:700}
+.otag.o-interested{color:#12451F}.otag.o-not-interested{color:#8A2418}
+.fbadd{margin-top:10px;border:1px solid var(--hair);border-radius:11px}
+.fbadd>summary{padding:10px 14px;font-weight:800;color:#05652D;cursor:pointer;list-style:none}
+.fbadd>summary::before{content:'+ '}
+.fbadd[open]>summary{border-bottom:1px solid var(--hair)}
+.fbform{padding:12px 14px}
+.fbgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+.fbgrid .wide,.fbgrid .picbox{grid-column:1/-1}
+.drop{display:flex;align-items:center;gap:12px;min-height:76px;padding:10px 14px;border:2px dashed #C9D4C5;border-radius:11px;background:#FAFCF8;color:var(--mut);cursor:pointer;font-size:13.5px}
+.drop.over{border-color:#087033;background:#EEF6E6}
+.drop.busy{opacity:.6}
+.drop img{width:64px;height:64px;object-fit:cover;border-radius:8px}
+.fbflag{border-left:5px solid #D9534F}
+table.fbteam{min-width:900px}
+table.fbteam td.fbok{color:#12451F;font-weight:800}
+table.fbteam td.fbshort{color:#8A2418;font-weight:700}
+table.fbteam tbody tr{cursor:pointer}
+.fbdone{display:flex;align-items:center;gap:8px}.fbdone .pbar{flex:1;margin:0;min-width:70px}
+.fbcell{font-weight:700;color:var(--ink);text-decoration:none}.fbcell.met{color:#12451F}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+@media (max-width:700px){ .fbgrid{grid-template-columns:minmax(0,1fr)} .fbe{flex-wrap:wrap} .fbside{align-items:flex-start;text-align:left} }
+.fbgrid .fld{display:flex;flex-direction:column;gap:4px}.fbgrid .fld input:not([type=file]):not([type=hidden]),.fbgrid .fld select{width:100%;box-sizing:border-box}

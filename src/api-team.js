@@ -1,6 +1,7 @@
 // Activity tracking, the Team pages, and the dashboard.
 const db = require('./db');
 const idle = require('./idle');
+const fb = require('./api-fb');
 const lib = require('./lib');
 const hours = require('./api-hours');
 const { q } = db;
@@ -106,7 +107,8 @@ module.exports = (app) => {
     const r = await range(req.query.period);
     const people = await teamStats(r);
     const att = await hours.attendance(await hours.loadPeople(people.map((p) => p.id)), r.fromDate, r.toDate);
-    for (const p of people) { const a = att[p.id]; p.att = a.totals; p.weekText = a.weekText; if (r.days === 1) { const d = a.days[0]; p.day = { status: d.status, late: d.late, early: d.early, sch: d.sch, offReason: d.offReason, idle: d.idle, idles: d.idles }; } }
+    const fbC = r.days === 1 ? await fb.counts(people.map((p) => p.id), r.fromDate, r.fromDate) : null;
+    for (const p of people) { if (fbC) p.fb = fb.score(fbC[p.id]); const a = att[p.id]; p.att = a.totals; p.weekText = a.weekText; if (r.days === 1) { const d = a.days[0]; p.day = { status: d.status, late: d.late, early: d.early, sch: d.sch, offReason: d.offReason, idle: d.idle, idles: d.idles }; } }
     res.json({ now: new Date().toISOString(), period: r.period, days: r.days, tz: r.tz, today: r.today, people });
   }));
   // One person: numbers, time by hour or by day, sign-ins, and everything they did. Admins see anyone; a recruiter sees their own page.
