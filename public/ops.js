@@ -133,30 +133,51 @@
     const arriving = r.drivers.filter((d) => !d.arrivedOn && d.expectedArrival && d.expectedArrival >= t && d.expectedArrival <= addDays(t, 7)).length;
     const late = r.drivers.filter((d) => !d.arrivedOn && d.expectedArrival && d.expectedArrival < t).length;
     const ready = r.drivers.filter((d) => d.items.length && d.items.every((i) => i.done)).length;
-    const rows = r.drivers.map((d) => {
-      const done = d.items.filter((i) => i.done).length, total = d.items.length, isOpen = open.has(d.id);
-      const isLate = !d.arrivedOn && d.expectedArrival && d.expectedArrival < t;
-      const arrival = d.arrivedOn ? `<span class="okt">Arrived ${esc(dateText(d.arrivedOn))}</span>` : d.expectedArrival ? `${esc(dateText(d.expectedArrival, { weekday: 'short' }))}${isLate ? '<span class="latetag">Late</span>' : ''}` : '<span class="none">No date yet</span>';
-      const step = (i, k) => `<li class="${i.done ? 'done' : ''}${d.items[k + 1] && d.items[k + 1].done && i.done ? ' linked' : ''}">
+    const days = (a, b) => Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 864e5);
+    const SOON = 3; // arriving within this many days (or late, or no date yet) is worked now; later ones are followed up
+    const isSoon = (d) => d.arrivedOn || !d.expectedArrival || days(t, d.expectedArrival) <= SOON;
+    const whenText = (d) => {
+      if (d.arrivedOn) return `<span class="okt">Arrived ${esc(dateText(d.arrivedOn))}</span>`;
+      if (!d.expectedArrival) return '<span class="latetag">No date yet</span>';
+      const n = days(t, d.expectedArrival); const day = esc(dateText(d.expectedArrival, { weekday: 'short' }));
+      return `<b>${day}</b> <span class="${n < 0 ? 'latetag' : 'small mut'}">${n < 0 ? `Late ${plural(-n, 'day')}` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`}</span>`;
+    };
+    const step = (d, i, k) => `<li class="${i.done ? 'done' : ''}${d.items[k + 1] && d.items[k + 1].done && i.done ? ' linked' : ''}">
           <button class="dot" data-act="boardStep" data-step="${i.id}" data-done="${i.done ? 1 : 0}" ${LOCKED.includes(i.auto) ? 'disabled title="Ticks itself from the driver\'s page"' : ''} aria-pressed="${i.done}" aria-label="${esc(i.label)}: ${i.done ? 'done' : 'not done'}${LOCKED.includes(i.auto) ? ', ticks itself' : ''}">${i.done ? '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 8.4 3 3 6-6.4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}</button>
           <span>${esc(i.label)}</span>${i.note ? `<small title="${esc(i.note)}">Note</small>` : ''}</li>`;
-      return `<tr class="brow${isOpen ? ' open' : ''}" data-driver="${d.id}"><th scope="row"><div class="who1">${App.avatar(d.name, 'sm')}<div><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>
-          <div class="small mut"><span class="gdot"></span>Onboarding, day ${daysSince(d.startedAt) + 1}</div>${d.companyId ? `<div>${App.coTag(d.companyId)}</div>` : ''}</div></div></th>
-        <td>${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}</td>
-        <td><span class="daypill">Day ${daysSince(d.startedAt) + 1}</span></td>
-        <td class="tk">${d.truck ? `<b>${esc(d.truck.unit)}</b>` : '<span class="none">None yet</span>'}</td>
-        <td class="arr" title="${esc(d.arrivalNote || '')}">${arrival}${d.telegramLink ? `<div><a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram group</a></div>` : ''}</td>
-        <td><div class="small"><b>${done} of ${total}</b> steps done</div><span class="pbar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span></td>
-        <td class="n"><span class="cpill${done === total && total ? ' full' : ''}">${done} of ${total}</span></td>
+    const row = (d) => {
+      const done = d.items.filter((i) => i.done).length, total = d.items.length, isOpen = open.has(d.id);
+      const next = d.items.find((i) => !i.done); const oo = d.mode === 'Owner-operators';
+      const facts = [d.location, d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'yr')} CDL` : '', App.periodText(d)].filter(Boolean).map(esc).join(' · ');
+      const truck = oo && !d.truck ? (d.ownTruck ? `<b>Own</b> <span class="small mut">${esc(d.ownTruck)}</span>` : '<span class="none">Own truck, not noted</span>')
+        : d.truck ? `<b>${esc(d.truck.unit)}</b>${d.truck.details ? ` <span class="small mut">${esc(d.truck.details)}</span>` : ''}` : '<span class="latetag">No truck yet</span>';
+      return `<tr class="brow${isOpen ? ' open' : ''}" data-driver="${d.id}"><th scope="row"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><span class="obday">day ${daysSince(d.startedAt) + 1}</span>
+          ${facts ? `<div class="small mut ofacts">${facts}</div>` : ''}</th>
+        <td>${(d.phones || []).slice(0, 1).map((p) => App.phone(p)).join('') || '<span class="none">No phone</span>'}</td>
+        <td>${d.companyId ? App.coTag(d.companyId) : '<span class="none">Not set</span>'}</td>
+        <td class="tk">${truck}</td>
+        <td class="arr" title="${esc(d.arrivalNote || '')}">${whenText(d)}${d.arrivalNote ? `<div class="small mut clip1">${esc(d.arrivalNote)}</div>` : ''}</td>
+        <td><div class="obprog"><span class="pbar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span><span class="cpill${done === total && total ? ' full' : ''}">${done}/${total}</span></div>
+          <div class="small mut clip1">${next ? `Next: ${esc(next.label)}` : 'All done, ready to mark hired'}</div></td>
+        <td class="small">${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}${d.telegramLink ? `<div><a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram</a></div>` : ''}</td>
         <td><button class="caret" data-act="boardOpen" aria-expanded="${isOpen}" aria-label="${isOpen ? 'Hide' : 'Show'} the checklist for ${esc(d.name)}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td></tr>
         ${isOpen ? `<tr class="ostep"><td colspan="8"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
-          <ol class="stepper">${d.items.map(step).join('')}</ol>
+          <ol class="stepper">${d.items.map((i, k) => step(d, i, k)).join('')}</ol>
           <p class="note-i">Truck and arrival steps tick themselves when you fill them in on the driver's page. Click a circle to tick or untick a step.</p></td></tr>` : ''}`;
-    }).join('');
+    };
+    const table = (list, title, oo) => list.length ? `<h3 class="obsub">${title} <span class="cnt">${list.length}</span></h3>
+      <div class="sheet"><table class="board2 obt"><colgroup><col style="width:20%"><col style="width:148px"><col style="width:10%"><col style="width:15%"><col style="width:16%"><col><col style="width:10%"><col style="width:40px"></colgroup>
+        <thead><tr><th>Driver</th><th>Phone</th><th>Company</th><th>${oo ? 'Their truck' : 'Truck'}</th><th>Arrival</th><th>Progress</th><th>Recruiter</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : '';
+    const byType = (list) => {
+      const co = list.filter((d) => d.mode !== 'Owner-operators'), oo = list.filter((d) => d.mode === 'Owner-operators');
+      return table(co, 'Company drivers', false) + table(oo, 'Owner operators', true);
+    };
+    const soon = r.drivers.filter(isSoon), later = r.drivers.filter((d) => !isSoon(d));
     view.innerHTML = header('onboarding') + `<main>${App.pageHead('Driver onboarding', "Track each driver's onboarding progress and readiness to be hired.")}
       <div class="tiles">${tile('people', r.drivers.length, 'in onboarding', { on: true })}${tile('cal', arriving, 'arriving in the next 7 days')}${tile('warn', late, 'past the expected arrival date', { tone: late ? 'y' : '' })}${tile('check', ready, 'ready to mark hired')}${tile('truck', r.emptyTrucks, 'empty trucks', { href: '#/trucks' })}</div>
-      ${r.drivers.length ? `<div class="sheet"><table class="board2"><colgroup><col style="width:26%"><col style="width:13%"><col style="width:90px"><col style="width:90px"><col style="width:13%"><col><col style="width:90px"><col style="width:50px"></colgroup>
-        <thead><tr><th>Driver</th><th>Recruiter</th><th>Day</th><th>Truck</th><th>Arrival</th><th>Onboarding progress</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      ${r.drivers.length ? `<section class="obsec"><h2>Arriving in the next ${SOON} days <span class="cnt">${soon.length}</span></h2><p class="hint">Late arrivals, drivers with no arrival date yet, and drivers already at the truck are here too.</p>
+          ${soon.length ? byType(soon) : '<p class="hint obnone">Nobody is arriving in the next 3 days.</p>'}</section>
+        ${later.length ? `<section class="obsec later"><h2>Follow up: arriving in more than ${SOON} days <span class="cnt">${later.length}</span></h2><p class="hint">Check in with them before the day, so the truck is ready and they still plan to come.</p>${byType(later)}</section>` : ''}`
         : `<div class="emptycard"><div class="emptyart">${App.ART.truck}<h2>Nobody is in onboarding.</h2><p>Open a lead and choose Start onboarding. The driver gets these steps: ${esc(r.template.map((c) => c.label).join(', '))}.</p><a class="btn primary lg" href="#/leads">Go to leads</a></div></div>`}
       ${r.hired.length ? `<section class="card" style="margin-top:16px"><h3>Hired in the last 30 days</h3><ul class="list">${r.hired.map((d) => `<li><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> ${App.coTag(d.companyId)} <span class="small mut">${d.ownerId ? esc(person(d.ownerId)) + "'s lead" : ''}</span></span>
         <span class="small mut">${d.truck ? 'Truck ' + esc(d.truck) + ', ' : ''}hired ${esc(dateText(dayOf(d.hiredAt)))}, ${plural(Math.max(1, Math.round((new Date(d.hiredAt) - new Date(d.startedAt)) / 864e5)), 'day')} in onboarding</span></li>`).join('')}</ul></section>` : ''}

@@ -924,3 +924,31 @@ table.leads .assign select{max-width:145px}
 .sharet td{padding:8px;border-bottom:1px solid var(--hair)}
 .nextpill{margin-left:6px;padding:2px 8px;border-radius:8px;background:var(--green-t);color:#12451F;font-size:12px;font-weight:700}
 #sharing .drow{margin-top:12px}
+
+/* onboarding: compact tables, split by arrival and driver type */
+.obsec{margin-top:18px}
+.obsec>h2{display:flex;align-items:center;gap:8px;margin:0 0 2px;font-size:19px;color:var(--head)}
+.obsec>.hint{margin:0 0 10px}
+.obsec.later>h2{color:#6B4A00}
+.obsec .cnt{padding:1px 9px;border-radius:8px;background:var(--green-t);color:#12451F;font-size:13px;font-weight:700}
+.obsec.later .cnt{background:#FDF1D3;color:#6B4A00}
+.obsub{display:flex;align-items:center;gap:8px;margin:14px 0 6px;font-size:14.5px;font-weight:800;color:var(--head)}
+.obsub .cnt{font-size:12px}
+.obnone{padding:14px;border:1px dashed var(--hair);border-radius:10px}
+table.obt{min-width:980px}
+table.obt th,table.obt td{padding:7px 10px;font-size:13.5px;line-height:1.3}
+table.obt thead th{padding:7px 10px;font-size:12px}
+table.obt th[scope=row]{padding:7px 10px}
+.obday{margin-left:7px;padding:1px 7px;border-radius:6px;background:var(--green-t);color:#12451F;font-size:11.5px;font-weight:700;white-space:nowrap}
+.ofacts{margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clip1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.obt td.tk{white-space:normal}
+table.obt td.tk .small{display:block}
+table.obt td.arr{white-space:normal}
+.obprog{display:flex;align-items:center;gap:8px}
+.obprog .pbar{flex:1;margin:0;height:7px}
+.obprog .cpill{padding:1px 8px;font-size:12px}
+table.obt .caret{width:28px;height:28px}
+table.obt td.arr .small,table.obt td.arr .latetag{white-space:nowrap}
+table.obt .cpy{margin-left:4px}
+table.obt .phw{white-space:nowrap}table.obt .ph{font-size:13.5px}
