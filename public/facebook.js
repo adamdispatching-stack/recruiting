@@ -87,6 +87,7 @@
         ${(mine || admin) && editable && e.review !== 'ok' ? '<button class="linkbtn" data-act="fbEdit">Edit</button>' : ''}${(mine && editable && e.review !== 'ok') || admin ? '<button class="linkbtn red" data-act="fbDel">Remove</button>' : ''}</div></div></li>`;
   }
 
+  const tabs = (on) => `<nav class="fbtabs" aria-label="Facebook pages">${[['day', S.me.role === 'admin' ? 'Team' : 'My day', S.me.role === 'admin' ? '#/facebook?user=team' : '#/facebook'], ['groups', 'Groups', '#/facebook/groups']].map(([k, l, h]) => `<a href="${h}"${k === on ? ' class="on" aria-current="page"' : ''}>${l}</a>`).join('')}</nav>`;
   let shown = null;
   async function viewFb(params) {
     const admin = S.me.role === 'admin';
@@ -101,7 +102,7 @@
     const tile = (x) => { const n = c[x.k] || 0, goal = t[x.k] || 0; const pc = goal ? Math.min(100, Math.round((n / goal) * 100)) : 100;
       return `<a class="fbtile${goal && n >= goal ? ' done' : ''}" href="#fb-${x.k}"><span class="n"><b>${n}</b>${goal ? ` of ${goal}` : ''}</span><span class="l">${x.title}</span><span class="pbar"><i style="width:${pc}%"></i></span></a>`; };
     const list = (k) => r.entries.filter((e) => e.kind === k);
-    view.innerHTML = header('facebook') + `<main>${App.pageHead(mine ? 'Facebook work' : `Facebook work: ${esc(r.person.name)}`,
+    view.innerHTML = header('facebook') + `<main>${tabs(mine || !admin ? 'day' : '')}${App.pageHead(mine ? 'Facebook work' : `Facebook work: ${esc(r.person.name)}`,
       mine ? 'Log each post, comment, driver and group chat as you do it, with the link and the picture. The admin checks them.' : `What ${esc(r.person.name)} logged. Mark each entry OK, or Problem with a note they will see.`,
       admin ? '<a class="btn plain" href="#/facebook?user=team">Team</a>' : '')}
       <div class="fbday"><a class="btn plain sm" href="${nav(addDays(r.day, -1))}" aria-label="Day before">‹</a><b>${esc(dateText(r.day, { weekday: 'long', month: 'long', day: 'numeric' }))}${isToday ? ' (today)' : ''}</b>
@@ -116,7 +117,11 @@
         ${list(x.k).length ? `<ul class="fblist">${list(x.k).map((e) => entryHtml(e, admin, mine, isToday)).join('')}</ul>` : '<p class="hint fbnone">Nothing logged yet.</p>'}
         ${(mine && isToday) || admin ? `<details class="fbadd"${mine && isToday && list(x.k).length < (t[x.k] || 0) && x.k === firstOpen(r) ? ' open' : ''}><summary>Add a ${x.one}</summary>${form(x.k, r.groups)}</details>` : ''}</section>`).join('')}
     </main>`;
-    document.querySelectorAll('.fbform').forEach((f) => { wirePicture(f); f.onsubmit = (e) => save(e, f); });
+    document.querySelectorAll('.fbform').forEach((f) => { wirePicture(f); wireGroupPick(f, r.groups); f.onsubmit = (e) => save(e, f); });
+  }
+  function wireGroupPick(f, groups) {
+    const n = f.querySelector('[name=groupName]'), l = f.querySelector('[name=groupLink]'); if (!n || !l) return;
+    n.addEventListener('input', () => { const g = groups.find((x) => x.name.toLowerCase() === n.value.trim().toLowerCase()); if (g && g.link && !l.value) l.value = g.link; });
   }
   const firstOpen = (r) => (KINDS.find((x) => (r.counts[x.k] || 0) < (r.targets[x.k] || 0)) || {}).k;
 
@@ -134,7 +139,7 @@
     const [r, g] = await Promise.all([api('/api/fb/team' + (day ? '?day=' + day : '')), api('/api/fb/groups')]); if (!live()) return;
     const t = r.targets; const nav = (d) => `#/facebook?user=team&day=${d}`;
     const cell = (p, k) => { const n = p.counts[k] || 0, goal = t[k] || 0; return `<td class="n${goal && n >= goal ? ' fbok' : goal && n < goal && r.day < r.today ? ' fbshort' : ''}">${n}${goal ? `<span class="mut"> / ${goal}</span>` : ''}</td>`; };
-    view.innerHTML = header('facebook') + `<main>${App.pageHead('Facebook work', "Each recruiter's posts, comments, drivers messaged and group chats against the daily targets. Open a person to check their links and pictures.", '<a class="btn plain" href="#/settings">Daily targets</a>')}
+    view.innerHTML = header('facebook') + `<main>${tabs('day')}${App.pageHead('Facebook work', "Each recruiter's posts, comments, drivers messaged and group chats against the daily targets. Open a person to check their links and pictures.", '<a class="btn plain" href="#/settings">Daily targets</a>')}
       <div class="fbday"><a class="btn plain sm" href="${nav(addDays(r.day, -1))}" aria-label="Day before">‹</a><b>${esc(dateText(r.day, { weekday: 'long', month: 'long', day: 'numeric' }))}${r.day === r.today ? ' (today)' : ''}</b>
         ${r.day < r.today ? `<a class="btn plain sm" href="${nav(addDays(r.day, 1))}" aria-label="Next day">›</a><a class="linkbtn" href="${nav(r.today)}">Today</a>` : ''}</div>
       <div class="sheet"><table class="fbteam"><thead><tr><th>Recruiter</th><th class="n">Posts</th><th class="n">Comments</th><th class="n">Drivers messaged</th><th class="n">Group chats</th><th>Done</th><th class="n">To check</th><th class="n">Problems</th><th>Last entry</th></tr></thead>
@@ -142,8 +147,8 @@
           <td><div class="fbdone"><span class="pbar"><i style="width:${p.score.target ? Math.round((p.score.done / p.score.target) * 100) : 0}%"></i></span><b>${p.score.target ? Math.round((p.score.done / p.score.target) * 100) : 0}%</b></div></td>
           <td class="n">${p.counts.unreviewed || '<span class="none">0</span>'}</td><td class="n${p.counts.problems ? ' bad' : ''}">${p.counts.problems || '<span class="none">0</span>'}</td>
           <td class="small">${p.lastAt ? esc(new Date(p.lastAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : '<span class="none">Nothing yet</span>'}</td></tr>`).join('') || '<tr><td colspan="9" class="hint">No recruiters yet.</td></tr>'}</tbody></table></div>
-      <section class="card" style="margin-top:16px"><h3>Groups the team posts in</h3>
-        ${g.groups.length ? `<div class="scroll"><table class="mini"><thead><tr><th>Group</th><th class="n">Posts</th><th>Last post</th></tr></thead><tbody>${g.groups.map((x) => `<tr><td>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a>` : esc(x.name)}</td><td class="n">${x.posts}</td><td>${esc(dateText(x.lastDay))} by ${esc(x.lastBy)}</td></tr>`).join('')}</tbody></table></div>`
+      <section class="card" style="margin-top:16px"><h3><span class="grow">Groups the team posts in</span><a class="btn plain sm" href="#/facebook/groups">Open the group list</a></h3>
+        ${g.groups.filter((x) => x.posts).length ? `<div class="scroll"><table class="mini"><thead><tr><th>Group</th><th class="n">Posts</th><th>Last post</th><th class="n">Team members in it</th></tr></thead><tbody>${g.groups.filter((x) => x.posts).sort((a, b) => (b.lastDay || '').localeCompare(a.lastDay || '')).slice(0, 15).map((x) => `<tr><td><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a></td><td class="n">${x.posts}</td><td>${esc(dateText(x.lastDay))} by ${esc(x.lastBy)}</td><td class="n">${x.team.filter((m) => m.status === 'joined').length}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="hint">No posts logged yet.</p>'}</section></main>`;
   }
   document.addEventListener('click', (e) => { const r = e.target.closest('table.fbteam tr[data-u]'); if (r && !e.target.closest('a')) App.go(`#/facebook?user=${r.dataset.u}&day=${shown && st.day ? st.day : ''}`); });
@@ -185,5 +190,61 @@
     });
   });
 
+  // ---------- the team's list of Facebook groups ----------
+  const AUDL = { 'owner operators': 'Owner operators', 'company drivers': 'Company drivers', 'cdl drivers': 'CDL drivers (all)', dispatchers: 'Dispatchers', other: 'Other' };
+  const big = (n) => (n == null ? '' : n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? (n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, '') + 'K' : String(n));
+  const gf = { show: 'all', aud: '', q: '' }; let glist = null;
+  const groupForm = (g = {}) => `<form class="fbform" id="grpForm"><div class="fbgrid">
+      <label class="fld">Group name<input type="text" name="name" required maxlength="150" value="${esc(g.name || '')}" placeholder="e.g. Owner Operators Northeast"></label>
+      <label class="fld">Group link<input name="link" type="url" required value="${esc(g.link || '')}" placeholder="https://www.facebook.com/groups/…"></label>
+      <label class="fld">Who it is for<select name="audience"><option value="">Choose</option>${Object.entries(AUDL).map(([v, l]) => `<option value="${v}" ${g.audience === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="fld">Members<input type="text" name="members" value="${g.members ?? ''}" placeholder="e.g. 45200 or 45K"></label>
+      <label class="fld">Public or private<select name="privacy"><option value="">Not sure</option><option value="public" ${g.privacy === 'public' ? 'selected' : ''}>Public</option><option value="private" ${g.privacy === 'private' ? 'selected' : ''}>Private</option></select></label>
+      <label class="fld">Posts checked by the admins first?<select name="approval"><option value="">Not sure</option><option value="yes" ${g.approval === 'yes' ? 'selected' : ''}>Yes, posts wait for approval</option><option value="no" ${g.approval === 'no' ? 'selected' : ''}>No, posts go up right away</option></select></label>
+      ${g.id ? '' : '<label class="fld">You<select name="mine"><option value="joined">I joined it</option><option value="requested">I asked to join, waiting</option><option value="">Not joined yet</option></select></label>'}
+      <label class="fld wide">Notes (rules, best time to post, what works)<input type="text" name="notes" maxlength="500" value="${esc(g.notes || '')}"></label></div>
+      <p class="err" role="alert"></p><div class="drow"><button class="btn primary">${g.id ? 'Save changes' : 'Add the group'}</button>${g.id ? '<button type="button" class="btn plain" data-act="closeDialog">Cancel</button>' : ''}</div></form>`;
+  async function viewGroups() {
+    document.title = 'Facebook groups · FleetHire';
+    const live = App.drawing(); const r = await api('/api/fb/groups'); if (!live()) return; glist = r.groups;
+    const mine = (s2) => glist.filter((g) => g.mine === s2).length; const notIn = glist.filter((g) => !g.mine).length;
+    const q = gf.q.trim().toLowerCase();
+    const shownG = glist.filter((g) => (gf.show === 'all' || (gf.show === 'joined' && g.mine === 'joined') || (gf.show === 'not' && !g.mine) || (gf.show === 'waiting' && g.mine === 'requested'))
+      && (!gf.aud || g.audience === gf.aud) && (!q || (g.name + ' ' + (g.notes || '')).toLowerCase().includes(q)))
+      .sort((a, b) => ((a.mine === 'joined') - (b.mine === 'joined')) * -1 || (b.members || 0) - (a.members || 0));
+    const chip = (m) => `<span class="tm ${m.status}" title="${m.status === 'joined' ? 'Joined' : 'Asked to join, waiting'}">${App.avatar(m.name, 'xs')}${esc(m.name.split(' ')[0])}</span>`;
+    const row = (g) => `<tr class="grow-${g.mine || 'none'}" data-g="${g.id}"><td><a class="gname" href="${esc(g.link)}" target="_blank" rel="noopener">${esc(g.name)}</a>${g.audience ? `<span class="aud">${esc(AUDL[g.audience] || g.audience)}</span>` : ''}${g.notes ? `<div class="small mut clip1" title="${esc(g.notes)}">${esc(g.notes)}</div>` : ''}</td>
+      <td class="n"><b>${big(g.members) || '<span class="none">?</span>'}</b></td>
+      <td>${g.privacy ? `<span class="gtag ${g.privacy}">${g.privacy === 'public' ? 'Public' : 'Private'}</span>` : '<span class="none">?</span>'}</td>
+      <td>${g.approval === 'yes' ? '<span class="gtag wait">Checked first</span>' : g.approval === 'no' ? '<span class="gtag go">Goes up at once</span>' : '<span class="none">?</span>'}</td>
+      <td><div class="tms">${g.team.length ? g.team.map(chip).join('') : '<span class="none">Nobody yet</span>'}</div></td>
+      <td class="small">${g.posts ? `<b>${g.posts}</b> post${g.posts === 1 ? '' : 's'}<div class="mut">last ${esc(dateText(g.lastDay))}, ${esc(g.lastBy)}</div>` : '<span class="none">No posts yet</span>'}</td>
+      <td class="me">${g.mine === 'joined' ? '<span class="youin">✓ You are in</span><button class="linkbtn" data-act="gMine" data-s="">Not in it any more</button>'
+        : g.mine === 'requested' ? `<span class="youwait">Waiting for approval</span><div class="gbtns"><button class="btn primary sm" data-act="gMine" data-s="joined">I was accepted</button><button class="linkbtn" data-act="gMine" data-s="">Cancel</button></div>`
+        : `<div class="gbtns"><a class="btn plain sm" href="${esc(g.link)}" target="_blank" rel="noopener">Join on Facebook ↗</a><button class="btn primary sm" data-act="gMine" data-s="joined">I joined</button><button class="linkbtn" data-act="gMine" data-s="requested">I asked to join</button></div>`}
+        <button class="linkbtn" data-act="gEdit">Edit</button>${S.me.role === 'admin' ? '<button class="linkbtn red" data-act="gDel">Remove</button>' : ''}</td></tr>`;
+    view.innerHTML = header('facebook') + `<main>${tabs('groups')}${App.pageHead('Facebook groups', 'Every group the team has found. Add the groups you find, join the ones you are not in yet, and post in the groups you joined.')}
+      <div class="gsum"><div><b>${mine('joined')}</b> of ${glist.length}<span>groups you are in</span></div><div><b>${mine('requested')}</b><span>waiting for approval</span></div><div class="${notIn ? 'todo' : ''}"><b>${notIn}</b><span>not joined yet</span></div></div>
+      ${notIn ? `<div class="gnudge">There ${notIn === 1 ? 'is 1 group' : `are ${notIn} groups`} on the team's list you have not joined. Join them so you can post there: open the group on Facebook, ask to join, then mark it here. <button class="linkbtn" data-act="gShow" data-v="not">Show them</button></div>` : ''}
+      <details class="fbadd card"><summary>Add a group you found</summary>${groupForm()}</details>
+      <div class="gfilters"><div class="seg" role="group" aria-label="Show">${[['all', 'All'], ['joined', 'I joined'], ['not', 'Not joined yet'], ['waiting', 'Waiting']].map(([v, l]) => `<button data-act="gShow" data-v="${v}" class="${gf.show === v ? 'on' : ''}" aria-pressed="${gf.show === v}">${l}</button>`).join('')}</div>
+        <select class="pick" id="gAud" aria-label="Who it is for"><option value="">Everyone it is for</option>${Object.entries(AUDL).map(([v, l]) => `<option value="${v}" ${gf.aud === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <input type="search" id="gQ" class="pick" placeholder="Search groups" value="${esc(gf.q)}" aria-label="Search groups"></div>
+      ${shownG.length ? `<div class="sheet"><table class="groups"><thead><tr><th>Group</th><th class="n">Members</th><th>Public?</th><th>Posts</th><th>Team in it</th><th>Team posts</th><th>You</th></tr></thead><tbody>${shownG.map(row).join('')}</tbody></table></div>`
+        : `<div class="empty"><p>${glist.length ? 'No groups match.' : 'No groups yet. Add the first group you find.'}</p></div>`}</main>`;
+    const f = $('#grpForm'); f.onsubmit = async (e) => { e.preventDefault(); const body = Object.fromEntries(new FormData(f)); f.querySelector('.err').textContent = '';
+      try { await api('/api/fb/groups', { method: 'POST', body }); toast('Group added'); viewGroups(); } catch (err) { f.querySelector('.err').textContent = err.message; if (err.status === 409) setTimeout(viewGroups, 2500); } };
+    $('#gAud').onchange = (e) => { gf.aud = e.target.value; viewGroups(); };
+    let tq; $('#gQ').oninput = (e) => { clearTimeout(tq); tq = setTimeout(() => { gf.q = e.target.value; viewGroups().then(() => { const x = $('#gQ'); x.focus(); x.setSelectionRange(x.value.length, x.value.length); }); }, 250); };
+  }
+  const gOf = (b) => glist.find((g) => g.id === +b.closest('[data-g]').dataset.g);
+  on('gShow', (b) => { gf.show = b.dataset.v; viewGroups(); });
+  on('gMine', async (b) => { const g = gOf(b); await api(`/api/fb/groups/${g.id}/me`, { method: 'PUT', body: { status: b.dataset.s || null } }); toast(b.dataset.s === 'joined' ? `You are in ${g.name}` : b.dataset.s === 'requested' ? 'Marked as waiting for approval' : 'Saved'); viewGroups(); });
+  on('gDel', async (b) => { const g = gOf(b); if (!confirm(`Remove ${g.name} from the list?`)) return; await api('/api/fb/groups/' + g.id, { method: 'DELETE' }); viewGroups(); });
+  on('gEdit', (b) => { const g = gOf(b);
+    dialog(`<div class="dform"><h2>${esc(g.name)}</h2>${groupForm(g)}</div>`, (d) => { const f = d.querySelector('#grpForm');
+      f.onsubmit = async (e) => { e.preventDefault(); try { await api('/api/fb/groups/' + g.id, { method: 'PATCH', body: Object.fromEntries(new FormData(f)) }); d.close(); toast('Saved'); viewGroups(); } catch (err) { f.querySelector('.err').textContent = err.message; } }; }); });
+
   App.route(/^#\/facebook$/, viewFb);
+  App.route(/^#\/facebook\/groups$/, viewGroups);
 })();

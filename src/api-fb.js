@@ -83,7 +83,9 @@ module.exports = (app) => {
     const entries = (await q(`${SELECT} WHERE e.user_id = $1 AND e.day = $2::date ORDER BY e.created_at`, [uid, day])).rows.map(out);
     const c = (await counts([uid], day, day))[uid];
     // groups this person used lately, to pick from instead of typing again
-    const groups = (await q(`SELECT DISTINCT ON (lower(group_name)) group_name name, group_link link FROM fb_entries WHERE group_name IS NOT NULL AND day > $1::date - 30 ORDER BY lower(group_name), created_at DESC LIMIT 200`, [t])).rows;
+    const listed = (await q(`SELECT g.name, g.link, m.status mine FROM fb_groups g LEFT JOIN fb_group_members m ON m.group_id = g.id AND m.user_id = $1 ORDER BY (m.status = 'joined') DESC NULLS LAST, lower(g.name) LIMIT 400`, [uid])).rows;
+    const used = (await q(`SELECT DISTINCT ON (lower(group_name)) group_name name, group_link link FROM fb_entries WHERE group_name IS NOT NULL AND day > $1::date - 30 ORDER BY lower(group_name), created_at DESC LIMIT 200`, [t])).rows;
+    const groups = [...listed, ...used.filter((u) => !listed.some((g) => g.name.toLowerCase() === u.name.toLowerCase()))];
     // problems the admin flagged on earlier days that are still open (the recruiter should see them)
     const flagged = (await q(`${SELECT} WHERE e.user_id = $1 AND e.review = 'problem' AND e.day <> $2::date AND e.day > $2::date - 14 ORDER BY e.day DESC LIMIT 30`, [uid, day])).rows.map(out);
     res.json({ day, today: t, person, targets: db.settings.fbTargets, counts: c, score: score(c), entries, groups, flagged, outcomes: OUTCOMES });
@@ -99,12 +101,70 @@ module.exports = (app) => {
       people: people.map((p) => ({ id: p.id, name: p.name, counts: c[p.id], score: score(c[p.id]), lastAt: (last.find((x) => x.user_id === p.id) || {}).at || null })) });
   }));
 
-  // ---------- groups everyone has posted in ----------
+  // ---------- the team's list of Facebook groups ----------
+  // Anyone adds the groups they find (name, link, who it is for, members, public/private, posts checked first)
+  // and marks the ones they joined. Everyone sees who on the team is in each group, and how often it was posted in.
+  const AUD = ['owner operators', 'company drivers', 'cdl drivers', 'dispatchers', 'other'];
+  const memberCount = (v) => { // "45K", "45,200", "1.2M" -> a number
+    const t = String(v ?? '').trim().toLowerCase().replace(/[, ]/g, ''); if (!t) return null;
+    const m = t.match(/^(\d+(?:\.\d+)?)([km])?$/); if (!m) return undefined;
+    return Math.round(+m[1] * (m[2] === 'k' ? 1e3 : m[2] === 'm' ? 1e6 : 1));
+  };
+  function groupFields(b, partial) {
+    const set = {};
+    if (!partial || b.name !== undefined) { const v = clean(b.name, 150); if (!v) return { error: 'Write the group name' }; set.name = v; }
+    if (!partial || b.link !== undefined) { const key = linkKey(b.link); if (!key || !isFb(key) || !/\/groups\//.test(key)) return { error: 'Paste the group link (https://www.facebook.com/groups/…)' }; set.link = clean(b.link, 600); set.link_key = key.replace(/\/(posts|permalink|about|members|buy_sell_discussion)(\/.*)?$/, ''); }
+    if (b.audience !== undefined) set.audience = AUD.includes(b.audience) ? b.audience : null;
+    if (b.members !== undefined) { const n = memberCount(b.members); if (n === undefined) return { error: 'Members: a number like 45200 or 45K' }; set.members = n; }
+    if (b.privacy !== undefined) set.privacy = b.privacy === 'public' || b.privacy === 'private' ? b.privacy : null;
+    if (b.approval !== undefined) set.approval = b.approval === 'yes' || b.approval === 'no' ? b.approval : null;
+    if (b.notes !== undefined) set.notes = clean(b.notes, 500);
+    return { set };
+  }
+  async function setMine(groupId, userId, status) {
+    if (status === 'joined' || status === 'requested') await q(`INSERT INTO fb_group_members (group_id, user_id, status) VALUES ($1, $2, $3) ON CONFLICT (group_id, user_id) DO UPDATE SET status = EXCLUDED.status, at = now()`, [groupId, userId, status]);
+    else await q(`DELETE FROM fb_group_members WHERE group_id = $1 AND user_id = $2`, [groupId, userId]);
+  }
   app.get('/api/fb/groups', needUser, wrap(async (req, res) => {
-    const rows = (await q(`SELECT lower(group_name) k, max(group_name) name, max(group_link) link, count(*)::int posts, to_char(max(day), 'YYYY-MM-DD') last_day,
-        (array_agg(u.name ORDER BY e.created_at DESC))[1] last_by
-      FROM fb_entries e JOIN users u ON u.id = e.user_id WHERE e.kind = 'post' AND e.group_name IS NOT NULL GROUP BY 1 ORDER BY max(day) DESC, 2 LIMIT 500`)).rows;
-    res.json({ groups: rows.map((g) => ({ name: g.name, link: g.link, posts: g.posts, lastDay: g.last_day, lastBy: g.last_by })) });
+    const groups = (await q(`SELECT g.*, a.name added_name FROM fb_groups g LEFT JOIN users a ON a.id = g.added_by ORDER BY lower(g.name)`)).rows;
+    const mem = (await q(`SELECT m.group_id, m.user_id, m.status, u.name FROM fb_group_members m JOIN users u ON u.id = m.user_id AND u.active ORDER BY lower(u.name)`)).rows;
+    // posts logged in each group: by its link, or by its name when the link was not given
+    const posts = (await q(`SELECT g.id, count(e.*)::int n, to_char(max(e.day), 'YYYY-MM-DD') last_day, (array_agg(u.name ORDER BY e.created_at DESC))[1] last_by
+      FROM fb_groups g JOIN fb_entries e ON e.kind = 'post' AND (e.group_link IS NOT NULL AND position(g.link_key IN lower(regexp_replace(e.group_link, '^https?://(www\.|m\.|web\.)?', ''))) = 1 OR lower(e.group_name) = lower(g.name))
+      JOIN users u ON u.id = e.user_id GROUP BY g.id`)).rows;
+    res.json({ me: req.user.id, audiences: AUD, groups: groups.map((g) => {
+      const m = mem.filter((x) => x.group_id === g.id); const p = posts.find((x) => x.id === g.id) || {};
+      return { id: g.id, name: g.name, link: g.link, audience: g.audience, members: g.members, privacy: g.privacy, approval: g.approval, notes: g.notes,
+        addedBy: g.added_name, addedAt: g.created_at, team: m.map((x) => ({ id: x.user_id, name: x.name, status: x.status })),
+        mine: (m.find((x) => x.user_id === req.user.id) || {}).status || null, posts: p.n || 0, lastDay: p.last_day || null, lastBy: p.last_by || null };
+    }) });
+  }));
+  app.post('/api/fb/groups', needUser, wrap(async (req, res) => {
+    const b = req.body || {}; const f = groupFields(b, false); if (f.error) return res.status(400).json({ error: f.error });
+    const dup = (await q(`SELECT g.id, g.name, u.name who FROM fb_groups g LEFT JOIN users u ON u.id = g.added_by WHERE g.link_key = $1`, [f.set.link_key])).rows[0];
+    if (dup) { if (b.mine) await setMine(dup.id, req.user.id, b.mine); return res.status(409).json({ error: `"${dup.name}" is already on the list${dup.who ? `, added by ${dup.who}` : ''}${b.mine ? '. Your status there is saved.' : ''}`, id: dup.id }); }
+    const cols = Object.keys(f.set);
+    const r = await q(`INSERT INTO fb_groups (${cols.join(', ')}, added_by, updated_by) VALUES (${cols.map((_, i) => '$' + (i + 1)).join(', ')}, $${cols.length + 1}, $${cols.length + 1}) RETURNING id`, [...cols.map((k) => f.set[k]), req.user.id]);
+    if (b.mine) await setMine(r.rows[0].id, req.user.id, b.mine);
+    await act(req.user, 'facebook', null, `Facebook: added the group ${f.set.name}`);
+    res.json({ id: r.rows[0].id });
+  }));
+  app.patch('/api/fb/groups/:id', needUser, wrap(async (req, res) => {
+    const g = (await q(`SELECT * FROM fb_groups WHERE id = $1`, [+req.params.id || 0])).rows[0]; if (!g) return res.status(404).json({ error: 'Group not found' });
+    const f = groupFields(req.body || {}, true); if (f.error) return res.status(400).json({ error: f.error });
+    if (f.set.link_key && f.set.link_key !== g.link_key && (await q(`SELECT 1 FROM fb_groups WHERE link_key = $1`, [f.set.link_key])).rows[0]) return res.status(409).json({ error: 'Another group on the list has that link' });
+    const cols = Object.keys(f.set);
+    if (cols.length) await q(`UPDATE fb_groups SET ${cols.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_by = $${cols.length + 2}, updated_at = now() WHERE id = $1`, [g.id, ...cols.map((k) => f.set[k]), req.user.id]);
+    res.json({ ok: true });
+  }));
+  app.put('/api/fb/groups/:id/me', needUser, wrap(async (req, res) => {
+    const g = (await q(`SELECT id, name FROM fb_groups WHERE id = $1`, [+req.params.id || 0])).rows[0]; if (!g) return res.status(404).json({ error: 'Group not found' });
+    const s = (req.body || {}).status; await setMine(g.id, req.user.id, s);
+    if (s === 'joined') await act(req.user, 'facebook', null, `Facebook: joined the group ${g.name}`);
+    res.json({ ok: true });
+  }));
+  app.delete('/api/fb/groups/:id', needUser, needAdmin, wrap(async (req, res) => {
+    await q(`DELETE FROM fb_groups WHERE id = $1`, [+req.params.id || 0]); res.json({ ok: true });
   }));
 
   // ---------- add, change, remove an entry ----------
@@ -156,6 +216,13 @@ module.exports = (app) => {
     const ins = await q(`INSERT INTO fb_entries (user_id, day, kind, link, link_key, group_name, group_link, person_name, answers, outcome, note, image_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12) RETURNING id`, [uid, day, kind, r.link, r.link_key, r.group_name, r.group_link, r.person_name, r.answers, r.outcome, r.note, r.image_id]);
     await act(req.user, 'facebook', null, `Facebook: ${LABEL[kind]}${r.group_name ? ` in ${r.group_name}` : ''}${r.person_name ? `, ${r.person_name}` : ''}`);
+    if (kind === 'post' && r.group_link) {
+      const f = groupFields({ name: r.group_name, link: r.group_link }, false);
+      if (!f.error) {
+        const g = (await q(`INSERT INTO fb_groups (name, link, link_key, added_by, updated_by) VALUES ($1, $2, $3, $4, $4) ON CONFLICT (link_key) DO UPDATE SET updated_at = fb_groups.updated_at RETURNING id`, [f.set.name, f.set.link, f.set.link_key, uid])).rows[0];
+        await q(`INSERT INTO fb_group_members (group_id, user_id, status) VALUES ($1, $2, 'joined') ON CONFLICT (group_id, user_id) DO UPDATE SET status = 'joined'`, [g.id, uid]);
+      }
+    }
     res.json({ id: ins.rows[0].id });
   }));
 

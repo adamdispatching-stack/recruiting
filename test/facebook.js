@@ -72,4 +72,26 @@ const png = (n) => { const zlib = require('zlib'); const crc = (b) => { let c = 
   ok((await A('/api/fb/groups')).body.groups.some((g) => g.name === 'CDL Drivers USA' && g.posts === 1), 'groups the team posts in');
   const team = (await A('/api/team?period=today')).body.people.find((p) => p.id === id);
   ok(team.fb && team.fb.done === 6 && team.fb.target === 8, 'Team page today: 6 of 8');
+  // the team's group list
+  const G = (b) => R('/api/fb/groups', { method: 'POST', body: b });
+  ok((await G({ name: 'Bad link', link: 'https://www.facebook.com/someone' })).status === 400, 'a group needs a group link');
+  r = await G({ name: `Owner Operators NE ${u}`, link: `https://www.facebook.com/groups/oone${u}/?ref=share`, audience: 'owner operators', members: '45.2K', privacy: 'private', approval: 'yes', mine: 'requested' });
+  ok(r.status === 200, 'recruiter adds a group (members 45.2K, private, posts checked first)');
+  const gid = r.body.id;
+  r = await A('/api/fb/groups', { method: 'POST', body: { name: 'Same one', link: `https://m.facebook.com/groups/oone${u}/about`, mine: 'joined' } });
+  ok(r.status === 409 && /already on the list/.test(r.body.error), 'the same group twice is caught (other link form)');
+  let L = (await A('/api/fb/groups')).body.groups.find((g) => g.id === gid);
+  ok(L.members === 45200 && L.privacy === 'private' && L.approval === 'yes' && L.audience === 'owner operators', 'facts saved');
+  ok(L.team.some((m) => m.id === id && m.status === 'requested') && L.mine === 'joined', 'everyone sees who is in it; the admin is now in it too');
+  await R(`/api/fb/groups/${gid}/me`, { method: 'PUT', body: { status: 'joined' } });
+  L = (await R('/api/fb/groups')).body.groups.find((g) => g.id === gid);
+  ok(L.mine === 'joined', 'she was accepted and marks it');
+  ok((await R(`/api/fb/groups/${gid}`, { method: 'PATCH', body: { members: '46,000' } })).status === 200 && (await R('/api/fb/groups')).body.groups.find((g) => g.id === gid).members === 46000, 'anyone updates the member count');
+  ok((await R(`/api/fb/groups/${gid}`, { method: 'DELETE' })).status === 403, 'only an admin removes a group');
+  // a post with a group link puts the group on the list, with the poster in it
+  await add({ kind: 'post', groupName: 'Brand New Group', groupLink: `https://www.facebook.com/groups/bng${u}`, link: `https://www.facebook.com/groups/bng${u}/posts/1`, imageId: await pic(40) });
+  L = (await R('/api/fb/groups')).body.groups.find((g) => g.name === 'Brand New Group');
+  ok(L && L.mine === 'joined' && L.posts === 1, 'posting in a new group puts it on the list');
+  const day = (await R('/api/fb/day')).body;
+  ok(day.groups[0] && day.groups.some((g) => g.name === `Owner Operators NE ${u}`), 'the post form suggests the listed groups');
 })().catch((e) => { console.log('ERROR', e); process.exitCode = 1; });

@@ -214,6 +214,29 @@ async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS fb_entries_day ON fb_entries(day, user_id);
     CREATE INDEX IF NOT EXISTS fb_entries_link ON fb_entries(kind, link_key);
+    -- Facebook groups the team posts in, found and added by the recruiters, and who joined which
+    CREATE TABLE IF NOT EXISTS fb_groups (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      link TEXT NOT NULL,
+      link_key TEXT NOT NULL UNIQUE,
+      audience TEXT,                 -- owner operators | company drivers | cdl drivers | dispatchers | other
+      members INT,
+      privacy TEXT,                  -- public | private
+      approval TEXT,                 -- yes (posts are checked first) | no | unknown
+      notes TEXT,
+      added_by INT REFERENCES users(id) ON DELETE SET NULL,
+      updated_by INT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS fb_group_members (
+      group_id INT NOT NULL REFERENCES fb_groups(id) ON DELETE CASCADE,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,          -- joined | requested (waiting for the group to accept)
+      at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (group_id, user_id)
+    );
     -- a stretch of working hours with no activity on the website (only long ones are kept)
     CREATE TABLE IF NOT EXISTS idle_spells (
       id SERIAL PRIMARY KEY,
