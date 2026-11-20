@@ -44,7 +44,7 @@
       [a.emptyTrucks, (n) => `${pl(n, 'empty truck', 'empty trucks')}`, 'Ready for a driver', '#/trucks', 'View trucks', 'g']];
     const urgent = items.filter((x) => x[0] && x[5] === 'r').length;
     const nextStep = (d) => d.followUp ? (d.followUp <= r.today ? `<span class="fu due">${esc(fuText(d.followUp))}</span>` : esc(fuText(d.followUp))) : '<span class="none">No follow-up</span>';
-    return `<main class="dash"><div class="hero">${App.ART.road}
+    return `<main class="dash"><div class="hero"><picture class="heroimg" aria-hidden="true"><source srcset="/img/hero.webp" type="image/webp"><img src="/img/hero.jpg" alt=""></picture>
         ${App.pageHead('Recruiting overview', '', '<button class="btn primary lg" data-act="addLead">' + App.plus + ' Add lead</button>')}
         <div class="greet"><h2>${greet()}, ${firstName()}</h2>${urgent ? `<span class="ok warn">${pl(urgent, 'thing needs', 'things need')} attention</span>` : '<span class="ok">Your team is on track</span>'}</div></div>
       <div class="tiles">${App.tile('lead', r.trend.leads[0], 'new leads, last 30 days', { href: '#/leads', trend: trendHtml(r.trend.leads) })}${App.tile('clip', r.trend.onboarded[0], 'started onboarding, 30 days', { href: '#/onboarding', trend: trendHtml(r.trend.onboarded) })}
@@ -75,7 +75,7 @@
   function myDay(r) {
     const s = r.stats; const c = Object.fromEntries(r.pipeline.map((x) => [x.status, x.n]));
     const stages = S.me.route.filter((x) => x !== 'Invited'); const max = Math.max(1, ...stages.map((x) => c[x] || 0));
-    return `<main class="dash"><div class="hero">${App.ART.road}
+    return `<main class="dash"><div class="hero"><picture class="heroimg" aria-hidden="true"><source srcset="/img/hero.webp" type="image/webp"><img src="/img/hero.jpg" alt=""></picture>
         ${App.pageHead('My day', '', '<button class="btn primary lg" data-act="addLead">' + App.plus + ' Add lead</button>')}
         <div class="greet"><h2>${greet()}, ${firstName()}</h2>${s.due ? `<span class="ok warn">${plural(s.due, 'follow-up')} due</span>` : '<span class="ok">No follow-ups waiting</span>'}</div></div>
       <div class="tiles">${App.tile('cal', s.due, 'follow-ups due', { tone: s.due ? 'r' : '', href: '#/leads?owner=me&due=1' })}${App.tile('warn', s.cold, 'leads going cold', { tone: s.cold ? 'y' : '', href: '#/leads?owner=me&cold=1' })}

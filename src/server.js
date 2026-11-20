@@ -77,7 +77,7 @@ require('./api-admin')(app);
 // ---------- website ----------
 app.get('/healthz', (req, res) => res.send('ok'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
-app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html', setHeaders: (res, file) => res.set('Cache-Control', /\.(woff2)$/.test(file) ? 'public, max-age=604800' : 'no-cache') }));
+app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html', setHeaders: (res, file) => res.set('Cache-Control', /\.(woff2|webp|jpg)$/.test(file) ? 'public, max-age=604800' : 'no-cache') }));
 app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Something went wrong on the server. Try again.' }); });
 
