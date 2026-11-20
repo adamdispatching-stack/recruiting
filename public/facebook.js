@@ -129,7 +129,7 @@
     e.preventDefault(); const body = Object.fromEntries(new FormData(f)); body.kind = f.dataset.kind;
     if (S.me.role === 'admin' && shown && shown.person.id !== S.me.id) { body.userId = shown.person.id; body.day = shown.day; }
     f.querySelector('.err').textContent = '';
-    try { await api('/api/fb/entries', { method: 'POST', body }); toast('Saved'); App.render(); }
+    try { await api('/api/fb/entries', { method: 'POST', body }); toast('Saved'); App.render(); App.refreshGoal(); }
     catch (err) { f.querySelector('.err').textContent = err.message; }
   }
 
@@ -142,11 +142,11 @@
     view.innerHTML = header('facebook') + `<main>${tabs('day')}${App.pageHead('Facebook work', "Each recruiter's posts, comments, drivers messaged and group chats against the daily targets. Open a person to check their links and pictures.", '<a class="btn plain" href="#/settings">Daily targets</a>')}
       <div class="fbday"><a class="btn plain sm" href="${nav(addDays(r.day, -1))}" aria-label="Day before">‹</a><b>${esc(dateText(r.day, { weekday: 'long', month: 'long', day: 'numeric' }))}${r.day === r.today ? ' (today)' : ''}</b>
         ${r.day < r.today ? `<a class="btn plain sm" href="${nav(addDays(r.day, 1))}" aria-label="Next day">›</a><a class="linkbtn" href="${nav(r.today)}">Today</a>` : ''}</div>
-      <div class="sheet"><table class="fbteam"><thead><tr><th>Recruiter</th><th class="n">Posts</th><th class="n">Comments</th><th class="n">Drivers messaged</th><th class="n">Group chats</th><th>Done</th><th class="n">To check</th><th class="n">Problems</th><th>Last entry</th></tr></thead>
+      <div class="sheet"><table class="fbteam"><thead><tr><th>Recruiter</th><th class="n">Posts</th><th class="n">Comments</th><th class="n">Drivers messaged</th><th class="n">Group chats</th><th>Done</th><th class="n">To check</th><th class="n">Problems</th><th class="n">Streak</th><th>Last entry</th></tr></thead>
         <tbody>${r.people.map((p) => `<tr data-u="${p.id}"><th scope="row"><a href="#/facebook?user=${p.id}&day=${r.day}">${esc(p.name)}</a></th>${['post', 'comment', 'contact', 'chat'].map((k) => cell(p, k)).join('')}
           <td><div class="fbdone"><span class="pbar"><i style="width:${p.score.target ? Math.round((p.score.done / p.score.target) * 100) : 0}%"></i></span><b>${p.score.target ? Math.round((p.score.done / p.score.target) * 100) : 0}%</b></div></td>
-          <td class="n">${p.counts.unreviewed || '<span class="none">0</span>'}</td><td class="n${p.counts.problems ? ' bad' : ''}">${p.counts.problems || '<span class="none">0</span>'}</td>
-          <td class="small">${p.lastAt ? esc(new Date(p.lastAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : '<span class="none">Nothing yet</span>'}</td></tr>`).join('') || '<tr><td colspan="9" class="hint">No recruiters yet.</td></tr>'}</tbody></table></div>
+          <td class="n">${p.counts.unreviewed || '<span class="none">0</span>'}</td><td class="n${p.counts.problems ? ' bad' : ''}">${p.counts.problems || '<span class="none">0</span>'}</td><td class="n" title="Best: ${p.best} days">${p.streak ? `🔥 ${p.streak}` : '<span class="none">0</span>'}</td>
+          <td class="small">${p.lastAt ? esc(new Date(p.lastAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : '<span class="none">Nothing yet</span>'}</td></tr>`).join('') || '<tr><td colspan="10" class="hint">No recruiters yet.</td></tr>'}</tbody></table></div>
       <section class="card" style="margin-top:16px"><h3><span class="grow">Groups the team posts in</span><a class="btn plain sm" href="#/facebook/groups">Open the group list</a></h3>
         ${g.groups.filter((x) => x.posts).length ? `<div class="scroll"><table class="mini"><thead><tr><th>Group</th><th class="n">Posts</th><th>Last post</th><th class="n">Team members in it</th></tr></thead><tbody>${g.groups.filter((x) => x.posts).sort((a, b) => (b.lastDay || '').localeCompare(a.lastDay || '')).slice(0, 15).map((x) => `<tr><td><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a></td><td class="n">${x.posts}</td><td>${esc(dateText(x.lastDay))} by ${esc(x.lastBy)}</td><td class="n">${x.team.filter((m) => m.status === 'joined').length}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="hint">No posts logged yet.</p>'}</section></main>`;
@@ -168,7 +168,7 @@
       $('#badForm', d).onsubmit = async (e) => { e.preventDefault(); try { await api('/api/fb/entries/' + id, { method: 'PATCH', body: { review: 'problem', reviewNote: e.target.note.value } }); d.close(); toast('Marked as a problem'); App.render(); } catch (err) { $('#badForm .err', d).textContent = err.message; } };
     });
   });
-  on('fbDel', async (b) => { if (!confirm('Remove this entry?')) return; await api('/api/fb/entries/' + idOf(b), { method: 'DELETE' }); toast('Removed'); App.render(); });
+  on('fbDel', async (b) => { if (!confirm('Remove this entry?')) return; await api('/api/fb/entries/' + idOf(b), { method: 'DELETE' }); toast('Removed'); App.render(); App.refreshGoal(); });
   on('fbLead', async (b) => {
     const e = entryOf(b); let name = e.personName;
     if (!name) { name = prompt("The driver's name:"); if (!name) return; }

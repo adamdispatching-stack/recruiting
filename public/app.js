@@ -123,14 +123,14 @@ window.App = (() => {
     const body = JSON.stringify({ active: !document.hidden && Date.now() - sig.last < 31000, visible: !document.hidden, clicks: sig.clicks, mobile: !!onMobile, ...extra });
     sig.clicks = 0;
     fetch('/api/beat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, credentials: 'same-origin', keepalive: true })
-      .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.notices) showNotices(j.notices, j.unread); }).catch(() => {});
+      .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.notices) showNotices(j.notices, j.unread); if (j && j.goal !== undefined) setGoal(j.goal); }).catch(() => {});
   }
   // ---------- alerts (idle alerts): a box at the top right, and a desktop notification when allowed ----------
   const shownN = new Set(JSON.parse(sessionStorage.getItem('fhShown') || '[]'));
   // Idle alerts stay in a box at the top right until dismissed. Everything else goes to the bell (unread count)
   // and pops up once in the corner for a few seconds, and on the desktop when allowed.
   const pageStart = Date.now();
-  const NKIND = { lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', idle: 'Idle alert' };
+  const NKIND = { lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', goal: 'Streak', idle: 'Idle alert' };
   function setBell(n) { S.unread = n; document.querySelectorAll('.bellcount').forEach((b) => { b.textContent = n > 99 ? '99+' : String(n); b.hidden = !n; }); }
   function showNotices(list, unread) {
     if (unread !== undefined) setBell(unread);
@@ -162,6 +162,67 @@ window.App = (() => {
     setTimeout(() => el.remove(), 9000);
   }
   async function openNotice(n) { await seen([n.id]); setBell(Math.max(0, (S.unread || 1) - 1)); closeBell(); if (n.link) go(n.link); }
+  // ---------- today's goal: the ring in the menu, on every page, and the celebration when it is all done ----------
+  const KNAME = { post: ['group post', 'group posts'], comment: ['comment', 'comments'], contact: ['driver messaged', 'drivers messaged'], chat: ['group chat', 'group chats'] };
+  const RING_R = 26, RING_C = 2 * Math.PI * RING_R;
+  function goalRing() {
+    if (!S.me || S.me.role === 'admin') return '';
+    const g = S.goal; if (!g || !g.on) return '<span class="goalring" hidden></span>';
+    const pc = Math.min(100, g.pct || 0);
+    const streak = g.streak ? `<span class="gstreak">🔥 ${g.streak}-day streak${g.atStake ? '<em>keep it going today</em>' : ''}</span>` : '<span class="gstreak none">Finish today to start a streak</span>';
+    return `<a class="goalring${g.met ? ' met' : ''}" href="#/facebook" title="Today's Facebook targets">
+      <svg viewBox="0 0 64 64" width="58" height="58" aria-hidden="true"><circle cx="32" cy="32" r="${RING_R}" class="trk"/><circle cx="32" cy="32" r="${RING_R}" class="val" stroke-dasharray="${RING_C}" stroke-dashoffset="${RING_C * (1 - pc / 100)}" transform="rotate(-90 32 32)"/></svg>
+      <b class="gpct">${g.met ? '✓' : pc + '%'}</b>
+      <span class="gtxt"><span class="gt">${g.met ? 'Goal done today' : "Today's goal"}</span><span class="gs">${g.done} of ${g.target} done</span>${streak}</span></a>`;
+  }
+  function setGoal(g) {
+    const prev = S.goal; S.goal = g;
+    document.querySelectorAll('.goalring').forEach((el) => { el.outerHTML = goalRing(); });
+    if (!g || !g.on || !S.me || S.me.role === 'admin') return;
+    // a target reached since the last look: a small cheer; everything reached: the big one, once a day
+    if (prev && prev.on && prev.today === g.today) {
+      for (const k of g.kinds) { const p = prev.kinds.find((x) => x.k === k.k); if (p && p.n < p.target && k.n >= k.target && !g.met) cheer(`${k.target} ${KNAME[k.k][k.target === 1 ? 0 : 1]} done ✓`, `${g.done} of ${g.target} for today`); }
+    }
+    const key = 'fhGoalMet:' + S.me.id;
+    let last = ''; try { last = localStorage.getItem(key) || ''; } catch (e) { /* storage blocked */ }
+    if (g.met && last !== g.today && prev) { try { localStorage.setItem(key, g.today); } catch (e) { /* storage blocked */ } celebrate(g); }
+    if (g.met && !prev) { try { localStorage.setItem(key, g.today); } catch (e) { /* storage blocked */ } } // already done when the site opened: no party
+    if (typeof App !== 'undefined' && App.onGoal) App.onGoal(g);
+  }
+  async function refreshGoal() { if (!S.me || S.me.role === 'admin') return; try { setGoal(await api('/api/challenge')); } catch (e) { /* next beat brings it */ } }
+  function cheer(title, text) {
+    let st = document.getElementById('pops'); if (!st) { st = document.createElement('div'); st.id = 'pops'; st.setAttribute('aria-live', 'polite'); document.body.appendChild(st); }
+    const el = document.createElement('div'); el.className = 'pop k-cheer'; el.innerHTML = `<b>${esc(title)}</b><p>${esc(text)}</p>`;
+    st.appendChild(el); setTimeout(() => el.remove(), 5000);
+  }
+  function celebrate(g) {
+    document.getElementById('party')?.remove();
+    const d = document.createElement('div'); d.id = 'party'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'Daily goal done');
+    const nextB = (g.badges || []).find((b) => !b.earned);
+    d.innerHTML = `<div class="pcard"><div class="pflame" aria-hidden="true">${g.streak > 1 ? '🔥' : '⭐'}</div>
+      <h2>All targets done today!</h2>
+      <p class="pbig">${g.streak > 1 ? `${g.streak}-day streak` : 'Day 1 of your streak'}</p>
+      <p>${g.best > g.streak ? `Your best is ${g.best} days. Keep going.` : g.streak > 1 ? 'That is your best streak yet.' : 'Do it again tomorrow to keep it going.'}</p>
+      ${nextB ? `<p class="small mut">Next badge: ${esc(nextB.icon)} ${esc(nextB.name)}</p>` : ''}
+      <button type="button" class="btn primary" data-act="partyClose">Nice</button></div>`;
+    document.body.appendChild(d); d.querySelector('button').focus();
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) confetti(d);
+    setTimeout(() => d.remove(), 12000);
+  }
+  function confetti(host) {
+    const c = document.createElement('canvas'); c.className = 'confetti'; host.appendChild(c);
+    const W = c.width = innerWidth, H = c.height = innerHeight; const x = c.getContext('2d');
+    const cols = ['#F4B400', '#0C8054', '#4FC98B', '#2557A7', '#FFFFFF', '#E8590C'];
+    const bits = Array.from({ length: 160 }, () => ({ x: W / 2 + (Math.random() - 0.5) * 120, y: H * 0.42, vx: (Math.random() - 0.5) * 16, vy: -Math.random() * 15 - 5, r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.3, w: 6 + Math.random() * 6, h: 3 + Math.random() * 5, c: cols[Math.floor(Math.random() * cols.length)] }));
+    const t0 = performance.now();
+    (function step(t) {
+      if (!c.isConnected || t - t0 > 4500) return c.remove();
+      x.clearRect(0, 0, W, H);
+      for (const b of bits) { b.vy += 0.38; b.vx *= 0.99; b.x += b.vx; b.y += b.vy; b.r += b.vr; x.save(); x.translate(b.x, b.y); x.rotate(b.r); x.fillStyle = b.c; x.fillRect(-b.w / 2, -b.h / 2, b.w, b.h); x.restore(); }
+      requestAnimationFrame(step);
+    })(t0);
+  }
+
   // ---------- the bell: the last notifications, unread first marked ----------
   const nAgo = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }); };
   let bellList = [];
@@ -179,7 +240,7 @@ window.App = (() => {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBell(); });
   document.addEventListener('click', (e) => { const p = document.getElementById('bellpanel'); if (p && !p.contains(e.target) && !e.target.closest('[data-act=bellOpen]')) closeBell(); });
   const seen = async (ids) => { await fetch('/api/notices/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }), credentials: 'same-origin' }).catch(() => {}); };
-  function startSignals() { if (sig.timer) return; beat({ start: true }); sig.timer = setInterval(beat, 30000); }
+  function startSignals() { if (sig.timer) return; beat({ start: true }); refreshGoal(); sig.timer = setInterval(beat, 30000); }
   function stopSignals() { clearInterval(sig.timer); sig.timer = null; sig.page = ''; }
   document.addEventListener('visibilitychange', () => { if (document.hidden) beat(); });
   window.addEventListener('pagehide', () => beat());
@@ -247,6 +308,7 @@ window.App = (() => {
           <button type="button" class="bell" data-act="bellOpen" aria-haspopup="dialog">${icon('bell')}<span>Notifications</span><b class="bellcount" ${S.unread ? '' : 'hidden'}>${S.unread > 99 ? '99+' : S.unread || 0}</b></button>
           <nav aria-label="Sections">${items.map(link).join('')}</nav>
           <span class="grow"></span>
+          ${goalRing()}
           <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : 'Recruiter'}</span></div>
             <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + `<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a>` : link(['#/settings', 'Password', 'settings', 'password'])}
               <button data-act="logout">${icon('out')}<span>Sign out</span></button></nav></div>
@@ -300,6 +362,7 @@ window.App = (() => {
   const dropNotice = (b) => { const el = b.closest('.notice'); const id = +el.dataset.n; el.remove(); seen([id]); const box = $('#notices'); if (box && !box.querySelector('.notice')) box.remove(); };
   on('noticeSeen', (b) => dropNotice(b));
   on('bellOpen', () => openBell());
+  on('partyClose', () => document.getElementById('party')?.remove());
   on('bellClose', () => closeBell());
   on('bellAll', async () => { await seen([]); setBell(0); closeBell(); openBell(); });
   on('bellItem', (b) => { const n = bellList.find((x) => x.id === +b.dataset.n); if (n) openNotice(n); });
@@ -341,5 +404,5 @@ window.App = (() => {
   onChange('weekDay', (el) => { const r = el.closest('.wrow'); r.querySelectorAll('input[type=time]').forEach((t) => { t.disabled = !el.checked; }); r.classList.toggle('offd', !el.checked); r.querySelector('.wnote').textContent = el.checked ? '' : 'Day off'; });
 
   return { $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
-    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS };
+    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();

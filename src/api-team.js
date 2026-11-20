@@ -1,5 +1,6 @@
 // Activity tracking, the Team pages, and the dashboard.
 const db = require('./db');
+const challenge = require('./challenge');
 const idle = require('./idle');
 const fb = require('./api-fb');
 const lib = require('./lib');
@@ -64,6 +65,21 @@ async function followupsDue(u) {
   if (n) await db.notify(db.pool, u.id, 'followups', `${n} follow-up${n === 1 ? '' : 's'} due today`, '#/leads?owner=me&due=1');
 }
 
+// Once a day in the afternoon: a streak is going and today's targets are not met yet.
+const goalChecked = new Map();
+async function streakAtStake(u) {
+  const t = Date.now(); if (t - (goalChecked.get(u.id) || 0) < 3600000) return; goalChecked.set(u.id, t);
+  const tz = db.settings.tz;
+  const hour = (await q(`SELECT extract(hour FROM now() AT TIME ZONE $1)::int h`, [tz])).rows[0].h;
+  if (hour < 14) return;
+  const done = (await q(`SELECT 1 FROM notices WHERE user_id = $1 AND kind = 'goal' AND (created_at AT TIME ZONE $2)::date = (now() AT TIME ZONE $2)::date`, [u.id, tz])).rows[0];
+  if (done) return;
+  const g = await challenge.progress(u);
+  if (!g.on || !g.atStake) return;
+  const left = g.kinds.filter((k) => k.n < k.target).map((k) => `${k.target - k.n} ${{ post: 'posts', comment: 'comments', contact: 'drivers', chat: 'group chats' }[k.k]}`).join(', ');
+  await db.notify(db.pool, u.id, 'goal', `Keep your ${g.streak}-day streak: ${left} left today`, '#/facebook');
+}
+
 module.exports = (app) => {
   // ---------- "I'm here" signal ----------
   // Sent every 30 seconds while the site is open. A signal counts as active time only when the page was on
@@ -85,9 +101,11 @@ module.exports = (app) => {
           open_seconds = LEAST(3600, activity_hours.open_seconds + EXCLUDED.open_seconds), clicks = activity_hours.clicks + EXCLUDED.clicks, last_at = now()`, [u.id, worked, open, clicks]);
     }
     await followupsDue(u).catch(() => {});
+    if (u.role !== 'admin') await streakAtStake(u).catch((e) => console.error('goal', e.message));
     const notices = (await q(`SELECT id, kind, text, link, created_at FROM notices WHERE user_id = $1 AND seen_at IS NULL ORDER BY created_at DESC LIMIT 20`, [u.id])).rows;
     const unread = (await q(`SELECT count(*)::int n FROM notices WHERE user_id = $1 AND seen_at IS NULL`, [u.id])).rows[0].n;
-    res.json({ ok: true, notices, unread });
+    const goal = u.role !== 'admin' ? await challenge.progress(u).catch(() => null) : null;
+    res.json({ ok: true, notices, unread, goal });
   }));
   // Notifications for the person signed in. Seen = read.
   app.get('/api/notices', needUser, wrap(async (req, res) => {

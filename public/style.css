@@ -1166,3 +1166,89 @@ details.fbadd.card{padding:0}
 @keyframes popin{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){#pops .pop{animation:none}}
 @media (max-width:900px){#bellpanel{left:12px}}
+
+/* ---------- today's goal: the ring in the menu ---------- */
+.goalring{position:relative;display:grid;grid-template-columns:58px minmax(0,1fr);align-items:center;gap:10px;margin:14px 0 2px;padding:9px 10px;border-radius:12px;background:rgba(255,255,255,.07);color:#fff;text-decoration:none}
+.goalring:hover{background:rgba(255,255,255,.13)}
+.goalring svg circle{fill:none;stroke-width:6}
+.goalring .trk{stroke:rgba(255,255,255,.15)}
+.goalring .val{stroke:var(--yellow);stroke-linecap:round}
+.goalring.met .val{stroke:#4FC98B}
+.goalring .gpct{position:absolute;left:10px;top:50%;width:58px;transform:translateY(-50%);text-align:center;font-size:14px;font-weight:800}
+.goalring.met .gpct{font-size:20px;color:#4FC98B}
+.goalring .gtxt{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.goalring .gt{font-size:13.5px;font-weight:700}
+.goalring .gs{font-size:12px;opacity:.8}
+.goalring .gstreak{margin-top:3px;font-size:12px;font-weight:700;color:#FFD866}
+.goalring .gstreak em{display:block;font-style:normal;font-weight:500;color:#fff;opacity:.8}
+.goalring .gstreak.none{font-weight:500;color:rgba(255,255,255,.7)}
+@media (prefers-reduced-motion:no-preference){ .goalring .val,.chall .val,.cbar i{transition:stroke-dashoffset .7s ease,width .7s ease} }
+
+/* ---------- today's challenge on My day ---------- */
+.chall{margin-bottom:16px;border-top:4px solid var(--yellow)}
+.chall.met{border-top-color:var(--viz-1);background:linear-gradient(180deg,#F2FAF5 0,#fff 140px)}
+.chall .cline{margin:-2px 0 14px;font-size:15.5px;font-weight:600}
+.chall .cgrid{display:grid;grid-template-columns:150px minmax(0,1.4fr) minmax(220px,1fr);gap:22px;align-items:center}
+.cring{position:relative;display:block;width:132px;height:132px;color:inherit;text-decoration:none}
+.cring svg circle{fill:none;stroke-width:12}
+.cring .trk{stroke:var(--viz-track)}
+.cring .val{stroke:var(--viz-1);stroke-linecap:round}
+.chall.met .cring .val{stroke:var(--yellow)}
+.cring>span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1}
+.cring b{font-size:30px;font-weight:800}
+.cring small{font-size:12.5px;color:var(--mut)}
+.ctasks{display:flex;flex-direction:column;gap:9px;margin:0;padding:0;list-style:none}
+.ctasks li{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;column-gap:8px;row-gap:3px}
+.ctasks .ci{grid-row:span 2;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--page);font-size:14px}
+.ctasks li.done .ci{background:var(--viz-1);color:#fff;font-weight:800}
+.ctasks .cn{font-weight:600}
+.ctasks b{font-size:15px}
+.ctasks b span{font-size:12.5px;font-weight:500;color:var(--mut)}
+.ctasks li.done .cn{color:var(--viz-1d)}
+.cbar{grid-column:2 / -1;display:block;height:7px;border-radius:4px;background:var(--viz-track);overflow:hidden}
+.cbar i{display:block;height:100%;border-radius:4px;background:var(--viz-1)}
+.ctasks li.bonus{padding-top:8px;border-top:1px dashed var(--line)}
+.ctasks li.bonus .ci{grid-row:auto}
+.cstreak{padding:14px 16px;border-radius:12px;background:var(--yellow-t)}
+.sbig{display:flex;align-items:baseline;gap:6px}
+.sbig span{font-size:26px}
+.sbig b{font-size:38px;font-weight:800;line-height:1;color:var(--yellow-ink)}
+.sbig small{font-size:14px;font-weight:600;color:var(--yellow-ink)}
+.cstreak p{margin:6px 0}
+.cstreak .hint{margin:6px 0 0;font-size:11.5px}
+.sdots{display:flex;gap:4px;margin-top:8px}
+.sd{width:13px;height:13px;border-radius:4px;background:#fff;border:1.5px solid #E6D49A}
+.sd.met{background:var(--viz-1);border-color:var(--viz-1)}
+.sd.miss{background:#F3C9C2;border-color:#E9A79C}
+.sd.skip{background:transparent;border-style:dashed;border-color:#D9C88E}
+.sd.today{border:2px solid var(--yellow-ink)}
+.chall h4{margin:18px 0 8px;font-size:14px}
+.chall h4 .mut{font-weight:500;font-size:12.5px}
+.badges{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:8px;margin:0;padding:0;list-style:none}
+.badges li{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 6px 8px;border:1px solid var(--line);border-radius:10px;text-align:center;background:var(--card)}
+.badges .bi{font-size:24px;line-height:1;filter:grayscale(1);opacity:.35}
+.badges .bn{font-size:11.5px;line-height:1.2;color:var(--mut)}
+.badges .bp{display:block;width:60px;height:4px;border-radius:2px;background:var(--hair);overflow:hidden}
+.badges .bp i{display:block;height:100%;background:var(--axis)}
+.badges li.got{border-color:#E6C55A;background:var(--yellow-t)}
+.badges li.got .bi{filter:none;opacity:1}
+.badges li.got .bn{color:var(--yellow-ink);font-weight:700}
+.cteam{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 18px;margin:0;padding:0;list-style:none}
+.cteam li{display:grid;grid-template-columns:minmax(0,1fr) auto;row-gap:3px;font-size:13px}
+.cteam li .cbar{grid-column:1 / -1;height:5px}
+.cteam li.me span:first-child{font-weight:700}
+.cteam li.done b{color:var(--viz-1)}
+@media (max-width:1100px){ .chall .cgrid{grid-template-columns:140px minmax(0,1fr)} .cstreak{grid-column:1 / -1} }
+@media (max-width:640px){ .chall .cgrid{grid-template-columns:minmax(0,1fr)} .cring{margin:0 auto} }
+
+/* ---------- the celebration when every target is done ---------- */
+#pops .pop.k-cheer{background:#0C8054} #pops .pop.k-cheer b{color:#FFD866;font-size:14px} #pops .pop.k-cheer p{margin:0}
+#party{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:rgba(6,33,23,.45)}
+#party .confetti{position:fixed;inset:0;pointer-events:none}
+#party .pcard{position:relative;z-index:1;width:min(380px,92vw);padding:26px 26px 22px;border-radius:16px;background:#fff;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.25)}
+#party .pflame{font-size:54px;line-height:1}
+#party h2{margin:10px 0 4px;font-size:22px}
+#party .pbig{margin:0 0 6px;font-size:28px;font-weight:800;color:var(--yellow-ink)}
+#party p{margin:4px 0}
+#party .btn{margin-top:14px;min-width:120px}
+@media (prefers-reduced-motion:no-preference){ #party .pcard{animation:pin .35s cubic-bezier(.2,1.4,.4,1)} @keyframes pin{from{transform:scale(.8);opacity:0}to{transform:none;opacity:1}} }

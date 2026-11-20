@@ -94,11 +94,12 @@ module.exports = (app) => {
   // ---------- the team's day (admin) ----------
   app.get('/api/fb/team', needUser, needAdmin, wrap(async (req, res) => {
     const t = await today(); const day = isDate(req.query.day) ? req.query.day : t;
-    const people = (await q(`SELECT id, name, role FROM users WHERE active ORDER BY lower(name)`)).rows.filter((p) => p.role !== 'admin');
+    const people = (await q(`SELECT id, name, role, hours FROM users WHERE active ORDER BY lower(name)`)).rows.filter((p) => p.role !== 'admin');
+    const goals = {}; for (const p of people) goals[p.id] = await require('./challenge').progress(p).catch(() => null);
     const c = await counts(people.map((p) => p.id), day, day);
     const last = (await q(`SELECT user_id, max(created_at) at FROM fb_entries WHERE day = $1::date GROUP BY 1`, [day])).rows;
     res.json({ day, today: t, targets: db.settings.fbTargets,
-      people: people.map((p) => ({ id: p.id, name: p.name, counts: c[p.id], score: score(c[p.id]), lastAt: (last.find((x) => x.user_id === p.id) || {}).at || null })) });
+      people: people.map((p) => ({ id: p.id, name: p.name, counts: c[p.id], score: score(c[p.id]), streak: (goals[p.id] || {}).streak || 0, best: (goals[p.id] || {}).best || 0, lastAt: (last.find((x) => x.user_id === p.id) || {}).at || null })) });
   }));
 
   // ---------- the team's list of Facebook groups ----------
@@ -223,6 +224,7 @@ module.exports = (app) => {
         await q(`INSERT INTO fb_group_members (group_id, user_id, status) VALUES ($1, $2, 'joined') ON CONFLICT (group_id, user_id) DO UPDATE SET status = 'joined'`, [g.id, uid]);
       }
     }
+    require('./challenge').forget(uid);
     res.json({ id: ins.rows[0].id });
   }));
 
@@ -260,6 +262,7 @@ module.exports = (app) => {
     const admin = req.user.role === 'admin';
     if (!admin && (e.user_id !== req.user.id || e.dayt !== await today() || e.review === 'ok')) return res.status(403).json({ error: 'You can remove your own entries on the same day, before an admin checks them' });
     await q(`DELETE FROM fb_entries WHERE id = $1`, [e.id]);
+    require('./challenge').forget(e.user_id);
     if (e.image_id) await q(`DELETE FROM fb_images WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM fb_entries WHERE image_id = $1)`, [e.image_id]);
     res.json({ ok: true });
   }));

@@ -74,6 +74,7 @@ require('./api-companies')(app);
 require('./api-active')(app);
 require('./api-call')(app);
 require('./api-fb')(app);
+require('./challenge')(app);
 require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-admin')(app);
