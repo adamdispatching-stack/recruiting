@@ -1,0 +1,142 @@
+// Admin tools (people, access keys, settings, import and export) and the API the Chrome extension syncs with.
+const db = require('./db');
+const lib = require('./lib');
+const { q, sha, token, hashPassword } = db;
+const { wrap, needUser, needAdmin, needKey, act, validTz } = lib;
+
+// A changed checklist template also updates drivers who are being onboarded right now:
+// new steps are added, renamed steps are renamed, and removed steps disappear unless already ticked.
+async function applyTemplate(list) {
+  const rows = await q(`SELECT d.id FROM drivers d JOIN onboarding o ON o.driver_id = d.id WHERE d.status = 'Onboarding'`);
+  for (const { id } of rows.rows) {
+    let i = 0;
+    for (const it of list) await q(`INSERT INTO checklist (driver_id, key, label, position, auto) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (driver_id, key) DO UPDATE SET label = EXCLUDED.label, position = EXCLUDED.position`, [id, it.key, it.label, i++, it.auto || null]);
+    await q(`DELETE FROM checklist WHERE driver_id = $1 AND NOT done AND key NOT LIKE 'custom\\_%' AND key <> ALL($2::text[])`, [id, list.map((x) => x.key)]);
+    await db.syncAuto(db.pool, id, null);
+  }
+}
+
+module.exports = (app) => {
+  // ---------- people ----------
+  app.get('/api/users', needUser, needAdmin, wrap(async (req, res) => res.json((await q(`SELECT id, email, name, role, active, created_at FROM users ORDER BY id`)).rows)));
+  app.post('/api/users', needUser, needAdmin, wrap(async (req, res) => {
+    const { email, name, password, role } = req.body || {};
+    if (!/^\S+@\S+\.\S+$/.test(String(email || '').trim()) || !String(name || '').trim()) return res.status(400).json({ error: 'Name and email are required' });
+    if (String(password || '').length < 10) return res.status(400).json({ error: 'Password needs at least 10 characters' });
+    let id;
+    try { id = (await q(`INSERT INTO users (email, name, pass_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`, [String(email).trim().toLowerCase(), String(name).trim().slice(0, 80), hashPassword(password), role === 'admin' ? 'admin' : 'member'])).rows[0].id; }
+    catch (e) { if (e.code === '23505') return res.status(400).json({ error: 'Someone already uses that email' }); throw e; }
+    await act(req.user, 'admin', null, `Created an account for ${String(name).trim()} (${role === 'admin' ? 'admin' : 'recruiter'})`);
+    res.json({ ok: true, id });
+  }));
+  app.patch('/api/users/:id', needUser, needAdmin, wrap(async (req, res) => {
+    const id = +req.params.id; const b = req.body || {};
+    const target = (await q(`SELECT * FROM users WHERE id = $1`, [id])).rows[0];
+    if (!target) return res.status(404).json({ error: 'Person not found' });
+    if (id === req.user.id && (b.active === false || b.role === 'member')) return res.status(400).json({ error: "You can't remove your own admin access" });
+    if (b.password !== undefined) {
+      if (String(b.password).length < 10) return res.status(400).json({ error: 'Password needs at least 10 characters' });
+      await q(`UPDATE users SET pass_hash = $2 WHERE id = $1`, [id, hashPassword(b.password)]); await q(`DELETE FROM sessions WHERE user_id = $1`, [id]);
+      await act(req.user, 'admin', null, `Set a new password for ${target.name}`);
+    }
+    if (b.active !== undefined && !!b.active !== target.active) {
+      await q(`UPDATE users SET active = $2 WHERE id = $1`, [id, !!b.active]); if (!b.active) await q(`DELETE FROM sessions WHERE user_id = $1`, [id]);
+      await lib.loadGone();
+      await act(req.user, 'admin', null, b.active ? `Gave ${target.name} access again` : `Removed ${target.name}'s access`);
+    }
+    if (b.role && (b.role === 'admin' ? 'admin' : 'member') !== target.role) { await q(`UPDATE users SET role = $2 WHERE id = $1`, [id, b.role === 'admin' ? 'admin' : 'member']); await act(req.user, 'admin', null, `Made ${target.name} ${b.role === 'admin' ? 'an admin' : 'a recruiter'}`); }
+    if (b.name !== undefined && String(b.name).trim()) await q(`UPDATE users SET name = $2 WHERE id = $1`, [id, String(b.name).trim().slice(0, 80)]);
+    res.json({ ok: true });
+  }));
+
+  // ---------- access keys for the Chrome extension (one per Chrome profile) ----------
+  app.get('/api/keys', needUser, needAdmin, wrap(async (req, res) => res.json((await q(`SELECT k.id, k.name, k.created_at, k.last_used_at, k.assign_to, u.name owner, a.name assign_name FROM api_keys k LEFT JOIN users u ON u.id = k.user_id LEFT JOIN users a ON a.id = k.assign_to ORDER BY k.id`)).rows)));
+  app.post('/api/keys', needUser, needAdmin, wrap(async (req, res) => {
+    const name = String((req.body || {}).name || '').trim().slice(0, 60); if (!name) return res.status(400).json({ error: 'Give the key a name, like the Chrome profile or Indeed account' });
+    const assignTo = (req.body || {}).assignTo ? +req.body.assignTo : null;
+    const key = token('rk_');
+    await q(`INSERT INTO api_keys (name, key_hash, user_id, assign_to) VALUES ($1, $2, $3, $4)`, [name, sha(key), req.user.id, assignTo]);
+    await act(req.user, 'admin', null, `Created the access key "${name}"`);
+    res.json({ key }); // shown once
+  }));
+  app.patch('/api/keys/:id', needUser, needAdmin, wrap(async (req, res) => {
+    await q(`UPDATE api_keys SET assign_to = $2 WHERE id = $1`, [+req.params.id, (req.body || {}).assignTo ? +req.body.assignTo : null]); res.json({ ok: true });
+  }));
+  app.delete('/api/keys/:id', needUser, needAdmin, wrap(async (req, res) => {
+    const k = (await q(`DELETE FROM api_keys WHERE id = $1 RETURNING name`, [+req.params.id])).rows[0];
+    if (k) await act(req.user, 'admin', null, `Revoked the access key "${k.name}"`);
+    res.json({ ok: true });
+  }));
+
+  // ---------- settings ----------
+  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist }));
+  app.put('/api/settings', needUser, needAdmin, wrap(async (req, res) => {
+    const b = req.body || {}; const changed = [];
+    if (b.tz !== undefined) { if (!validTz(b.tz)) return res.status(400).json({ error: 'That time zone is not known. Use a name like America/New_York.' }); if (b.tz !== db.settings.tz) { await db.saveSetting('tz', b.tz); changed.push('time zone'); } }
+    if (b.visibility !== undefined) { const v = b.visibility === 'own' ? 'own' : 'all'; if (v !== db.settings.visibility) { await db.saveSetting('visibility', v); changed.push('who sees which leads'); } }
+    if (b.sources !== undefined) {
+      const list = [...new Set((Array.isArray(b.sources) ? b.sources : []).map((x) => String(x).trim().slice(0, 40)).filter(Boolean))].slice(0, 30);
+      if (!list.includes('Indeed')) list.unshift('Indeed'); // leads from the extension are filed under Indeed
+      if (JSON.stringify(list) !== JSON.stringify(db.settings.sources)) { await db.saveSetting('sources', list); changed.push('lead sources'); }
+    }
+    if (b.checklist !== undefined) {
+      const builtIn = Object.fromEntries(db.DEFAULTS.checklist.map((x) => [x.key, x])); const seen = new Set();
+      const list = (Array.isArray(b.checklist) ? b.checklist : []).map((x) => {
+        const label = String((x && x.label) || '').trim().slice(0, 80); if (!label) return null;
+        let key = String((x && x.key) || '').trim(); if (!/^[a-z0-9_]{1,40}$/.test(key) || key.startsWith('custom_') || seen.has(key)) key = 'c_' + token().slice(0, 8).toLowerCase().replace(/[^a-z0-9]/g, 'x');
+        seen.add(key);
+        return { key, label, ...(builtIn[key] && builtIn[key].auto ? { auto: builtIn[key].auto } : {}) };
+      }).filter(Boolean).slice(0, 40);
+      if (!list.length) return res.status(400).json({ error: 'The checklist needs at least one step' });
+      if (JSON.stringify(list) !== JSON.stringify(db.settings.checklist)) { await db.saveSetting('checklist', list); await applyTemplate(list); changed.push('onboarding checklist'); }
+    }
+    if (changed.length) await act(req.user, 'admin', null, `Changed settings: ${changed.join(', ')}`);
+    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist });
+  }));
+
+  // ---------- export and import ----------
+  app.get('/api/export.csv', needUser, needAdmin, wrap(async (req, res) => {
+    const r = await q(`SELECT d.*, u.name recruiter, (SELECT string_agg(${lib.NOTE_TEXT}, ' | ' ORDER BY n.created_at) FROM notes n WHERE n.driver_id = d.id) all_notes
+      FROM drivers d LEFT JOIN users u ON u.id = d.owner_id ORDER BY d.updated_at DESC`);
+    const cols = ['name', 'status', 'recruiter', 'phones', 'emails', 'location', 'zip', 'source', 'source_detail', 'account', 'mode', 'job', 'follow_up', 'tags', 'all_notes', 'red_flags', 'ai_summary', 'answers', 'lost_reason', 'last_contact_at', 'updated_at', 'conversation_url'];
+    const cell = (v) => {
+      let t = String(Array.isArray(v) ? v.join('; ') : v && typeof v === 'object' && !(v instanceof Date) ? Object.entries(v).map(([k, x]) => `${k}: ${x}`).join('; ') : v instanceof Date ? v.toISOString() : v ?? '');
+      if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; // a spreadsheet must never run a cell as a formula
+      return `"${t.replace(/"/g, '""')}"`;
+    };
+    await act(req.user, 'export', null, `Exported the driver list (${r.rows.length} drivers)`);
+    res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="drivers-${new Date().toISOString().slice(0, 10)}.csv"` });
+    res.send('﻿' + [cols.join(','), ...r.rows.map((d) => cols.map((c) => cell(d[c])).join(','))].join('\r\n'));
+  }));
+  app.post('/api/import', needUser, needAdmin, wrap(async (req, res) => {
+    const drivers = Object.values(((req.body || {}).drivers) || {});
+    if (!drivers.length) return res.status(400).json({ error: 'No drivers in this file. Use "Download a backup" on the extension\'s database page.' });
+    const label = String((req.body || {}).label || 'import').slice(0, 60);
+    const c = await db.pool.connect(); let n = 0;
+    try { await c.query('BEGIN'); for (const d of drivers) { if (await db.mergeFromExtension(c, d, label)) n++; } await c.query('COMMIT'); }
+    catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+    await act(req.user, 'admin', null, `Imported a backup (${n} drivers)`);
+    res.json({ ok: true, merged: n });
+  }));
+
+  // ---------- the Chrome extension ----------
+  app.get('/api/ext/ping', needKey, (req, res) => res.json({ ok: true, name: req.key.name }));
+  app.post('/api/ext/push', needKey, wrap(async (req, res) => {
+    const items = Array.isArray((req.body || {}).drivers) ? req.body.drivers.slice(0, 500) : [];
+    const c = await db.pool.connect(); let n = 0;
+    try { await c.query('BEGIN'); for (const d of items) { if (await db.mergeFromExtension(c, d, req.key.name, { assignTo: req.key.assign_to })) n++; } await c.query('COMMIT'); }
+    catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+    res.json({ ok: true, merged: n });
+  }));
+  // What changed on the website since the last pull: team notes, status set by hand, follow-ups, tags.
+  app.get('/api/ext/pull', needKey, wrap(async (req, res) => {
+    const since = new Date(String(req.query.since || 0)); const sinceIso = isNaN(since) ? new Date(0).toISOString() : since.toISOString();
+    // with "recruiters see only their own leads" on, a profile set up for one recruiter gets that recruiter's leads only
+    const own = db.settings.visibility === 'own' && req.key.assign_to ? req.key.assign_to : null;
+    const r = await q(`SELECT d.*, (SELECT string_agg(coalesce(u.name, 'Chrome ' || substr(n.source, 5)) || ', ' || to_char(n.created_at, 'Mon DD') || ': ' ||
+          ${lib.NOTE_TEXT}, E'\\n' ORDER BY n.created_at DESC)
+        FROM notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.driver_id = d.id AND coalesce(n.source, '') <> $2) team_notes
+      FROM drivers d WHERE d.web_updated_at > $1 AND ($3::int IS NULL OR d.owner_id = $3::int OR ${lib.unownedSql()}) ORDER BY d.web_updated_at LIMIT 1000`, [sinceIso, 'ext:' + req.key.name, own]);
+    res.json({ now: new Date().toISOString(), drivers: r.rows.map((d) => ({ name: d.name, phones: d.phones, emails: d.emails, account: d.account, status: d.status, statusLocked: d.status_locked, followUp: d.follow_up || null, tags: d.tags, teamNotes: d.team_notes || '', url: `/#/driver/${d.id}` })) });
+  }));
+};

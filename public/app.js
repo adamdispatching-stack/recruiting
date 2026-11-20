@@ -1,283 +1,178 @@
-// Recruiting database website: sign-in, driver list, driver page with notes, and settings.
-(() => {
+// Core of the recruiting website: helpers, sign-in, navigation, and the "I'm here" signals.
+// Each screen lives in its own file (leads.js, ops.js, team.js, settings.js) and registers itself here.
+window.App = (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const app = $('#app');
+  const view = $('#app');
+  const S = { me: null };
+
+  // ---------- words and numbers ----------
   const fmtPhone = (p) => (p && p.length === 10 ? `(${p.slice(0, 3)}) ${p.slice(3, 6)}-${p.slice(6)}` : p);
   const cls = (s) => 's-' + String(s || 'Invited').replace(/[^A-Za-z0-9]+/g, '-');
+  const badge = (s) => `<span class="badge ${cls(s)}">${esc(s)}</span>`;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + 's'}`;
+  // times on notes and history: the reader's own clock
   const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
   const shortWhen = (iso) => { if (!iso) return ''; const d = new Date(iso), n = new Date(); if (d.toDateString() === n.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); if (d.toDateString() === new Date(n - 864e5).toDateString()) return 'Yesterday'; return d.toLocaleDateString([], d.getFullYear() === n.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' }); };
-  const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
-  const fuText = (d) => { if (!d) return ''; const t = today(); if (d === t) return 'Today'; if (d < t) return `Overdue · ${new Date(d + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}`; return new Date(d + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); };
-  const ROUTE = ['Invited', 'Replied', 'Interested', 'Email collected', 'Relay invite sent', 'Signed up on Relay', 'Hired'];
-  const OTHER = ['Review', 'Stalled', 'No CDL', 'Not interested', 'Declined on Indeed', 'Rejected'];
-  const ALL = ROUTE.concat(OTHER);
-  const SHORT = { 'Declined on Indeed': 'Declined' };
-  const LABELS = { cdl: 'License', qualify: 'CDL and record', qualifyNote: 'Screening', endorsements: 'Endorsements', freight: 'Freight hauled', relay: 'Amazon Relay', relayApp: 'Relay sign-up', equipment: 'Truck', currentJob: 'Working now', availability: 'Can start', interest: 'Interest', lookingFor: 'Looking for', homeTimeWanted: 'Home time', payExpectation: 'Pay wanted', home: 'Home', declineReason: 'Declined because', notes: 'Other details', fullName: 'Full name', zip: 'Zip' };
-  const label = (k) => LABELS[k] || k.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
-  const ICON_SEARCH = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
-
-  let me = null;
-  const list = { q: '', status: '', account: '', mode: '', due: '', sort: 'updated', rows: [], total: 0, counts: [], accounts: [] };
+  // days and times on reports: the team's time zone (Settings), so everyone reads the same day
+  const tz = () => (S.me && S.me.tz) || 'America/New_York';
+  const tzName = () => tz().split('/').pop().replace(/_/g, ' ') + ' time';
+  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz() }).format(new Date(iso));
+  const today = () => dayOf(Date.now());
+  const addDays = (ymd, n) => { const d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const dateText = (ymd, opts) => (ymd ? new Date(ymd + 'T12:00:00Z').toLocaleDateString([], { timeZone: 'UTC', month: 'short', day: 'numeric', ...opts }) : '');
+  const teamTime = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { timeZone: tz(), hour: 'numeric', minute: '2-digit' }) : '');
+  const teamWhen = (iso) => { if (!iso) return ''; const d = dayOf(iso), t = today(); return (d === t ? '' : d === addDays(t, -1) ? 'Yesterday ' : dateText(d) + ', ') + teamTime(iso); };
+  const fuText = (d) => { if (!d) return ''; const t = today(); if (d === t) return 'Today'; if (d < t) return `Overdue, ${dateText(d)}`; if (d === addDays(t, 1)) return 'Tomorrow'; return dateText(d, { weekday: 'short' }); };
+  const dur = (sec) => { const m = Math.round((sec || 0) / 60); if (!m) return sec > 0 ? '1m' : '0m'; return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`; };
+  const daysSince = (iso) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 864e5));
+  const person = (id) => { const p = S.me && S.me.people.find((x) => x.id === id); return p ? p.name : ''; };
+  const hasAccess = (id) => { const p = S.me && S.me.people.find((x) => x.id === id); return !!(p && p.active); };
+  // Online now? "Active" = clicked, typed or scrolled in the last 2 minutes. "Idle" = the site is open but untouched.
+  function presence(p, now) {
+    const n = new Date(now || Date.now()).getTime(); const gap = (t) => (t ? (n - new Date(t).getTime()) / 1000 : Infinity);
+    if (!p.lastSeenAt) return { state: 'never', label: 'Never signed in' };
+    if (gap(p.lastActiveAt) < 120) return { state: 'active', label: 'Active now' };
+    if (gap(p.lastSeenAt) < 150) return { state: 'idle', label: 'Idle, site open' };
+    return { state: 'offline', label: `Last seen ${teamWhen(p.lastSeenAt)}` };
+  }
+  const presenceHtml = (p, now) => { const x = presence(p, now); return `<span class="pres ${x.state}"><i></i>${esc(x.label)}</span>`; };
 
   // ---------- server calls ----------
   async function api(path, opts = {}) {
     const r = await fetch(path, { method: opts.method || 'GET', headers: opts.body ? { 'Content-Type': 'application/json' } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined, credentials: 'same-origin' });
-    if (r.status === 401 && path !== '/api/login') { me = null; go('#/login'); throw new Error('Sign in first'); }
+    if (r.status === 401 && path !== '/api/login') { S.me = null; go('#/login'); throw new Error('Sign in first'); }
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || 'Something went wrong');
+    if (!r.ok) { const e = new Error(data.error || 'Something went wrong'); e.status = r.status; e.data = data; throw e; }
     return data;
   }
   let toastT;
   function toast(text, bad) { const t = $('#toast'); t.textContent = text; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, bad ? 5000 : 2200); }
-  const fail = (e) => toast(e.message || String(e), true);
+  const fail = (e) => { if (e && e.message !== 'Sign in first') toast(e.message || String(e), true); };
 
-  // ---------- router ----------
-  const go = (h) => { if (location.hash !== h) location.hash = h; else route(); };
-  async function route() {
+  // ---------- "I'm here" signals ----------
+  // Every 30 seconds while the site is open: was the page on screen, and did the person click, type or scroll?
+  // Only counts are sent (never what was typed). The manager sees them on the Team page; each person sees their own.
+  const sig = { clicks: 0, last: 0, timer: null, page: '' };
+  ['pointerdown', 'keydown', 'wheel', 'touchstart', 'pointermove', 'scroll'].forEach((ev) => document.addEventListener(ev, () => { sig.last = Date.now(); }, { passive: true, capture: true }));
+  document.addEventListener('click', () => { sig.clicks++; }, true);
+  function beat(extra) {
+    if (!S.me) return;
+    const body = JSON.stringify({ active: !document.hidden && Date.now() - sig.last < 31000, visible: !document.hidden, clicks: sig.clicks, ...extra });
+    sig.clicks = 0;
+    fetch('/api/beat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, credentials: 'same-origin', keepalive: true }).catch(() => {});
+  }
+  function startSignals() { if (sig.timer) return; beat({ start: true }); sig.timer = setInterval(beat, 30000); }
+  function stopSignals() { clearInterval(sig.timer); sig.timer = null; sig.page = ''; }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) beat(); });
+  window.addEventListener('pagehide', () => beat());
+  function pageOpened(hash) { const p = hash.split('?')[0]; if (!S.me || p === sig.page) return; sig.page = p; fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }), credentials: 'same-origin' }).catch(() => {}); }
+
+  // Screens load their data and then draw. If a newer draw started meanwhile (the person clicked on, or typed
+  // more in the search box), the older answer is stale and must not be drawn over the newer one.
+  let drawId = 0;
+  const drawing = () => { const id = ++drawId; return () => id === drawId; };
+
+  // ---------- navigation ----------
+  const routes = [];
+  const route = (re, fn) => routes.push([re, fn]);
+  const go = (h) => { if (location.hash !== h) location.hash = h; else render(); };
+  // Screens that show who is online refresh themselves once a minute, unless you are in the middle of something.
+  let ticker = null;
+  function every(ms, fn) {
+    clearInterval(ticker);
+    ticker = setInterval(() => {
+      const a = document.activeElement; const busy = document.hidden || $('dialog[open]') || $('details[open]') || $('.bar.on') || $('.viztable:not([hidden])') || (a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) || String(getSelection()).length;
+      if (!busy) redraw(fn).catch(() => {});
+    }, ms);
+  }
+  async function render() {
     const h = location.hash || '#/';
-    if (!me && h !== '#/login') { try { me = await api('/api/me'); } catch (e) { return; } }
+    clearInterval(ticker); ticker = null;
+    if (!S.me && h !== '#/login') { try { S.me = await api('/api/me'); S.meAt = Date.now(); startSignals(); } catch (e) { return; } }
+    // names of people and the lead sources can change while the site is open: refresh them now and then
+    if (S.me && Date.now() - (S.meAt || 0) > 5 * 60000) { S.meAt = Date.now(); api('/api/me').then((m) => { if (S.me) S.me = m; }).catch(() => {}); }
+    const dlg = $('#dlg'); if (dlg && dlg.open) dlg.close(); // a form left open does not follow you to another screen
     if (h === '#/login') return viewLogin();
-    if (h.startsWith('#/driver/')) return viewDriver(+h.split('/')[2]);
-    if (h === '#/settings') return viewSettings();
-    return viewList();
+    pageOpened(h);
+    const [path, qs] = h.split('?');
+    for (const [re, fn] of routes) { const m = path.match(re); if (m) { try { return await fn(...m.slice(1), new URLSearchParams(qs || '')); } catch (e) { return fail(e); } } }
+    go('#/');
   }
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', render);
 
-  // ---------- header ----------
-  function header(inner, routeHtml = '') {
+  function header(active, extra = '') {
+    const admin = S.me.role === 'admin';
+    const tabs = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/trucks', 'Trucks', 'trucks'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
     return `<header class="sign"><div class="o"><div class="plate"><div class="bar">
-      <h1><a href="#/">Drivers</a></h1>${inner}<span class="grow"></span>
-      <details class="menu" id="acct"><summary class="btn ghost">${esc(me ? me.name : '')}</summary><div class="pop">
-        <div class="who">${esc(me ? me.email : '')}</div>
-        <a href="#/">All drivers</a><a href="/api/export.csv">Export CSV</a><a href="#/settings">Settings</a><hr><button data-act="logout">Sign out</button></div></details>
-    </div>${routeHtml}</div></div></header>`;
+      <h1><a href="#/">Recruiting</a></h1>
+      <nav class="tabs" aria-label="Sections">${tabs.map(([href, label, key]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a>`).join('')}</nav>
+      <span class="grow"></span>
+      <details class="menu" id="acct"><summary class="btn ghost">${esc(S.me.name)}</summary><div class="pop">
+        <div class="who">${esc(S.me.email)}<br>${admin ? 'Admin' : 'Recruiter'}</div>
+        <a href="#/settings">${admin ? 'Settings' : 'Change password'}</a>${admin ? '<a href="/api/export.csv">Export all leads (CSV)</a>' : ''}<hr><button data-act="logout">Sign out</button></div></details>
+    </div>${extra}</div></div></header>`;
   }
-  document.addEventListener('click', (e) => { const m = $('#acct'); if (m && m.open && !m.contains(e.target)) m.open = false; });
+  document.addEventListener('click', (e) => { $$('details.menu[open]').forEach((m) => { if (!m.contains(e.target)) m.open = false; }); });
 
-  // ---------- login ----------
+  // ---------- buttons: every [data-act] runs the function registered under that name ----------
+  const actions = {};
+  const on = (name, fn) => { actions[name] = fn; };
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+    const fn = actions[b.dataset.act]; if (!fn) return;
+    try { await fn(b, e); } catch (err) { fail(err); }
+  });
+  // ...and every [data-ch] field does the same when its value changes
+  const changes = {};
+  const onChange = (name, fn) => { changes[name] = fn; };
+  document.addEventListener('change', async (e) => {
+    const el = e.target.closest('[data-ch]'); if (!el) return;
+    const fn = changes[el.dataset.ch]; if (!fn) return;
+    try { await fn(el, e); } catch (err) { fail(err); }
+  });
+  // Screens redraw after every save; this puts the keyboard focus back where it was.
+  async function redraw(fn) {
+    const a = document.activeElement; const fk = a && a.dataset ? a.dataset.fk : ''; const y = window.scrollY;
+    await fn();
+    if (fk) { const el = document.querySelector(`[data-fk="${fk}"]`); if (el) el.focus({ preventScroll: true }); }
+    window.scrollTo(0, y);
+  }
+  on('logout', async () => { await api('/api/logout', { method: 'POST' }); S.me = null; stopSignals(); go('#/login'); });
+
+  // ---------- a dialog for forms ----------
+  function dialog(html, onOpen) {
+    let d = $('#dlg'); if (!d) { d = document.createElement('dialog'); d.id = 'dlg'; document.body.appendChild(d); d.addEventListener('click', (e) => { if (e.target === d) d.close(); }); }
+    d.innerHTML = html; if (!d.open) d.showModal();
+    const first = d.querySelector('input:not([type=hidden]), select, textarea'); if (first) first.focus();
+    if (onOpen) onOpen(d);
+    return d;
+  }
+  on('closeDialog', () => { const d = $('#dlg'); if (d) d.close(); });
+
+  // ---------- sign-in ----------
   function viewLogin() {
-    document.title = 'Sign in · Drivers';
-    app.innerHTML = `<div class="login"><div class="o"><div class="plate"><h1>Drivers</h1><div>Recruiting database</div></div></div>
+    drawing(); document.title = 'Sign in · Recruiting';
+    view.innerHTML = `<div class="login"><div class="o"><div class="plate"><h1>Recruiting</h1><div>Leads, follow-ups and onboarding</div></div></div>
       <form id="lf"><label class="fld">Email<input type="email" name="email" autocomplete="username" required></label>
       <label class="fld">Password<input type="password" name="password" autocomplete="current-password" required></label>
-      <p class="err" id="lerr"></p><button class="btn primary" style="width:100%">Sign in</button></form></div>`;
+      <p class="err" id="lerr" role="alert"></p><button class="btn primary" style="width:100%">Sign in</button>
+      <p class="hint notice">Work on this site is recorded: when you are signed in, how long you are active, and what you change. Your manager can see it, and you can see your own under My activity.</p></form></div>`;
     $('#lf input').focus();
     $('#lf').onsubmit = async (e) => {
       e.preventDefault(); const f = new FormData(e.target); $('#lerr').textContent = '';
-      try { await api('/api/login', { method: 'POST', body: { email: f.get('email'), password: f.get('password') } }); me = await api('/api/me'); go('#/'); }
+      try { await api('/api/login', { method: 'POST', body: { email: f.get('email'), password: f.get('password') } }); S.me = await api('/api/me'); S.meAt = Date.now(); startSignals(); go('#/'); }
       catch (err) { $('#lerr').textContent = err.message; }
     };
   }
 
-  // ---------- driver list ----------
-  async function loadList(more) {
-    const p = new URLSearchParams({ q: list.q, status: list.status, account: list.account, mode: list.mode, due: list.due, sort: list.sort, limit: 100, offset: more ? list.rows.length : 0 });
-    const r = await api('/api/drivers?' + p);
-    list.rows = more ? list.rows.concat(r.drivers) : r.drivers; list.total = r.total; list.counts = r.counts; list.accounts = r.accounts;
-  }
-  async function viewList() {
-    document.title = 'Drivers';
-    if (!$('#lst')) {
-      app.innerHTML = header(`<label class="search">${ICON_SEARCH}<input id="q" type="search" placeholder="Search name, phone, email, city, notes" aria-label="Search drivers"></label>
-        <select id="fAcct" class="pick" aria-label="Indeed account"></select>
-        <select id="fMode" class="pick" aria-label="Driver type"><option value="">All types</option><option>Company drivers</option><option>Owner-operators</option></select>
-        <select id="fSort" class="pick" aria-label="Sort"><option value="updated">Newest activity</option><option value="followup">Follow-up date</option><option value="name">Name A–Z</option><option value="created">Newest added</option></select>
-        <button class="btn solid" data-act="add">Add driver</button>`, '<nav id="route" class="route" aria-label="Filter by status"></nav>') + '<main id="lst"></main>';
-      $('#q').value = list.q; $('#fMode').value = list.mode; $('#fSort').value = list.sort;
-      let t; $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { list.q = e.target.value; refresh(); }, 250); };
-      $('#fAcct').onchange = (e) => { list.account = e.target.value; refresh(); };
-      $('#fMode').onchange = (e) => { list.mode = e.target.value; refresh(); };
-      $('#fSort').onchange = (e) => { list.sort = e.target.value; refresh(); };
-    }
-    await refresh();
-  }
-  async function refresh(more) {
-    try { await loadList(more); } catch (e) { return fail(e); }
-    const c = Object.fromEntries(list.counts.map((x) => [x.status, x.n])); const due = list.counts.reduce((a, x) => a + x.due, 0); const all = list.counts.reduce((a, x) => a + x.n, 0);
-    const stop = (s, ring) => `<button class="stop${list.status === s ? ' on' : ''}${c[s] ? '' : ' zero'}" data-f="${esc(s)}">${ring ? '<i></i>' : ''}<span>${esc(SHORT[s] || s)}</span><b>${c[s] || 0}</b></button>`;
-    $('#route').innerHTML = `<div class="main"><button class="stop${!list.status ? ' on' : ''}" data-f=""><span>All</span><b>${all}</b></button><ol>${ROUTE.map((s) => `<li>${stop(s, true)}</li>`).join('')}</ol></div>
-      <div class="side">${OTHER.map((s) => stop(s)).join('')}<button class="stop due${list.due ? ' on' : ''}" data-due="1" title="Drivers whose follow-up date is today or earlier"><span>Follow-ups due</span><b>${due}</b></button></div>`;
-    const acc = $('#fAcct'); acc.innerHTML = '<option value="">All accounts</option>' + list.accounts.map((a) => `<option ${a === list.account ? 'selected' : ''}>${esc(a)}</option>`).join('');
-    const rows = list.rows.map((d) => {
-      const contact = (d.phones || []).map((p) => `<a class="ph" href="tel:${esc(p)}">${esc(fmtPhone(p))}</a>`).join('') + (d.emails || []).slice(0, 1).map((e) => `<a class="em" href="mailto:${esc(e)}">${esc(e)}</a>`).join('');
-      const note = d.redFlags ? `<span class="k flag">Flag</span>${esc(d.redFlags)}` : d.lastNote ? `<span class="k you">Note</span>${esc(d.lastNote)}` : d.aiSummary ? `<span class="k ai">AI</span>${esc(d.aiSummary)}` : '';
-      const isDue = d.followUp && d.followUp <= today();
-      return `<tr data-id="${d.id}"><td><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${esc((d.mode || '').replace(/s$/, ''))}${d.account ? ` · ${esc(d.account)}` : ''}</div></td>
-        <td><span class="badge ${cls(d.status)}">${esc(d.status)}</span></td>
-        <td>${d.followUp ? `<span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : '<span class="none">—</span>'}</td>
-        <td><div class="note1 clamp">${note || '<span class="none">—</span>'}</div>${d.noteCount ? `<div class="small mut">${d.noteCount} note${d.noteCount > 1 ? 's' : ''}</div>` : ''}</td>
-        <td>${contact || '<span class="none">—</span>'}</td>
-        <td>${esc(d.location || (d.answers || {}).home || '') || '<span class="none">—</span>'}${d.zip ? `<div class="small mut">${esc(d.zip)}</div>` : ''}</td>
-        <td class="small mut" title="${esc(when(d.updatedAt))}">${esc(shortWhen(d.updatedAt))}</td></tr>`;
-    }).join('');
-    $('#lst').innerHTML = list.rows.length ? `<div class="sheet"><table><colgroup><col style="width:22%"><col style="width:150px"><col style="width:130px"><col><col style="width:200px"><col style="width:140px"><col style="width:90px"></colgroup>
-        <thead><tr><th>Driver</th><th>Status</th><th>Follow-up</th><th>Notes</th><th>Contact</th><th>Home</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>
-        ${list.rows.length < list.total ? `<button class="btn plain more" data-act="more">Show more (${list.total - list.rows.length} left)</button>` : ''}`
-      : `<div class="empty">${all ? '<p>No drivers match these filters.</p><button class="btn plain" data-act="clear">Clear filters</button>' : '<p>No drivers yet.</p>Connect the Chrome extension under Settings, or import a backup from it.'}</div>`;
-  }
+  // ---------- small shared pieces ----------
+  // One row of a list where each line is a name, a bar and a figure (pipeline stages, lead sources).
+  const meterRow = (name, n, max, extra = '', href = '') => `<${href ? `a href="${href}"` : 'div'} class="mrow"><span class="mname">${name}</span><span class="mbar"><i style="width:${max ? Math.max(n ? 1.5 : 0, (n / max) * 100) : 0}%"></i></span><b class="mnum">${n.toLocaleString()}</b>${extra}</${href ? 'a' : 'div'}>`;
+  // One line of an activity feed.
+  const feedHtml = (rows, showUser) => (rows.length ? `<ol class="feed">${rows.map((f) => `<li><time title="${esc(when(f.at))}">${esc(teamWhen(f.at))}</time><span>${showUser ? `<b>${esc(f.user)}</b> ` : ''}${f.driver ? (f.driverId ? `<a href="#/driver/${f.driverId}">${esc(f.driver)}</a>` : `<span class="gone">${esc(f.driver)}</span>`) + ': ' : ''}${esc(f.text || '')}</span></li>`).join('')}</ol>` : '<p class="hint">Nothing yet.</p>');
 
-  // ---------- driver page ----------
-  let cur = null;
-  function convoHtml(c) {
-    return String(c || '').split('\n').filter((l) => l.trim()).map((l) => {
-      if (l.startsWith('Dispatch: ')) return `<div class="msg d"><span class="w">Dispatch</span>${esc(l.slice(10))}</div>`;
-      if (l.startsWith('Driver: ')) return `<div class="msg c"><span class="w">Driver</span>${esc(l.slice(8))}</div>`;
-      return `<div class="msg s">${esc(l.replace(/^\[(Indeed|On screen): /, '').replace(/\]$/, ''))}</div>`;
-    }).join('');
-  }
-  async function viewDriver(id) {
-    let r; try { r = await api('/api/drivers/' + id); } catch (e) { app.innerHTML = header('') + `<main><a class="back" href="#/">← All drivers</a><div class="empty"><p>${esc(e.message)}</p></div></main>`; return; }
-    cur = r; const d = r.driver; const a = d.answers || {};
-    document.title = `${d.name} · Drivers`;
-    const answerKeys = Object.keys(LABELS).filter((k) => a[k]).concat(Object.keys(a).filter((k) => !(k in LABELS) && a[k]));
-    const focusNew = document.activeElement && document.activeElement.id === 'newNote';
-    app.innerHTML = header('') + `<main>
-      <a class="back" href="#/">← All drivers</a>
-      <section class="dhead">
-        <div class="who"><h2>${esc(d.name)}</h2>
-          <div class="sub">${[(d.mode || '').replace(/s$/, ''), d.location, d.zip, d.account].filter(Boolean).map(esc).join(' · ') || 'No details yet'}</div>
-          <div class="contact">${(d.phones || []).map((p) => `<a href="tel:${esc(p)}">${esc(fmtPhone(p))}</a>`).join('')}${(d.emails || []).map((e) => `<a href="mailto:${esc(e)}">${esc(e)}</a>`).join('')}<button class="linkbtn" data-act="editContact">Edit contact</button></div>
-          <div class="tags" id="tags">${(d.tags || []).map((t) => `<span class="tag">${esc(t)}<button data-tag="${esc(t)}" aria-label="Remove tag ${esc(t)}">×</button></span>`).join('')}<input id="tagIn" type="text" placeholder="Add a tag, press Enter" aria-label="Add a tag"></div>
-        </div>
-        <div class="ctl">
-          <label class="fld">Status<select id="st" class="stsel">${ALL.concat(ALL.includes(d.status) ? [] : [d.status]).map((s) => `<option ${s === d.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
-          <label class="fld">Follow-up<input id="fu" type="date" value="${esc(d.followUp || '')}"></label>
-          ${d.conversationUrl ? `<a class="btn plain" href="${esc(d.conversationUrl)}" target="_blank" rel="noopener">Open on Indeed</a>` : ''}
-          ${(d.phones || [])[0] ? `<a class="btn primary" href="tel:${esc(d.phones[0])}">Call</a>` : ''}
-        </div>
-      </section>
-      <form id="contactForm" class="card" hidden><h3>Contact</h3><div class="form">
-        <label class="fld">Name<input name="name" type="text" value="${esc(d.name)}"></label>
-        <label class="fld">Phones, comma separated<input name="phones" type="text" value="${esc((d.phones || []).map(fmtPhone).join(', '))}"></label>
-        <label class="fld">Emails, comma separated<input name="emails" type="text" value="${esc((d.emails || []).join(', '))}"></label>
-        <label class="fld">Home<input name="location" type="text" value="${esc(d.location || '')}"></label>
-        <label class="fld">Zip<input name="zip" type="text" value="${esc(d.zip || '')}" style="min-width:90px;width:90px"></label>
-        <label class="fld">Type<select name="mode"><option value="">Not set</option>${['Company drivers', 'Owner-operators'].map((m) => `<option ${m === d.mode ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
-        <button class="btn primary">Save</button><button type="button" class="btn plain" data-act="cancelContact">Cancel</button></div></form>
-      <div class="cols">
-        <div>
-          <section class="card"><h3>Notes</h3>
-            ${d.redFlags ? `<div class="flagbox"><span>${esc(d.redFlags)}</span></div>` : ''}
-            <form class="compose" id="noteForm"><textarea id="newNote" placeholder="Add a note: a call, what they said, what to do next"></textarea>
-              <div class="row"><button class="btn primary">Add note</button><span class="hint">Ctrl+Enter adds it</span></div></form>
-            ${r.notes.length ? `<ul class="notes">${r.notes.map((n) => `<li data-note="${n.id}"><div class="meta"><b>${esc(n.author)}</b>${n.fromExtension ? '<span class="ext">from the extension</span>' : ''}<span class="grow">${esc(when(n.createdAt))}${n.updatedAt && new Date(n.updatedAt) - new Date(n.createdAt) > 60000 ? ' · edited' : ''}</span>
-                ${n.mine || me.role === 'admin' ? `<button class="linkbtn" data-act="editNote">Edit</button><button class="linkbtn red" data-act="delNote">Delete</button>` : ''}</div><div class="body">${esc(n.body)}</div></li>`).join('')}</ul>` : '<p class="hint" style="margin:10px 0 0">No notes yet.</p>'}
-          </section>
-          <section class="card"><h3>Conversation</h3>${d.transcript ? `<div class="convo" id="cv">${convoHtml(d.transcript)}</div>` : `<p class="hint">No conversation saved yet. It appears after the extension reads this chat.</p>`}</section>
-        </div>
-        <div>
-          ${d.aiSummary ? `<section class="card"><div class="ai"><b>AI summary</b>${esc(d.aiSummary)}</div></section>` : ''}
-          <section class="card"><h3>Profile</h3><dl class="facts">
-            ${[['Status', `<span class="badge ${cls(d.status)}">${esc(d.status)}</span>${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Job', esc(d.job)], ['Found through', esc(d.source)], ['Indeed account', esc(d.account)], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
-              .concat(answerKeys.map((k) => [label(k), esc(a[k])])).filter(([, v]) => v).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}
-          </dl></section>
-          <section class="card"><h3>History</h3>${r.events.length ? `<ol class="tl">${r.events.map((e) => `<li><time>${esc(when(e.t))}${e.who ? ` · ${esc(e.who)}` : ''}</time>${esc(e.text)}</li>`).join('')}</ol>` : '<p class="hint">No activity yet.</p>'}</section>
-          ${me.role === 'admin' ? `<p class="small" style="text-align:right"><button class="linkbtn red" data-act="delDriver">Delete this driver</button></p>` : ''}
-        </div>
-      </div></main>`;
-    const cv = $('#cv'); if (cv) cv.scrollTop = cv.scrollHeight;
-    if (focusNew) $('#newNote').focus();
-    $('#st').onchange = (e) => patch({ status: e.target.value }, 'Status saved');
-    $('#fu').onchange = (e) => patch({ followUp: e.target.value || null }, e.target.value ? 'Follow-up saved' : 'Follow-up cleared');
-    $('#tagIn').onkeydown = (e) => { if (e.key === 'Enter' && e.target.value.trim()) { e.preventDefault(); patch({ tags: [...(d.tags || []), e.target.value.trim()] }, 'Tag added'); } };
-    $('#noteForm').onsubmit = (e) => { e.preventDefault(); addNote(); };
-    $('#newNote').onkeydown = (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addNote(); } };
-    $('#contactForm').onsubmit = (e) => {
-      e.preventDefault(); const f = new FormData(e.target); const split = (v) => String(v || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
-      patch({ name: f.get('name'), phones: split(f.get('phones')), emails: split(f.get('emails')), location: f.get('location'), zip: f.get('zip'), mode: f.get('mode') }, 'Contact saved');
-    };
-  }
-  async function patch(body, ok) { try { await api('/api/drivers/' + cur.driver.id, { method: 'PATCH', body }); toast(ok); viewDriver(cur.driver.id); } catch (e) { fail(e); } }
-  async function addNote() {
-    const t = $('#newNote'); const body = t.value.trim(); if (!body) { t.focus(); return; }
-    try { await api(`/api/drivers/${cur.driver.id}/notes`, { method: 'POST', body: { body } }); toast('Note added'); viewDriver(cur.driver.id); } catch (e) { fail(e); }
-  }
-
-  // ---------- settings ----------
-  async function viewSettings() {
-    document.title = 'Settings · Drivers';
-    let keys = [], users = [];
-    try { keys = await api('/api/keys'); if (me.role === 'admin') users = await api('/api/users'); } catch (e) { return fail(e); }
-    app.innerHTML = header('') + `<main class="narrow">
-      <a class="back" href="#/">← All drivers</a>
-      <section class="card"><h3>Connect the Chrome extension</h3>
-        <p class="hint" style="margin-top:0">Create one key for each Chrome profile. In that profile, open the extension's side panel → Settings → Shared database, and paste this website's address and the key.</p>
-        <form id="keyForm" class="form"><label class="fld">Name<input name="name" type="text" placeholder="e.g. Davy profile" required></label><button class="btn primary">Create key</button></form>
-        <div id="newKey"></div>
-        <ul class="list" style="margin-top:8px">${keys.map((k) => `<li><span class="grow"><b>${esc(k.name)}</b><br><span class="small mut">Created ${esc(when(k.created_at))}${k.owner ? ` by ${esc(k.owner)}` : ''} · ${k.last_used_at ? `last used ${esc(when(k.last_used_at))}` : 'not used yet'}</span></span><button class="btn danger sm" data-act="delKey" data-id="${k.id}">Revoke</button></li>`).join('') || '<li class="hint">No keys yet.</li>'}</ul>
-      </section>
-      <section class="card"><h3>Import a backup</h3>
-        <p class="hint" style="margin-top:0">In each Chrome profile, open the extension's database page → More → Download a backup. Import each file here. Drivers are merged by chat, phone, email and name, so nothing is doubled.</p>
-        <div class="form"><label class="fld">Backup file<input id="impFile" type="file" accept=".json"></label><button class="btn primary" data-act="import">Import</button></div><p class="hint" id="impMsg"></p>
-      </section>
-      ${me.role === 'admin' ? `<section class="card"><h3>Team</h3>
-        <ul class="list">${users.map((u) => `<li data-user="${u.id}"><span class="grow"><b>${esc(u.name)}</b> <span class="small mut">${esc(u.email)} · ${u.role === 'admin' ? 'Admin' : 'Member'}${u.active ? '' : ' · <b>No access</b>'}</span></span>
-          ${u.id !== me.id ? `<button class="btn plain sm" data-act="resetPw">Set password</button><button class="btn ${u.active ? 'danger' : 'plain'} sm" data-act="toggleUser" data-on="${u.active ? 0 : 1}">${u.active ? 'Remove access' : 'Give access back'}</button>` : '<span class="small mut">You</span>'}</li>`).join('')}</ul>
-        <form id="userForm" class="form" style="margin-top:10px">
-          <label class="fld">Name<input name="name" type="text" required></label><label class="fld">Email<input name="email" type="email" required></label>
-          <label class="fld">Password<input name="password" type="text" minlength="10" required placeholder="At least 10 characters"></label>
-          <label class="fld">Role<select name="role"><option value="member">Member</option><option value="admin">Admin</option></select></label><button class="btn primary">Add person</button></form>
-        <p class="hint">Members can see and edit drivers and notes. Admins can also manage the team and delete drivers.</p></section>` : ''}
-      <section class="card"><h3>Your password</h3><form id="pwForm" class="form">
-        <label class="fld">Current password<input name="current" type="password" autocomplete="current-password" required></label>
-        <label class="fld">New password<input name="next" type="password" autocomplete="new-password" minlength="10" required></label><button class="btn primary">Change password</button></form></section>
-    </main>`;
-    $('#keyForm').onsubmit = async (e) => {
-      e.preventDefault(); const name = new FormData(e.target).get('name');
-      try { const r = await api('/api/keys', { method: 'POST', body: { name } }); await viewSettings();
-        $('#newKey').innerHTML = `<div class="keybox"><b>Copy this key now. It is shown only once.</b><code id="kc">${esc(r.key)}</code><div class="small">Website address: <b>${esc(location.origin)}</b></div><button class="btn primary sm" data-act="copyKey" style="margin-top:6px">Copy key</button></div>`;
-      } catch (err) { fail(err); }
-    };
-    $('#pwForm').onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target); try { await api('/api/me/password', { method: 'POST', body: { current: f.get('current'), next: f.get('next') } }); e.target.reset(); toast('Password changed'); } catch (err) { fail(err); } };
-    if ($('#userForm')) $('#userForm').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); try { await api('/api/users', { method: 'POST', body: f }); toast(`${f.name} can now sign in`); viewSettings(); } catch (err) { fail(err); } };
-  }
-
-  // ---------- clicks ----------
-  document.addEventListener('click', async (e) => {
-    const stop = e.target.closest('.stop');
-    if (stop) { if (stop.dataset.due) list.due = list.due ? '' : '1'; else list.status = stop.dataset.f; refresh(); return; }
-    const row = e.target.closest('tbody tr[data-id]');
-    if (row && !e.target.closest('a')) { go('#/driver/' + row.dataset.id); return; }
-    const tagX = e.target.closest('[data-tag]');
-    if (tagX) { patch({ tags: (cur.driver.tags || []).filter((t) => t !== tagX.dataset.tag) }, 'Tag removed'); return; }
-    const b = e.target.closest('[data-act]'); if (!b) return;
-    const act = b.dataset.act;
-    try {
-      if (act === 'logout') { await api('/api/logout', { method: 'POST' }); me = null; go('#/login'); }
-      else if (act === 'more') refresh(true);
-      else if (act === 'clear') { Object.assign(list, { q: '', status: '', account: '', mode: '', due: '' }); $('#q').value = ''; $('#fMode').value = ''; refresh(); }
-      else if (act === 'add') {
-        const name = prompt('Driver name'); if (!name || !name.trim()) return;
-        const phone = prompt('Phone (optional)') || '';
-        const r = await api('/api/drivers', { method: 'POST', body: { name, phone } }); go('#/driver/' + r.id);
-      }
-      else if (act === 'editContact') { const f = $('#contactForm'); f.hidden = !f.hidden; if (!f.hidden) f.querySelector('input').focus(); }
-      else if (act === 'cancelContact') $('#contactForm').hidden = true;
-      else if (act === 'editNote') {
-        const li = b.closest('[data-note]'); const bodyEl = li.querySelector('.body'); if (li.querySelector('textarea')) return;
-        const old = cur.notes.find((n) => n.id === +li.dataset.note).body;
-        bodyEl.innerHTML = `<textarea>${esc(old)}</textarea><div style="margin-top:6px;display:flex;gap:8px"><button class="btn primary sm" data-act="saveNote">Save</button><button class="btn plain sm" data-act="cancelNote">Cancel</button></div>`;
-        bodyEl.querySelector('textarea').focus();
-      }
-      else if (act === 'cancelNote') viewDriver(cur.driver.id);
-      else if (act === 'saveNote') { const li = b.closest('[data-note]'); await api('/api/notes/' + li.dataset.note, { method: 'PATCH', body: { body: li.querySelector('textarea').value } }); toast('Note saved'); viewDriver(cur.driver.id); }
-      else if (act === 'delNote') { if (!confirm('Delete this note?')) return; await api('/api/notes/' + b.closest('[data-note]').dataset.note, { method: 'DELETE' }); toast('Note deleted'); viewDriver(cur.driver.id); }
-      else if (act === 'delDriver') { if (!confirm(`Delete ${cur.driver.name} and all their notes? This cannot be undone.`)) return; await api('/api/drivers/' + cur.driver.id, { method: 'DELETE' }); toast('Driver deleted'); go('#/'); }
-      else if (act === 'delKey') { if (!confirm('Revoke this key? That Chrome profile stops syncing until it gets a new key.')) return; await api('/api/keys/' + b.dataset.id, { method: 'DELETE' }); viewSettings(); }
-      else if (act === 'copyKey') { await navigator.clipboard.writeText($('#kc').textContent); b.textContent = 'Copied'; }
-      else if (act === 'import') {
-        const file = $('#impFile').files[0]; if (!file) { $('#impMsg').textContent = 'Pick a backup file first.'; return; }
-        let data; try { data = JSON.parse(await file.text()); } catch (err) { $('#impMsg').textContent = 'That file is not a backup from the extension.'; return; }
-        $('#impMsg').textContent = 'Importing…';
-        const r = await api('/api/import', { method: 'POST', body: { drivers: data.drivers, label: file.name.replace(/\.json$/i, '') } });
-        $('#impMsg').textContent = `Done: ${r.merged} drivers merged.`;
-      }
-      else if (act === 'resetPw') { const pw = prompt('New password for this person (at least 10 characters). They will be signed out.'); if (!pw) return; await api('/api/users/' + b.closest('[data-user]').dataset.user, { method: 'PATCH', body: { password: pw } }); toast('Password set'); }
-      else if (act === 'toggleUser') { await api('/api/users/' + b.closest('[data-user]').dataset.user, { method: 'PATCH', body: { active: b.dataset.on === '1' } }); viewSettings(); }
-    } catch (err) { fail(err); }
-  });
-
-  route();
+  return { $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml };
 })();

@@ -1,8 +1,8 @@
 {
   "name": "recruiting",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Driver recruiting database: one place for the drivers every Chrome profile of the Indeed Match Rotator extension finds.",
+  "description": "Driver recruiting pipeline: leads from Indeed and other sources, follow-ups, onboarding, trucks, and what each recruiter did.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
