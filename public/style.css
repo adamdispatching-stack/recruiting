@@ -970,3 +970,16 @@ table.obt tbody tr.ostep>td{border-bottom:1px solid var(--hair)}
 .idletag{display:inline-block;padding:1px 7px;border-radius:6px;background:#FDF1D3;color:#6B4A00;font-size:12px;font-weight:700;white-space:nowrap}
 .idletag.now{background:#FBE4E1;color:#7A1D15}
 .cal .didle{display:block;font-size:11px;color:#8A5A00;font-weight:600}
+/* small stat tiles (onboarding page) */
+.tiles.mini{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.tiles.mini .tile{gap:10px;padding:9px 12px;border-radius:11px}
+.tiles.mini .tile.on{border-width:1.5px}
+.tiles.mini .ti{width:34px;height:34px;border-radius:9px}
+.tiles.mini .ti svg{width:18px;height:18px}
+.tiles.mini .num{font-size:21px}
+.tiles.mini .lab{margin-top:2px;font-size:12.5px;line-height:1.25}
+.tiles.mini .tile .tv{flex-direction:row;align-items:baseline;gap:7px}
+.tiles.mini .lab{margin-top:0}
+.tiles.mini .tile{padding:7px 12px}
+.tiles.mini .ti{width:30px;height:30px}
+.tiles.mini .lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tiles.mini .tv{min-width:0}

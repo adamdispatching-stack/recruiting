@@ -175,7 +175,7 @@
     };
     const soon = r.drivers.filter(isSoon), later = r.drivers.filter((d) => !isSoon(d));
     view.innerHTML = header('onboarding') + `<main>${App.pageHead('Driver onboarding', "Track each driver's onboarding progress and readiness to be hired.")}
-      <div class="tiles">${tile('people', r.drivers.length, 'in onboarding', { on: true })}${tile('cal', arriving, 'arriving in the next 7 days')}${tile('warn', late, 'past the expected arrival date', { tone: late ? 'y' : '' })}${tile('check', ready, 'ready to mark hired')}${tile('truck', r.emptyTrucks, 'empty trucks', { href: '#/trucks' })}</div>
+      <div class="tiles mini">${tile('people', r.drivers.length, 'in onboarding', { on: true })}${tile('cal', arriving, 'arriving within 7 days')}${tile('warn', late, 'past the arrival date', { tone: late ? 'y' : '' })}${tile('check', ready, 'ready to mark hired')}${tile('truck', r.emptyTrucks, 'empty trucks', { href: '#/trucks' })}</div>
       ${r.drivers.length ? `<section class="obsec"><h2>Arriving in the next ${SOON} days <span class="cnt">${soon.length}</span></h2><p class="hint">Late arrivals, drivers with no arrival date yet, and drivers already at the truck are here too.</p>
           ${soon.length ? byType(soon) : '<p class="hint obnone">Nobody is arriving in the next 3 days.</p>'}</section>
         ${later.length ? `<section class="obsec later"><h2>Follow up: arriving in more than ${SOON} days <span class="cnt">${later.length}</span></h2><p class="hint">Check in with them before the day, so the truck is ready and they still plan to come.</p>${byType(later)}</section>` : ''}`
