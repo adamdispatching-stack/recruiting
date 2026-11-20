@@ -73,10 +73,19 @@
       </main>`;
   }
   // ---------- today's challenge: every Facebook target, the streak, badges and the team ----------
-  const KT = { post: 'Group posts', comment: 'Comments on ads', contact: 'Drivers messaged', chat: 'Group chats joined' };
-  const KI = { post: '📣', comment: '💬', contact: '🤝', chat: '👥' };
-  function challengeCard(g, due) {
-    if (!g || !g.on) return '';
+  const KT = { post: 'Group posts', comment: 'Comments on ads', contact: 'Drivers messaged', chat: 'Group chats joined', ppost: 'Personal posts', pcomment: 'Other comments' };
+  const KI = { post: '📣', comment: '💬', contact: '🤝', chat: '👥', ppost: '🙂', pcomment: '🗨️' };
+  // Badges on My day: the groups, the latest ones, and the closest next level
+  function badgeStrip(bd) {
+    if (!bd) return '';
+    const close = bd.badges.filter((b) => b.next).map((b) => ({ b, left: (b.next - b.have) / b.next })).sort((x, y) => x.left - y.left)[0];
+    return `<h4>Badges <span class="mut">${bd.earned} of ${bd.total} levels</span><span class="grow"></span><a class="h3link" href="#/badges">All badges →</a></h4>
+      <div class="bstrip"><ul class="bgroups mini">${bd.groups.map((x) => `<li><a href="#/badges"><span aria-hidden="true">${x.icon}</span><b>${esc(x.name)}</b><span class="bbar"><i style="width:${(x.earned / x.total) * 100}%"></i></span><small>${x.earned}/${x.total}</small></a></li>`).join('')}</ul>
+      <div class="bside">${bd.recent.length ? `<div class="brow">${bd.recent.slice(0, 5).map((x) => `<span title="${esc(x.name)}, ${esc(x.levelName)}">${App.badgeMedal({ icon: x.icon, level: x.level }, 'sm')}</span>`).join('')}</div>` : ''}
+        ${close ? `<p class="small">Closest next: <b>${esc(close.b.icon)} ${esc(close.b.name)}</b> ${esc(close.b.nextName)}, ${(close.b.next - close.b.have).toLocaleString()} ${esc(close.b.unit)} to go</p>` : ''}</div></div>`;
+  }
+  function challengeCard(g, due, bd) {
+    if (!g || !g.on) return bd ? `<section class="card chall">${badgeStrip(bd).replace('<h4>', '<h4 style="margin-top:0">')}</section>` : '';
     const R = 52, C = 2 * Math.PI * R, pc = Math.min(100, g.pct);
     const left = g.kinds.filter((k) => k.n < k.target).map((k) => `${k.target - k.n} ${App.KNAME[k.k][k.target - k.n === 1 ? 0 : 1]}`);
     const line = g.met ? (g.streak > 1 ? `All done. That's ${g.streak} working days in a row.` : 'All done for today. Do it again tomorrow to start a streak.')
@@ -84,7 +93,6 @@
       : g.done === 0 ? `Start with one ${App.KNAME[g.kinds[0].k][0]}. ${g.target} to go today.`
       : pc >= 75 ? `Almost there. ${left.join(', ')} left.` : `${pc}% done. ${left.join(', ')} left.`;
     const dot = (x) => `<i class="sd ${x.s}" title="${esc(dateText(x.d, { weekday: 'short', month: 'short', day: 'numeric' }))}: ${x.s === 'met' ? 'all targets met' : x.s === 'miss' ? 'targets missed' : x.s === 'today' ? 'today' : 'not a working day'}"></i>`;
-    const earned = g.badges.filter((b) => b.earned).length;
     return `<section class="card chall${g.met ? ' met' : ''}"><h3>Today's challenge<span class="grow"></span><a class="h3link" href="#/facebook">Facebook work →</a></h3>
       <p class="cline">${esc(line)}</p>
       <div class="cgrid">
@@ -97,8 +105,7 @@
           <div class="sdots" aria-label="Last two weeks">${g.recent.map(dot).join('')}</div>
           <p class="hint">Days off and non-working days don't break a streak.</p></div>
       </div>
-      <h4>Badges <span class="mut">${earned} of ${g.badges.length}</span></h4>
-      <ul class="badges">${g.badges.map((b) => `<li class="${b.earned ? 'got' : ''}" title="${esc(b.what)}${b.earned ? '' : ` (${b.have} of ${b.need})`}"><span class="bi" aria-hidden="true">${b.icon}</span><span class="bn">${esc(b.name)}</span>${b.earned ? '' : `<span class="bp"><i style="width:${(b.have / b.need) * 100}%"></i></span>`}</li>`).join('')}</ul>
+      ${badgeStrip(bd)}
       ${g.team.length > 1 ? `<h4>Team today</h4><ul class="cteam">${g.team.map((p) => `<li class="${p.me ? 'me' : ''}${p.met ? ' done' : ''}"><span>${esc(p.me ? 'You' : p.name.split(/\s+/)[0])}</span><b>${p.met ? '✓' : p.pct + '%'}</b><span class="cbar"><i style="width:${p.pct}%"></i></span></li>`).join('')}</ul>` : ''}
     </section>`;
   }
@@ -110,7 +117,7 @@
         <div class="greet"><h2>${greet()}, ${firstName()}</h2>${s.due ? `<span class="ok warn">${plural(s.due, 'follow-up')} due</span>` : '<span class="ok">No follow-ups waiting</span>'}</div></div>
       <div class="tiles">${App.tile('cal', s.due, 'follow-ups due', { tone: s.due ? 'r' : '', href: '#/leads?owner=me&due=1' })}${App.tile('warn', s.cold, 'leads going cold', { tone: s.cold ? 'y' : '', href: '#/leads?owner=me&cold=1' })}
         ${App.tile('lead', s.owned, 'your leads in progress', { href: '#/leads?owner=me&working=1' })}${App.tile('clip', r.onboarding.length, 'your drivers in onboarding', { href: '#/onboarding' })}${App.tile('people', r.unassigned, 'leads up for grabs', { href: '#/leads?owner=none&working=1' })}</div>
-      ${challengeCard(r.goal, s.due)}
+      ${challengeCard(r.goal, s.due, r.badges)}
       <div class="dgrid">
         <div>
           <section class="card"><h3>Call list</h3>
@@ -134,8 +141,9 @@
   }
   async function viewHome() {
     const live = App.drawing();
-    const [r, g] = await Promise.all([api('/api/dashboard'), S.me.role === 'admin' ? null : api('/api/challenge').catch(() => null)]); if (!live()) return;
+    const [r, g, bd] = await Promise.all([api('/api/dashboard'), S.me.role === 'admin' ? null : api('/api/challenge').catch(() => null), S.me.role === 'admin' ? null : api('/api/badges').catch(() => null)]); if (!live()) return;
     if (g) { r.goal = g; App.setGoal(g); }
+    r.badges = bd;
     document.title = (r.role === 'admin' ? 'Dashboard' : 'My day') + ' · FleetHire';
     view.innerHTML = header('home') + (r.role === 'admin' ? adminHome(r) : myDay(r));
     App.every(60000, viewHome);

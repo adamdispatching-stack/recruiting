@@ -3,6 +3,8 @@
 //   comment a comment under someone else's ad: the ad's link and a screenshot of the comment
 //   contact a driver messaged: profile link, name, OTR? Class A CDL? and how it went; can become a lead
 //   chat    a group chat they were added to: its name and link
+//   ppost   a personal post on their own profile or page (not about the job), so Facebook sees a real person
+//   pcomment a comment on a post that has nothing to do with trucking jobs, for the same reason
 // Admins see everyone, mark each entry OK or Problem (with a note), and set the daily targets.
 const crypto = require('crypto');
 const db = require('./db');
@@ -10,8 +12,8 @@ const lib = require('./lib');
 const { q } = db;
 const { wrap, needUser, needAdmin, act, isDate } = lib;
 
-const KINDS = ['post', 'comment', 'contact', 'chat'];
-const LABEL = { post: 'group post', comment: 'comment', contact: 'driver messaged', chat: 'group chat joined' };
+const KINDS = ['post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'];
+const LABEL = { post: 'group post', comment: 'comment', contact: 'driver messaged', chat: 'group chat joined', ppost: 'personal post', pcomment: 'comment on another post' };
 const OUTCOMES = ['messaged', 'replied', 'interested', 'not interested'];
 const MAX_IMAGE = 4 * 1024 * 1024;
 const KEEP_IMAGES_DAYS = 120;
@@ -41,7 +43,7 @@ async function counts(userIds, from, to) {
   const rows = (await q(`SELECT user_id, kind, count(*)::int n, count(*) FILTER (WHERE review = 'problem')::int bad, count(*) FILTER (WHERE review IS NULL)::int open
     FROM fb_entries WHERE user_id = ANY($1::int[]) AND day BETWEEN $2::date AND $3::date GROUP BY 1, 2`, [userIds, from, to])).rows;
   const res = {};
-  for (const id of userIds) res[id] = { post: 0, comment: 0, contact: 0, chat: 0, problems: 0, unreviewed: 0 };
+  for (const id of userIds) res[id] = { post: 0, comment: 0, contact: 0, chat: 0, ppost: 0, pcomment: 0, problems: 0, unreviewed: 0 };
   for (const r of rows) { res[r.user_id][r.kind] = r.n; res[r.user_id].problems += r.bad; res[r.user_id].unreviewed += r.open; }
   return res;
 }
@@ -184,6 +186,8 @@ module.exports = (app) => {
     }
     if (kind === 'contact' && (!key || !isFb(key))) return { error: "Paste the link to the driver's Facebook profile" };
     if (kind === 'chat' && !key && !groupName) return { error: 'Give the group chat a name or a link' };
+    if (kind === 'ppost' && (!key || !isFb(key))) return { error: 'Paste the link to your post (open it on your profile and copy the address)' };
+    if (kind === 'pcomment' && (!key || !isFb(key))) return { error: 'Paste the link to the post you commented on' };
     if (groupLink && !linkKey(groupLink)) return { error: 'The group link does not look right' };
     if (key) {
       // the same post, the same commented ad, the same driver within 60 days, the same chat: once

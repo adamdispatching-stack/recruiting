@@ -261,6 +261,15 @@ async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS notices_user ON notices(user_id, seen_at);
     ALTER TABLE notices ADD COLUMN IF NOT EXISTS driver_id INT REFERENCES drivers(id) ON DELETE CASCADE;
+    -- Badge levels each person reached (1 Bronze … 5 Diamond); kept once reached
+    CREATE TABLE IF NOT EXISTS user_badges (
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      badge TEXT NOT NULL,
+      level INT NOT NULL,
+      earned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, badge, level)
+    );
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS badges_seen BOOLEAN NOT NULL DEFAULT false;
     -- Indeed messages the website asks the Chrome extension to send (after a call with no answer).
     -- pending -> sending (an extension took it) -> sent | failed
     CREATE TABLE IF NOT EXISTS indeed_outbox (
@@ -375,7 +384,8 @@ const DEFAULTS = {
   // Working hours in the team time zone. week[0] is Sunday; null = not a working day.
   // A working day counts as worked with at least minMinutes of active time; starting more than grace minutes late is a late start.
   // Facebook daily targets for each recruiter (0 = not asked for)
-  fbTargets: { post: 5, comment: 15, contact: 20, chat: 2 },
+  // ppost / pcomment: personal activity (own profile, posts that are not about the job), so Facebook does not limit the account
+  fbTargets: { post: 5, comment: 15, contact: 20, chat: 2, ppost: 1, pcomment: 5 },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },

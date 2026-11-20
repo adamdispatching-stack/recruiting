@@ -102,6 +102,7 @@ module.exports = (app) => {
     }
     await followupsDue(u).catch(() => {});
     if (u.role !== 'admin') await streakAtStake(u).catch((e) => console.error('goal', e.message));
+    if (u.role !== 'admin') require('./badges').hourly(u).catch((e) => console.error('badges', e.message)); // in the background: it can take a moment
     const notices = (await q(`SELECT id, kind, text, link, created_at FROM notices WHERE user_id = $1 AND seen_at IS NULL ORDER BY created_at DESC LIMIT 20`, [u.id])).rows;
     const unread = (await q(`SELECT count(*)::int n FROM notices WHERE user_id = $1 AND seen_at IS NULL`, [u.id])).rows[0].n;
     const goal = u.role !== 'admin' ? await challenge.progress(u).catch(() => null) : null;

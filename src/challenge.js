@@ -7,22 +7,9 @@ const hours = require('./api-hours');
 const { q } = db;
 const { wrap, needUser } = lib;
 
-const KINDS = ['post', 'comment', 'contact', 'chat'];
+const KINDS = ['post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'];
 const LOOKBACK = 400; // days of history used for streaks and badges
 
-const BADGES = [
-  { id: 'first', icon: '⭐', name: 'First full day', what: 'Hit every target in one day', kind: 'best', need: 1 },
-  { id: 'streak3', icon: '🔥', name: 'On a roll', what: '3 working days in a row', kind: 'best', need: 3 },
-  { id: 'streak5', icon: '🚚', name: 'Full week', what: '5 working days in a row', kind: 'best', need: 5 },
-  { id: 'streak10', icon: '🏅', name: 'Ten straight', what: '10 working days in a row', kind: 'best', need: 10 },
-  { id: 'streak20', icon: '🛣️', name: 'Long haul', what: '20 working days in a row', kind: 'best', need: 20 },
-  { id: 'streak50', icon: '🏆', name: 'Iron driver', what: '50 working days in a row', kind: 'best', need: 50 },
-  { id: 'month', icon: '📅', name: 'Perfect month', what: 'Every working day of a month', kind: 'months', need: 1 },
-  { id: 'posts100', icon: '📣', name: '100 group posts', what: 'Ads posted in groups, all time', kind: 'post', need: 100 },
-  { id: 'comments500', icon: '💬', name: '500 comments', what: 'Comments on ads, all time', kind: 'comment', need: 500 },
-  { id: 'drivers500', icon: '🤝', name: '500 drivers', what: 'Drivers messaged, all time', kind: 'contact', need: 500 },
-  { id: 'leads10', icon: '🎯', name: '10 Facebook leads', what: 'Drivers from Facebook made into leads', kind: 'leads', need: 10 }
-];
 
 const targetsOn = () => { const t = db.settings.fbTargets || {}; return KINDS.reduce((a, k) => a + (t[k] || 0), 0) > 0; };
 // A day's counts meet every target (each kind up to its own target)
@@ -72,6 +59,18 @@ async function history(u, today) {
   return v;
 }
 
+// For the badges: best streak, perfect months, and all-time counts of each kind, and Facebook leads.
+async function fbStats(u) {
+  const today = await lib.today();
+  const h = targetsOn() ? await history(u, today) : { best: 0, perfectMonths: 0, tail: 0 };
+  const tc = (await q(`SELECT kind, count(*)::int n FROM fb_entries WHERE user_id = $1 AND day = $2::date GROUP BY 1`, [u.id, today])).rows;
+  const c = {}; for (const r of tc) c[r.kind] = r.n;
+  const streak = h.tail + (meets(c) ? 1 : 0);
+  const totals = Object.fromEntries((await q(`SELECT kind, count(*)::int n FROM fb_entries WHERE user_id = $1 GROUP BY 1`, [u.id])).rows.map((r) => [r.kind, r.n]));
+  const leads = (await q(`SELECT count(*)::int n FROM fb_entries WHERE user_id = $1 AND kind = 'contact' AND driver_id IS NOT NULL`, [u.id])).rows[0].n;
+  return { best: Math.max(h.best, streak), perfectMonths: h.perfectMonths, totals, leads };
+}
+
 // Everything the ring and the challenge card need, for one person.
 async function progress(u, full) {
   const today = await lib.today();
@@ -89,10 +88,6 @@ async function progress(u, full) {
     // the streak is at stake today: there is one going, and today is a working day not yet met
     atStake: h.tail > 0 && !met && h.scheduledToday };
   if (!full) return res;
-  const totals = Object.fromEntries((await q(`SELECT kind, count(*)::int n FROM fb_entries WHERE user_id = $1 GROUP BY 1`, [u.id])).rows.map((r) => [r.kind, r.n]));
-  totals.leads = (await q(`SELECT count(*)::int n FROM fb_entries WHERE user_id = $1 AND kind = 'contact' AND driver_id IS NOT NULL`, [u.id])).rows[0].n;
-  const have = { best: res.best, months: h.perfectMonths, ...totals };
-  res.badges = BADGES.map((b) => ({ id: b.id, icon: b.icon, name: b.name, what: b.what, need: b.need, have: Math.min(b.need, have[b.kind] || 0), earned: (have[b.kind] || 0) >= b.need }));
   res.month = { met: h.monthSoFar.met + (met ? 1 : 0), missed: h.monthSoFar.miss };
   res.recent = [...h.recent.map((x) => ({ d: x.d, s: x.s })), { d: today, s: met ? 'met' : 'today' }];
   // the team today, so people can see who already finished
@@ -119,4 +114,4 @@ module.exports = (app) => {
 };
 module.exports.progress = progress;
 module.exports.forget = forget;
-module.exports.BADGES = BADGES;
+module.exports.fbStats = fbStats;

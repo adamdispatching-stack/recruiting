@@ -130,7 +130,7 @@ window.App = (() => {
   // Idle alerts stay in a box at the top right until dismissed. Everything else goes to the bell (unread count)
   // and pops up once in the corner for a few seconds, and on the desktop when allowed.
   const pageStart = Date.now();
-  const NKIND = { lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', goal: 'Streak', idle: 'Idle alert' };
+  const NKIND = { lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', goal: 'Streak', badge: 'New badge', idle: 'Idle alert' };
   function setBell(n) { S.unread = n; document.querySelectorAll('.bellcount').forEach((b) => { b.textContent = n > 99 ? '99+' : String(n); b.hidden = !n; }); }
   function showNotices(list, unread) {
     if (unread !== undefined) setBell(unread);
@@ -163,7 +163,7 @@ window.App = (() => {
   }
   async function openNotice(n) { await seen([n.id]); setBell(Math.max(0, (S.unread || 1) - 1)); closeBell(); if (n.link) go(n.link); }
   // ---------- today's goal: the ring in the menu, on every page, and the celebration when it is all done ----------
-  const KNAME = { post: ['group post', 'group posts'], comment: ['comment', 'comments'], contact: ['driver messaged', 'drivers messaged'], chat: ['group chat', 'group chats'] };
+  const KNAME = { post: ['group post', 'group posts'], comment: ['comment', 'comments'], contact: ['driver messaged', 'drivers messaged'], chat: ['group chat', 'group chats'], ppost: ['personal post', 'personal posts'], pcomment: ['other comment', 'other comments'] };
   const RING_R = 26, RING_C = 2 * Math.PI * RING_R;
   function goalRing() {
     if (!S.me || S.me.role === 'admin') return '';
@@ -198,12 +198,10 @@ window.App = (() => {
   function celebrate(g) {
     document.getElementById('party')?.remove();
     const d = document.createElement('div'); d.id = 'party'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'Daily goal done');
-    const nextB = (g.badges || []).find((b) => !b.earned);
     d.innerHTML = `<div class="pcard"><div class="pflame" aria-hidden="true">${g.streak > 1 ? '🔥' : '⭐'}</div>
       <h2>All targets done today!</h2>
       <p class="pbig">${g.streak > 1 ? `${g.streak}-day streak` : 'Day 1 of your streak'}</p>
       <p>${g.best > g.streak ? `Your best is ${g.best} days. Keep going.` : g.streak > 1 ? 'That is your best streak yet.' : 'Do it again tomorrow to keep it going.'}</p>
-      ${nextB ? `<p class="small mut">Next badge: ${esc(nextB.icon)} ${esc(nextB.name)}</p>` : ''}
       <button type="button" class="btn primary" data-act="partyClose">Nice</button></div>`;
     document.body.appendChild(d); d.querySelector('button').focus();
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches) confetti(d);
@@ -295,12 +293,13 @@ window.App = (() => {
     active: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M3.8 10.5c2.6-.9 5.3-1.2 8.2-1.2s5.6.3 8.2 1.2M10.4 13.6 7 19.6M13.6 13.6l3.4 6"/>',
     companies: '<path d="M4 21V5.5L12 3v18M12 8.5l8 2.5v10"/><path d="M3 21h18M7.5 8h1.5M7.5 12h1.5M7.5 16h1.5M15.5 13h1.5M15.5 17h1.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    badges: '<circle cx="12" cy="9" r="6"/><path d="m8.5 13.8-1.5 7.2 5-2.6 5 2.6-1.5-7.2"/><path d="m12 6.3.9 1.8 2 .3-1.4 1.4.3 2-1.8-.9-1.8.9.3-2-1.4-1.4 2-.3z"/>',
     facebook: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M15.5 8h-1.6c-1.1 0-1.9.8-1.9 1.9V21M9.5 13h5.5"/>'
   };
   const icon = (k) => `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
   function header(active, extra = '') {
     const admin = S.me.role === 'admin';
-    const items = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/facebook', 'Facebook', 'facebook'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
+    const items = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
     const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
         <div class="brand"><a href="#/" aria-label="FleetHire Recruiting, home"><svg class="logo" viewBox="0 0 40 28" width="38" height="27" aria-hidden="true"><path d="M2 5.5h21v15H2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M23 10h8.5l5.5 5.6v4.9H23z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="9" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><path d="M6 10.5h9M6 14.5h6" stroke="#F4B400" stroke-width="2.4" stroke-linecap="round"/></svg><span><b>FleetHire</b><small>Recruiting</small></span></a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>

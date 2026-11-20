@@ -6,7 +6,9 @@
     { k: 'post', title: 'Posts in groups', one: 'post', what: 'An ad picture (made with ChatGPT) posted in a Facebook group: the group, the link to your post, and the picture.' },
     { k: 'comment', title: 'Comments on ads', one: 'comment', what: "A comment under another company's driver ad: the link to that post and a screenshot of your comment." },
     { k: 'contact', title: 'Drivers messaged', one: 'driver', what: "A driver you messaged: their profile link, name, and what they said about OTR and a Class A CDL. Interested drivers can become leads." },
-    { k: 'chat', title: 'Group chats joined', one: 'group chat', what: 'A Facebook group chat for truck drivers you were added to.' }
+    { k: 'chat', title: 'Group chats joined', one: 'group chat', what: 'A Facebook group chat for truck drivers you were added to.' },
+    { k: 'ppost', title: 'Posts on your own profile', one: 'personal post', personal: true, what: 'Something personal on your own profile or page, not about the job: a photo, a thought, a share. Facebook limits accounts that only post job ads.' },
+    { k: 'pcomment', title: 'Comments on other posts', one: 'comment', personal: true, what: 'A comment or reply on a post that has nothing to do with trucking jobs: friends, hobbies, local news, sports.' }
   ];
   const OUT = { messaged: 'Messaged', replied: 'Replied', interested: 'Interested', 'not interested': 'Not interested' };
   let st = { user: 'me', day: null };
@@ -61,6 +63,8 @@
         <label class="fld">Phone, if they gave it<input name="phone" type="tel" maxlength="30"></label>
         <label class="fld">How it went<select name="outcome">${Object.entries(OUT).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
         <label class="fld">Group they came from<input type="text" name="groupName" list="fbGroups" maxlength="150"></label>`,
+      ppost: `<label class="fld wide">Link to your post<input name="link" type="url" required placeholder="https://www.facebook.com/…/posts/…"></label>${picField('A screenshot (optional)')}`,
+      pcomment: `<label class="fld wide">Link to the post you commented on<input name="link" type="url" required placeholder="https://www.facebook.com/…"></label>`,
       chat: `<label class="fld">Group chat name<input type="text" name="groupName" maxlength="150" placeholder="e.g. NJ CDL drivers"></label>
         <label class="fld wide">Link (if there is one)<input name="link" type="url" placeholder="https://www.facebook.com/messages/t/… or https://m.me/…"></label>`
     }[k];
@@ -77,8 +81,10 @@
       comment: `<a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(short(e.link))}</a>`,
       contact: `<b>${esc(e.personName || 'No name')}</b> <a href="${esc(e.link)}" target="_blank" rel="noopener" class="small">profile</a>
         <div class="small">OTR: <b>${yn(e.answers.otr)}</b> · Class A CDL: <b>${yn(e.answers.cdlA)}</b>${e.answers.phone ? ` · ${esc(e.answers.phone)}` : ''} · <span class="otag o-${esc((e.outcome || '').replace(' ', '-'))}">${esc(OUT[e.outcome] || e.outcome || '')}</span>${e.groupName ? ` · from ${esc(e.groupName)}` : ''}</div>`,
-      chat: `<b>${esc(e.groupName || 'Group chat')}</b>${e.link ? ` <a href="${esc(e.link)}" target="_blank" rel="noopener" class="small">${esc(short(e.link))}</a>` : ''}`
-    }[e.kind];
+      chat: `<b>${esc(e.groupName || 'Group chat')}</b>${e.link ? ` <a href="${esc(e.link)}" target="_blank" rel="noopener" class="small">${esc(short(e.link))}</a>` : ''}`,
+      ppost: `<a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(short(e.link))}</a>`,
+      pcomment: `<a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(short(e.link))}</a>`
+    }[e.kind] || '';
     const lead = e.kind === 'contact' ? (e.driverId ? `<a class="btn plain sm" href="#/driver/${e.driverId}">Open lead</a>` : `<button class="btn plain sm" data-act="fbLead">Make a lead</button>`) : '';
     return `<li class="fbe${e.review === 'problem' ? ' problem' : e.review === 'ok' ? ' okd' : ''}" data-e="${e.id}">${img(e.imageId)}
       <div class="fbmain">${main}${e.note ? `<div class="small mut">${esc(e.note)}</div>` : ''}${e.review === 'problem' ? `<div class="rvnote"><b>Admin:</b> ${esc(e.reviewNote || '')}</div>` : ''}</div>
@@ -110,9 +116,10 @@
         <span class="grow"></span><span class="fbscore${r.score.met ? ' met' : ''}">${r.score.met ? '✓ Daily target met' : `${r.score.done} of ${r.score.target} done`}</span>
         ${admin && r.entries.some((e) => !e.review) ? '<button class="btn plain sm" data-act="fbAllOk">Mark the rest OK</button>' : ''}</div>
       <div class="fbtiles">${KINDS.filter((x) => (t[x.k] || 0) > 0 || (c[x.k] || 0) > 0).map(tile).join('')}</div>
+      ${mine && isToday ? safeTips(r) : ''}
       ${r.flagged.length ? `<section class="card fbflag"><h3>Problems the admin found on earlier days</h3><ul class="fblist">${r.flagged.map((e) => entryHtml(e, admin, mine, true).replace('<li class="fbe', `<li data-day="${e.day}" class="fbe`)).join('')}</ul>
         <p class="hint">Fix the link or the picture with Edit; it then goes back to the admin.</p></section>` : ''}
-      ${KINDS.map((x) => `<section class="card fbsec" id="fb-${x.k}"><h3><span class="grow">${x.title}</span><span class="cnt">${list(x.k).length}${t[x.k] ? ` of ${t[x.k]}` : ''}</span></h3>
+      ${KINDS.map((x) => `${x.k === 'ppost' ? `<h2 class="fbgrp">Personal activity<span>Keeps the account looking like a real person's, so Facebook does not limit or ban it</span></h2>` : ''}<section class="card fbsec${x.personal ? ' personal' : ''}" id="fb-${x.k}"><h3><span class="grow">${x.title}</span><span class="cnt">${list(x.k).length}${t[x.k] ? ` of ${t[x.k]}` : ''}</span></h3>
         <p class="hint">${x.what}</p>
         ${list(x.k).length ? `<ul class="fblist">${list(x.k).map((e) => entryHtml(e, admin, mine, isToday)).join('')}</ul>` : '<p class="hint fbnone">Nothing logged yet.</p>'}
         ${(mine && isToday) || admin ? `<details class="fbadd"${mine && isToday && list(x.k).length < (t[x.k] || 0) && x.k === firstOpen(r) ? ' open' : ''}><summary>Add a ${x.one}</summary>${form(x.k, r.groups)}</details>` : ''}</section>`).join('')}
@@ -123,13 +130,27 @@
     const n = f.querySelector('[name=groupName]'), l = f.querySelector('[name=groupLink]'); if (!n || !l) return;
     n.addEventListener('input', () => { const g = groups.find((x) => x.name.toLowerCase() === n.value.trim().toLowerCase()); if (g && g.link && !l.value) l.value = g.link; });
   }
+  // Keeping the Facebook account safe: what Facebook watches for, and a nudge when the day looks like a bot's
+  function safeTips(r) {
+    const c = r.counts; const work = (c.post || 0) + (c.comment || 0) + (c.contact || 0); const own = (c.ppost || 0) + (c.pcomment || 0);
+    const warn = work >= 5 && own === 0 ? 'You have done only job work on Facebook today. Add a personal post or a few comments on other posts before more job posts.' : '';
+    return `<details class="card fbsafe"${warn ? ' open' : ''}><summary><b>Keep your Facebook account safe</b>${warn ? `<span class="fbwarn">${esc(warn)}</span>` : '<span class="mut">Facebook limits accounts that look like they only advertise</span>'}</summary>
+      <ul><li>Use the account like a person: post something of your own most days, like and comment on friends' and other groups' posts.</li>
+        <li>Space your group posts out: at least 15 to 20 minutes apart, not 5 in a row.</li>
+        <li>Change the words and the picture for each group. The same post copied everywhere gets flagged as spam.</li>
+        <li>Join some groups that are not about trucking jobs too, and take part in them.</li>
+        <li>Send only a few friend requests and messages to strangers each hour. If Facebook warns you or asks for a check, stop for the day and tell your admin.</li></ul></details>`;
+  }
   const firstOpen = (r) => (KINDS.find((x) => (r.counts[x.k] || 0) < (r.targets[x.k] || 0)) || {}).k;
 
   async function save(e, f) {
     e.preventDefault(); const body = Object.fromEntries(new FormData(f)); body.kind = f.dataset.kind;
     if (S.me.role === 'admin' && shown && shown.person.id !== S.me.id) { body.userId = shown.person.id; body.day = shown.day; }
     f.querySelector('.err').textContent = '';
-    try { await api('/api/fb/entries', { method: 'POST', body }); toast('Saved'); App.render(); App.refreshGoal(); }
+    // a group post right after another one looks like spam to Facebook
+    const lastPost = body.kind === 'post' && shown ? shown.entries.filter((x) => x.kind === 'post').map((x) => new Date(x.createdAt).getTime()).sort((a, b) => b - a)[0] : 0;
+    const gap = lastPost ? Math.round((Date.now() - lastPost) / 60000) : null;
+    try { await api('/api/fb/entries', { method: 'POST', body }); toast(gap !== null && gap < 15 ? `Saved. Your last group post was ${gap} min ago: wait at least 15 minutes between posts so Facebook does not flag the account.` : 'Saved', gap !== null && gap < 15); App.render(); App.refreshGoal(); }
     catch (err) { f.querySelector('.err').textContent = err.message; }
   }
 
@@ -142,11 +163,11 @@
     view.innerHTML = header('facebook') + `<main>${tabs('day')}${App.pageHead('Facebook work', "Each recruiter's posts, comments, drivers messaged and group chats against the daily targets. Open a person to check their links and pictures.", '<a class="btn plain" href="#/settings">Daily targets</a>')}
       <div class="fbday"><a class="btn plain sm" href="${nav(addDays(r.day, -1))}" aria-label="Day before">‹</a><b>${esc(dateText(r.day, { weekday: 'long', month: 'long', day: 'numeric' }))}${r.day === r.today ? ' (today)' : ''}</b>
         ${r.day < r.today ? `<a class="btn plain sm" href="${nav(addDays(r.day, 1))}" aria-label="Next day">›</a><a class="linkbtn" href="${nav(r.today)}">Today</a>` : ''}</div>
-      <div class="sheet"><table class="fbteam"><thead><tr><th>Recruiter</th><th class="n">Posts</th><th class="n">Comments</th><th class="n">Drivers messaged</th><th class="n">Group chats</th><th>Done</th><th class="n">To check</th><th class="n">Problems</th><th class="n">Streak</th><th>Last entry</th></tr></thead>
-        <tbody>${r.people.map((p) => `<tr data-u="${p.id}"><th scope="row"><a href="#/facebook?user=${p.id}&day=${r.day}">${esc(p.name)}</a></th>${['post', 'comment', 'contact', 'chat'].map((k) => cell(p, k)).join('')}
+      <div class="sheet"><table class="fbteam"><thead><tr><th>Recruiter</th><th class="n">Posts</th><th class="n">Comments</th><th class="n">Drivers messaged</th><th class="n">Group chats</th><th class="n">Own posts</th><th class="n">Other comments</th><th>Done</th><th class="n">To check</th><th class="n">Problems</th><th class="n">Streak</th><th>Last entry</th></tr></thead>
+        <tbody>${r.people.map((p) => `<tr data-u="${p.id}"><th scope="row"><a href="#/facebook?user=${p.id}&day=${r.day}">${esc(p.name)}</a></th>${['post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'].map((k) => cell(p, k)).join('')}
           <td><div class="fbdone"><span class="pbar"><i style="width:${p.score.target ? Math.round((p.score.done / p.score.target) * 100) : 0}%"></i></span><b>${p.score.target ? Math.round((p.score.done / p.score.target) * 100) : 0}%</b></div></td>
           <td class="n">${p.counts.unreviewed || '<span class="none">0</span>'}</td><td class="n${p.counts.problems ? ' bad' : ''}">${p.counts.problems || '<span class="none">0</span>'}</td><td class="n" title="Best: ${p.best} days">${p.streak ? `🔥 ${p.streak}` : '<span class="none">0</span>'}</td>
-          <td class="small">${p.lastAt ? esc(new Date(p.lastAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : '<span class="none">Nothing yet</span>'}</td></tr>`).join('') || '<tr><td colspan="10" class="hint">No recruiters yet.</td></tr>'}</tbody></table></div>
+          <td class="small">${p.lastAt ? esc(new Date(p.lastAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : '<span class="none">Nothing yet</span>'}</td></tr>`).join('') || '<tr><td colspan="12" class="hint">No recruiters yet.</td></tr>'}</tbody></table></div>
       <section class="card" style="margin-top:16px"><h3><span class="grow">Groups the team posts in</span><a class="btn plain sm" href="#/facebook/groups">Open the group list</a></h3>
         ${g.groups.filter((x) => x.posts).length ? `<div class="scroll"><table class="mini"><thead><tr><th>Group</th><th class="n">Posts</th><th>Last post</th><th class="n">Team members in it</th></tr></thead><tbody>${g.groups.filter((x) => x.posts).sort((a, b) => (b.lastDay || '').localeCompare(a.lastDay || '')).slice(0, 15).map((x) => `<tr><td><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a></td><td class="n">${x.posts}</td><td>${esc(dateText(x.lastDay))} by ${esc(x.lastBy)}</td><td class="n">${x.team.filter((m) => m.status === 'joined').length}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="hint">No posts logged yet.</p>'}</section></main>`;

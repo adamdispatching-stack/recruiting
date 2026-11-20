@@ -20,7 +20,7 @@ const png = (n) => { const zlib = require('zlib'); const crc = (b) => { let c = 
   return 'data:image/png;base64,' + Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]).toString('base64'); };
 (async () => {
   const A = session(); await A('/api/login', { method: 'POST', body: { email, password: pw } });
-  await A('/api/settings', { method: 'PUT', body: { fbTargets: { post: 2, comment: 3, contact: 2, chat: 1 } } });
+  await A('/api/settings', { method: 'PUT', body: { fbTargets: { post: 2, comment: 3, contact: 2, chat: 1, ppost: 0, pcomment: 0 } } });
   const id = (await A('/api/users', { method: 'POST', body: { name: `Fay Facebook ${u}`, email: `fay${u}@example.com`, password: 'fay-pass-12345' } })).body.id;
   const R = session(); await R('/api/login', { method: 'POST', body: { email: `fay${u}@example.com`, password: 'fay-pass-12345' } });
   const pic = async (n) => (await R('/api/fb/images', { method: 'POST', body: { data: png(+u + n) } })).body.id;

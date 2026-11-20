@@ -76,6 +76,7 @@ require('./api-call')(app);
 require('./api-fb')(app);
 require('./challenge')(app);
 require('./indeed-outbox')(app);
+require('./badges')(app);
 require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-admin')(app);
