@@ -70,7 +70,7 @@ module.exports = (app) => {
   }));
 
   // ---------- settings ----------
-  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours }));
+  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints }));
   app.put('/api/settings', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const changed = [];
     if (b.tz !== undefined) { if (!validTz(b.tz)) return res.status(400).json({ error: 'That time zone is not known. Use a name like America/New_York.' }); if (b.tz !== db.settings.tz) { await db.saveSetting('tz', b.tz); changed.push('time zone'); } }
@@ -91,6 +91,11 @@ module.exports = (app) => {
       if (!list.length) return res.status(400).json({ error: 'The checklist needs at least one step' });
       if (JSON.stringify(list) !== JSON.stringify(db.settings.checklist)) { await db.saveSetting('checklist', list); await applyTemplate(list); changed.push('onboarding checklist'); }
     }
+    if (b.callPoints !== undefined) {
+      const clean = (a) => (Array.isArray(a) ? a : []).map((x) => String(x || '').trim().slice(0, 400)).filter(Boolean).slice(0, 15);
+      const v = { company: clean((b.callPoints || {}).company), owner: clean((b.callPoints || {}).owner) };
+      if (JSON.stringify(v) !== JSON.stringify(db.settings.callPoints)) { await db.saveSetting('callPoints', v); changed.push('call guide talking points'); }
+    }
     if (b.hours !== undefined) {
       const h = b.hours || {}; let week;
       try { week = hours.cleanWeek(h.week); } catch (e) { return res.status(400).json({ error: e.message }); }
@@ -101,7 +106,7 @@ module.exports = (app) => {
       if (JSON.stringify(v) !== JSON.stringify(db.settings.hours)) { await db.saveSetting('hours', v); changed.push(`working hours (${hours.weekText(week)})`); }
     }
     if (changed.length) await act(req.user, 'admin', null, `Changed settings: ${changed.join(', ')}`);
-    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours });
+    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints });
   }));
 
   // ---------- export and import ----------

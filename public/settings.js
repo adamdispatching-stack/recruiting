@@ -20,6 +20,12 @@
       <section class="card"><h3>Team time zone</h3>
         <p class="hint lead">Reports count a day from midnight to midnight in this time zone, and "today" for follow-ups starts here. Pick the zone your recruiters' working day belongs to, so one shift is one day.</p>
         <form id="tzForm" class="form"><label class="fld">Time zone<select name="tz">${(ZONES.some(([z]) => z === cfg.tz) ? ZONES : [[cfg.tz, cfg.tz]].concat(ZONES)).map(([z, l]) => `<option value="${z}" ${z === cfg.tz ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label><button class="btn primary">Save</button></form></section>
+      <section class="card" id="callpts"><h3>Call guide</h3>
+        <p class="hint lead">What recruiters see under "Mention" on each lead, one point per line. The home time line is added from the driver's state.</p>
+        <form id="callForm"><div class="grid2">
+          <label class="fld">Company drivers<textarea name="company" rows="7">${esc((cfg.callPoints || {}).company ? cfg.callPoints.company.join('\n') : '')}</textarea></label>
+          <label class="fld">Owner operators<textarea name="owner" rows="7">${esc((cfg.callPoints || {}).owner ? cfg.callPoints.owner.join('\n') : '')}</textarea></label></div>
+          <button class="btn primary" style="margin-top:10px">Save talking points</button></form></section>
       <section class="card" id="hours"><h3>Working hours</h3>
         <p class="hint lead">The team's normal week, in ${esc(cfg.tz.split('/').pop().replace(/_/g, ' '))} time. A working day with less active time on the website (on a computer; phones and tablets do not count) than the minimum below counts as a day off. You can give one person different hours on their page under Team.</p>
         <form id="hoursForm">${App.weekFields(cfg.hours.week)}
@@ -60,6 +66,7 @@
     if (!admin) return;
     const save = async (body, msg) => { try { await api('/api/settings', { method: 'PUT', body }); S.me = await api('/api/me'); toast(msg); viewSettings(); } catch (err) { fail(err); } };
     $('#tzForm').onsubmit = (e) => { e.preventDefault(); save({ tz: new FormData(e.target).get('tz') }, 'Time zone saved'); };
+    $('#callForm').onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target); const lines = (k) => String(f.get(k) || '').split('\n').map((x) => x.trim()).filter(Boolean); await save({ callPoints: { company: lines('company'), owner: lines('owner') } }, 'Talking points saved'); await App.reloadMe(); };
     $('#hoursForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ hours: { week: App.readWeek(e.target), minMinutes: +f.get('minMinutes'), grace: +f.get('grace') } }, 'Working hours saved'); };
     $('#visForm').onsubmit = (e) => { e.preventDefault(); save({ visibility: new FormData(e.target).get('visibility') }, 'Saved'); };
     $('#srcForm').onsubmit = (e) => { e.preventDefault(); save({ sources: String(new FormData(e.target).get('sources')).split('\n') }, 'Sources saved'); };

@@ -210,6 +210,8 @@ async function migrate() {
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS out_since DATE;          -- when the current stretch on the road began
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS left_on DATE;            -- a hired driver who left: no longer active
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS left_reason TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS call_prep JSONB;          -- AI call suggestions for this lead (optional)
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS call_prep_at TIMESTAMPTZ;
   `);
   // One-time clean-up of rows from before this version. It must never run again: later, a lead added by hand
   // (say from Facebook) can also pick up an Indeed account, and must keep its own source.
@@ -250,6 +252,22 @@ const DEFAULTS = {
   ],
   // Working hours in the team time zone. week[0] is Sunday; null = not a working day.
   // A working day counts as worked with at least minMinutes of active time; starting more than grace minutes late is a late start.
+  // What a recruiter mentions on a call (Settings, Call guide). From the company facts the Chrome extension's AI uses.
+  callPoints: {
+    company: [
+      'Regional Amazon freight in the Northeast: NJ, PA, DE, MD and VA. Mostly power-only drop and hook, 3 to 4 loads a day, 80 to 200 miles each.',
+      'Pay is 25% of each load to start and 30% after 90 days, paid every Friday. A normal week grosses $7,000 to $10,500, so $1,750 to $2,600 for the driver at 25%.',
+      'We pay for the truck, fuel, insurance, maintenance and tolls. The only deduction is escrow: $250 a week up to $2,500, all returned when you leave.',
+      'Automatic Freightliner sleeper, 2022 or newer. We send photos of the actual truck first and book your flight to it.',
+      'No classroom and no unpaid orientation. The only wait is Amazon\'s own background check through the Relay invite.'
+    ],
+    owner: [
+      'You keep your truck and choose your loads: no forced dispatch, no forced home time. Dispatch works 24/7, nights and weekends too.',
+      'Dispatch fee by weekly gross: 11% under $5,000, 13% from $5,000 to $8,000, 15% over $8,000. Settlements every week.',
+      'We can provide insurance ($2,100 a month), ELD ($50 a week), a fuel card, plates, PrePass and IFTA filing.',
+      'A new MC can lease on under ours. Amazon runs its own background check through the Relay invite.'
+    ]
+  },
   hours: { week: [null, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, null], minMinutes: 30, grace: 15 }
 };
 const settings = { ...DEFAULTS };

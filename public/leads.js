@@ -210,6 +210,97 @@
   }
   on('activeHere', () => App.activeDialog(cur.driver, again));
   on('activeAgain', () => patch({ leftOn: null }, 'Back on the active list'));
+  // ---------- call guide: what to find out on the next call, what to mention, the next step ----------
+  const REGION = ['MD', 'PA', 'NJ', 'DE', 'VA'];
+  const FAR = ['FL', 'TX', 'NM', 'AZ', 'CA', 'NV', 'UT', 'CO', 'WA', 'OR', 'ID', 'MT', 'WY', 'ND', 'SD', 'NE', 'KS', 'OK', 'LA', 'AR', 'MS', 'AL', 'MN', 'IA', 'MO'];
+  const stateOf = (d) => (String(d.location || '').toUpperCase().match(/\b([A-Z]{2})\b[\s,]*\d{0,5}\s*$/) || [])[1] || '';
+  const homeTime = (d) => {
+    if (d.mode === 'Owner-operators') return '';
+    const st = stateOf(d); if (!st) return '';
+    if (REGION.includes(st)) return `Lives in ${st}: 2 weeks out, then a long weekend home. If a load ends near home during the 2 weeks, they can sleep at home and roll by 8 AM.`;
+    if (FAR.includes(st)) return `Lives in ${st}: 4 to 5 weeks out, and we buy the flight home and back.`;
+    return `Lives in ${st}: 3 weeks out, 1 week home.`;
+  };
+  // answers typed in call notes ("Start date: next Monday") count as known
+  const noted = (notes) => { const m = {}; (notes || []).forEach((n) => String(n.body || '').split('\n').forEach((l) => { const x = l.match(/^\s*([^:]{3,40}):\s*(\S.*)$/); if (x) m[x[1].trim().toLowerCase()] = x[2].trim(); })); return m; };
+  function callQuestions(d, ob, notes) {
+    const a = d.answers || {}; const fromNotes = noted(notes); const st = d.status || 'Invited'; const oo = d.mode === 'Owner-operators';
+    const idx = S.me.route.indexOf(st); const at = (s) => idx >= S.me.route.indexOf(s);
+    const has = (...xs) => xs.some((x) => x !== undefined && x !== null && String(x).trim() !== '');
+    const Q = [];
+    const add = (known, label, ask, why) => Q.push({ known: !!known || !!fromNotes[label.toLowerCase()], label, ask, why, answer: fromNotes[label.toLowerCase()] || '' });
+    if (st === 'Onboarding') {
+      add(ob && ob.expectedArrival, 'Arrival day', 'Which day and time can you be at the truck?', 'The truck earns from the day they arrive');
+      add(d.medExpires, 'Medical card expires', 'When does your medical card expire? Can you text me a photo with your CDL?', 'We need both before day one');
+      add(a.telegram, 'Telegram installed', 'Is Telegram installed with this number? That is where dispatch and accounting reach you.', 'All loads and pay go through it');
+      add(a.travel, 'Travel to the truck', 'Which airport or bus station is closest to you?', 'We book the trip to the truck');
+      return Q;
+    }
+    add(a.availability, 'Start date', 'When can you start? Could you get to the truck this week or next?', 'The sooner they start, the sooner the truck earns');
+    add(has(d.expYears, a.qualify, a.cdl), 'CDL-A years and record', 'How long have you had your CDL-A? Any accidents, tickets or DUIs in the last 3 years?', 'Insurance reviews every record');
+    add(has(d.location, d.zip, a.home, a.zip), 'Home city and zip', 'Where do you live? City and zip?', 'Decides home time and which dealership picks up the truck');
+    add(has(d.weeksOut, a.homeTime, a.home_time_wanted), 'Weeks out / days home', 'How long can you stay out before going home, and how many days home do you need?', 'Matches them to the rotation');
+    if (oo) {
+      add(has(d.truckModel, d.truckYear, a.equipment), 'Truck year, make, model', 'What truck do you run? Year, make and model? Your own authority or leasing on?', 'Decides lease-on paperwork');
+      add(a.insurance, 'Insurance and ELD', 'Do you have your own insurance and ELD, or do you want ours?', 'Insurance is the biggest cost for them');
+    } else {
+      add(has(d.experience, a.freight), 'Hauled before', 'What have you hauled? Any drop and hook, intermodal or rail yard work?', 'Most loads start at rail yards');
+    }
+    add(a.relay, 'Amazon Relay before', 'Have you run Amazon Relay loads before?', 'Relay drivers start faster');
+    add(d.medExpires || a.medical, 'Medical card expires', 'Is your medical card current? When does it expire?', 'Cannot drive without it');
+    add(has(a.currentJob, a.current_job), 'Working now, notice', 'Are you working now? How much notice do you need to give?', 'Tells you their real start date');
+    add(has(a.pay, a.payExpectation, a.pay_expectation), 'Weekly pay needed', 'What do you need to make a week?', 'Check it fits before going further');
+    if (!at('Relay invite sent')) add((d.emails || []).length, 'Email for Relay invite', 'What is the best email for the Amazon Relay invite?', 'Amazon runs its own background check from it');
+    if (st === 'Relay invite sent') add(false, 'Relay sign-up done', 'Did the Amazon Relay invite arrive? Have you finished signing up?', 'The only wait that is out of our hands');
+    if (at('Email collected')) add(a.drug, 'Drug test, Clearinghouse', 'Any reason you could not pass a DOT drug test? Anything on the Clearinghouse?', 'Federal rules apply');
+    if (at('Signed up on Relay')) add(a.docs, 'CDL and medical card photos', 'Can you text me photos of your CDL and medical card today?', 'First onboarding step');
+    if (at('Relay invite sent')) add(a.telegram, 'Telegram installed', 'Is Telegram installed with this number?', 'Dispatch, accounting and ELD all run on it');
+    return Q;
+  }
+  const NEXT = {
+    Invited: 'They have not replied on Indeed yet. If you have a number, call: qualify them and get an email for the Relay invite.',
+    Replied: 'Qualify them on the call, then get their email for the Amazon Relay invite.',
+    Interested: 'Get their email and send the Amazon Relay invite today.',
+    'Email collected': 'Send the Relay invite, set the status to Relay invite sent, and set a follow-up for tomorrow.',
+    'Relay invite sent': 'Make sure they finished the Relay sign-up. Help with any step they are stuck on.',
+    'Signed up on Relay': 'Get photos of their CDL and medical card, then start onboarding and set an arrival date.',
+    Onboarding: 'Confirm the arrival day and the truck, and work through the checklist.',
+    Review: 'Read the chat, decide, and call them with an answer.',
+    Stalled: 'Find out what is holding them back, and set a follow-up date.',
+    'Not interested': 'Ask what would change their mind, and note what they are looking for.',
+    'No CDL': 'Note when they expect their CDL-A, and set a follow-up for then.'
+  };
+  function callGuide(d, ob, notes) {
+    if (d.status === 'Hired' || d.leftOn) return '';
+    const Q = callQuestions(d, ob, notes); const heard = Q.filter((x) => x.answer); const open = Q.filter((x) => !x.known); const known = Q.length - open.length;
+    const oo = d.mode === 'Owner-operators';
+    const pts = [homeTime(d), ...((S.me.callPoints || {})[oo ? 'owner' : 'company'] || [])].filter(Boolean);
+    const first = esc(String(d.name || '').split(/\s+/)[0]);
+    const facts = [one(d.mode), d.location, d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'year')} CDL-A` : '', App.periodText(d), oo && (d.truckYear || d.truckModel) ? `${[d.truckYear, d.truckModel].filter(Boolean).join(' ')}` : ''].filter(Boolean).map(esc).join(', ');
+    const p = d.callPrep;
+    const ai = S.me.ai ? `<div class="cgai"><div class="cgaih"><b>AI suggestions</b><span class="grow"></span><button class="btn plain sm" data-act="callPrep">${p ? 'Refresh' : 'Get AI suggestions'}</button></div>
+        ${p ? `${p.opener ? `<p><span class="mut">Open with:</span> ${esc(p.opener)}</p>` : ''}<ol class="qs">${p.questions.map((x) => `<li><b>${esc(x.ask)}</b><span>${esc(x.why)}</span></li>`).join('')}</ol>
+        ${p.watchOut ? `<p class="cgwarn"><b>Watch out:</b> ${esc(p.watchOut)}</p>` : ''}${p.close ? `<p><b>Agree before you hang up:</b> ${esc(p.close)}</p>` : ''}<p class="small mut">Prepared ${esc(when(d.callPrepAt))}</p>`
+        : '<p class="small mut">Suggestions written for this driver from everything on the lead: what to ask first, what to watch out for, and how to close.</p>'}</div>` : '';
+    return `<section class="card callg" aria-labelledby="cgH"><h3 id="cgH">Call guide<span class="cgpill${open.length ? '' : ' full'}">${known} of ${Q.length} known</span><span class="grow"></span>${open.length ? '<button class="btn primary sm" data-act="callNotes">Take call notes</button>' : ''}</h3>
+      <p class="cgwho">Before you call ${first}: ${facts || 'nothing known yet besides the name'}.</p>
+      ${heard.length ? `<p class="cgheard"><b>From your call notes:</b> ${heard.map((x) => `${esc(x.label)}: ${esc(x.answer)}`).join('; ')}</p>` : ''}
+      ${d.redFlags ? `<p class="cgwarn"><b>Watch out:</b> ${esc(d.redFlags)}</p>` : ''}
+      <div class="cg2"><div><h4>Find out on this call</h4>${open.length ? `<ol class="qs">${open.slice(0, 7).map((x) => `<li><b>${esc(x.ask)}</b><span>${esc(x.why)}</span></li>`).join('')}</ol>${open.length > 7 ? `<p class="small mut">${open.length - 7} more after these.</p>` : ''}` : '<p class="small">Everything on the list is known. Use the call to agree the next step.</p>'}</div>
+        <div><h4>Mention</h4><ul class="pts">${pts.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div></div>
+      ${NEXT[d.status] ? `<p class="cgnext"><b>Next step:</b> ${esc(NEXT[d.status])}</p>` : ''}${ai}</section>`;
+  }
+  on('callNotes', () => {
+    const t = $('#newNote'); if (!t || !cur) return;
+    const open = callQuestions(cur.driver, cur.onboarding, cur.notes).filter((x) => !x.known);
+    const tmpl = open.map((x) => `${x.label}: `).join('\n');
+    t.value = (t.value.trim() ? t.value.trim() + '\n' : '') + tmpl; t.focus(); t.setSelectionRange(t.value.indexOf(': ') + 2, t.value.indexOf(': ') + 2);
+    t.scrollIntoView({ block: 'center' }); toast('Fill in the answers, then save them with Called, talked');
+  });
+  on('callPrep', async (b) => {
+    b.disabled = true; b.textContent = 'Preparing…';
+    try { await api(`/api/drivers/${cur.driver.id}/callprep`, { method: 'POST' }); await again(); } catch (e) { fail(e); b.disabled = false; b.textContent = 'Try again'; }
+  });
   const expText = (d) => [d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'year')} with a CDL-A` : '', d.mode === 'Owner-operators' && (d.truckYear || d.truckModel) ? `own truck: ${[d.truckYear, d.truckModel].filter(Boolean).join(' ')}` : ''].filter(Boolean).join(', ');
   function onbCard(d, ob) {
     const done = ob.items.filter((i) => i.done).length, total = ob.items.length, left = total - done;
@@ -291,6 +382,7 @@
       <div class="cols">
         <div>
           ${d.status === 'Onboarding' ? onb : ''}
+          ${callGuide(d, ob, r.notes)}
           <section class="card"><h3>Notes and contact log</h3>
             ${d.redFlags ? `<div class="flagbox"><span>${esc(d.redFlags)}</span></div>` : ''}
             <form class="compose" id="noteForm"><textarea id="newNote" data-fk="note" placeholder="What they said, what you agreed, what to do next"></textarea>

@@ -56,6 +56,7 @@ app.get('/api/me', needUser, wrap(async (req, res) => {
   const people = await q(`SELECT id, name, role, active FROM users ORDER BY lower(name)`);
   const companies = await q(`SELECT id, name, color FROM companies ORDER BY lower(name)`);
   res.json({ id: req.user.id, email: req.user.email, name: req.user.name, role: req.user.role, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources,
+    callPoints: db.settings.callPoints, ai: !!process.env.ANTHROPIC_API_KEY,
     people: people.rows, companies: companies.rows, route: db.ROUTE, other: db.OTHER, active: db.ACTIVE, lost: db.LOST, coldDays: db.COLD_DAYS, today: await lib.today() });
 }));
 app.post('/api/me/password', needUser, wrap(async (req, res) => {
@@ -70,6 +71,7 @@ require('./api-team')(app);
 require('./api-hours')(app);
 require('./api-companies')(app);
 require('./api-active')(app);
+require('./api-call')(app);
 require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-admin')(app);
