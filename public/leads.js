@@ -99,7 +99,7 @@
       refresh(); return;
     }
     const row = e.target.closest('table.leads tbody tr[data-id]');
-    if (row && !e.target.closest('a, input, button, .cb')) go('#/driver/' + row.dataset.id);
+    if (row && !e.target.closest('a, input, button, select, label, .cb, .assign, .phw')) go('#/driver/' + row.dataset.id); // controls in a row never open the lead
   });
   document.addEventListener('change', (e) => {
     if (e.target.id === 'selAll') { list.rows.forEach((d) => (e.target.checked ? list.sel.add(d.id) : list.sel.delete(d.id))); $$('[data-sel]').forEach((c) => { c.checked = e.target.checked; }); drawBulk(); }
