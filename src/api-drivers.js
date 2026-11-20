@@ -112,7 +112,7 @@ module.exports = (app) => {
     const ops = require('./api-ops');
     res.json({ driver: toClient(d),
       notes: notes.rows.map((n) => ({ id: n.id, body: n.body, kind: n.kind, outcome: n.outcome, author: n.author || (n.source ? 'Chrome extension (' + n.source.slice(4) + ')' : 'Unknown'), mine: n.user_id === req.user.id, fromExtension: !!n.source, createdAt: n.created_at, updatedAt: n.updated_at })),
-      events: ev.rows, onboarding: await ops.onboardingOf(d.id), lostReasons: LOST_REASONS, indeedMsgs: await outbox.ofDriver(d.id),
+      events: ev.rows, onboarding: await ops.onboardingOf(d.id), lostReasons: LOST_REASONS, needed: (await require('./needed').neededFor([d.id]))[d.id] || [], indeedMsgs: await outbox.ofDriver(d.id),
       indeedChat: !!(d.conversation_url && /[?&]conversationId=/.test(d.conversation_url)) });
   }));
 
@@ -311,6 +311,7 @@ module.exports = (app) => {
       const told = log.filter(([type]) => ['status', 'followup', 'truck'].includes(type)).map(([, text]) => text);
       if (owner && owner !== u.id && told.length && set.owner_id === undefined) await db.notify(db.pool, owner, 'lead_update', `${u.name} changed ${nm}: ${told.join('; ')}`, link, { driverId: id, merge: true });
     }
+    await require('./needed').check(id).catch((e) => console.error('needed', e.message)); // verified on Amazon: what is still missing
     res.json({ ok: true });
   }));
 

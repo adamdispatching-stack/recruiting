@@ -97,6 +97,7 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
     else { await q(`INSERT INTO users (email, name, pass_hash, role) VALUES ($1, $2, $3, 'admin')`, [email.toLowerCase(), process.env.ADMIN_NAME || 'Admin', hashPassword(pw)]); console.log('Created the first admin:', email); }
   }
   await lib.loadGone();
+  require('./needed').start(); // verified drivers missing the arrival date, company or truck
   await q(`DELETE FROM sessions WHERE expires_at < now()`);
   await q(`DELETE FROM activity WHERE at < now() - interval '400 days'`); // the activity log keeps about 13 months
   await q(`DELETE FROM activity_hours WHERE hour < now() - interval '400 days'`);

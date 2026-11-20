@@ -26,8 +26,9 @@ module.exports = (app) => {
     const params = []; const vis = visSql(req.user, params);
     const rows = await q(`SELECT d.id, d.name, d.owner_id, d.phones, d.mode, d.location, d.company_id, d.amazon_step, d.relay_before, d.truck_year, d.truck_model, d.exp_years, d.weeks_out, d.days_home, o.started_at, o.expected_arrival, o.arrival_note, o.arrived_on, o.telegram_link, o.progress_at, t.unit truck_unit, t.details truck_details
       FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
-      WHERE d.status = 'Onboarding' ${vis ? 'AND ' + vis : ''} ORDER BY o.expected_arrival NULLS LAST, o.started_at`, params);
+      WHERE d.status = 'Onboarding' ${vis ? 'AND ' + vis : ''} ORDER BY (d.amazon_step = 'verified') DESC NULLS LAST, o.expected_arrival NULLS LAST, o.started_at`, params); // verified on Amazon first
     const ids = rows.rows.map((r) => r.id);
+    const needed = await require('./needed').neededFor(ids);
     const items = ids.length ? (await q(`SELECT id, driver_id, key, label, auto, done, note FROM checklist WHERE driver_id = ANY($1::int[]) ORDER BY position, id`, [ids])).rows : [];
     const p2 = []; const v2 = visSql(req.user, p2);
     const hired = await q(`SELECT d.id, d.name, d.owner_id, d.company_id, o.completed_at, o.started_at, t.unit truck_unit FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
@@ -37,7 +38,7 @@ module.exports = (app) => {
       drivers: rows.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
         arrivedOn: r.arrived_on, telegramLink: r.telegram_link, progressAt: r.progress_at, companyId: r.company_id, truck: r.truck_unit ? { unit: r.truck_unit, details: r.truck_details } : null,
         amazonStep: r.amazon_step, relayBefore: r.relay_before, ownTruck: [r.truck_year, r.truck_model].filter(Boolean).join(' ') || null, expYears: r.exp_years === null ? null : +r.exp_years, weeksOut: r.weeks_out === null ? null : +r.weeks_out, daysHome: r.days_home,
-        items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),
+        needed: needed[r.id] || [], items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),
       hired: hired.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, companyId: r.company_id, hiredAt: r.completed_at, startedAt: r.started_at, truck: r.truck_unit })) });
   }));
 
@@ -83,6 +84,7 @@ module.exports = (app) => {
     if (cols.length) await q(`UPDATE onboarding SET ${cols.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE driver_id = $1`, [d.id, ...cols.map((k) => set[k])]);
     if (log.length) { await db.syncAuto(db.pool, d.id, req.user.id); await progress(d.id); }
     for (const [type, text] of log) await record(req, type, d, text);
+    await require('./needed').check(d.id).catch((e) => console.error('needed', e.message));
     res.json({ ok: true });
   }));
 

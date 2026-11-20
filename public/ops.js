@@ -195,9 +195,9 @@
         : d.truck ? `<b>${esc(d.truck.unit)}</b>${d.truck.details ? ` <span class="small mut">${esc(d.truck.details)}</span>` : ''}` : '<span class="latetag">No truck yet</span>';
       const azv = d.amazonStep === 'verified'; const az = (S.me.amazon || []).find((x) => x.key === d.amazonStep);
       return `<tr class="brow${alt}${azv ? ' azrow' : ''}${isOpen ? ' open' : ''}" data-driver="${d.id}" title="Open ${esc(d.name)}"><th scope="row"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><span class="obday">day ${daysSince(d.startedAt) + 1}</span>
-          <div class="small mut ofacts">${azv ? '<span class="azv sm">✓ Amazon verified</span>' : `<span class="azpend" title="Amazon Relay">Amazon: ${az ? esc(az.label) : 'not started'}</span>`}${facts ? ` ${facts}` : ''}</div></th>
+          <div class="small mut ofacts">${azv ? '<span class="azv sm">✓ Amazon verified</span>' : `<span class="azpend" title="Amazon Relay">Amazon: ${az ? esc(az.label) : 'not started'}</span>`}${(d.needed || []).length ? ` <span class="needtag" title="Verified on Amazon: this must be set">Set: ${esc(d.needed.join(', '))}</span>` : ''}${facts ? ` ${facts}` : ''}</div></th>
         <td>${(d.phones || []).slice(0, 1).map((p) => App.phone(p)).join('') || '<span class="none">No phone</span>'}</td>
-        <td>${d.companyId ? App.coTag(d.companyId) : '<span class="none">Not set</span>'}</td>
+        <td>${d.companyId ? App.coTag(d.companyId) : (d.needed || []).includes('company') ? '<span class="latetag">Not set</span>' : '<span class="none">Not set</span>'}</td>
         <td class="tk">${truck}</td>
         <td class="arr" title="${esc(d.arrivalNote || '')}">${whenText(d)}${d.arrivalNote ? `<div class="small mut clip1">${esc(d.arrivalNote)}</div>` : ''}</td>
         <td><div class="obprog"><span class="pbar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span><span class="cpill${done === total && total ? ' full' : ''}">${done}/${total}</span></div>

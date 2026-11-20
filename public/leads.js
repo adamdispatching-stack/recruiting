@@ -311,10 +311,11 @@
     try { await api(`/api/drivers/${cur.driver.id}/callprep`, { method: 'POST' }); await again(); } catch (e) { fail(e); b.disabled = false; b.textContent = 'Try again'; }
   });
   const expText = (d) => [d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'year')} with a CDL-A` : '', d.mode === 'Owner-operators' && (d.truckYear || d.truckModel) ? `own truck: ${[d.truckYear, d.truckModel].filter(Boolean).join(' ')}` : ''].filter(Boolean).join(', ');
-  function onbCard(d, ob) {
+  function onbCard(d, ob, needed = []) {
     const done = ob.items.filter((i) => i.done).length, total = ob.items.length, left = total - done;
     const trucks = (ob.truck ? [ob.truck] : []).concat(ob.freeTrucks);
     return `<section class="card onb" id="onb"><h3>Onboarding<span class="grow"></span><span class="prog"><b>${done} of ${total}</b> steps done<span class="meter"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span></span></h3>
+      ${needed.length ? `<div class="needbox" role="alert"><b>Needed now:</b> set the ${esc(needed.length < 2 ? needed[0] : needed.slice(0, -1).join(', ') + ' and ' + needed[needed.length - 1])}. ${needed.includes('arrival date') ? 'The driver is verified on Amazon, so plan the start date with them.' : 'The driver is verified on Amazon and starts within 3 days.'}${needed.includes('company') ? ' The company is set at the top of this page.' : ''}</div>` : ''}
       <p class="hint lead">Started ${esc(dateText(dayOf(ob.startedAt)))}${ob.startedBy ? ' by ' + esc(ob.startedBy) : ''}${ob.completedAt ? `. Hired ${esc(dateText(dayOf(ob.completedAt)))}.` : '.'}</p>
       <div class="ofields">
         <label class="fld">Truck<select data-ch="onbTruck" data-fk="truck"><option value="">No truck yet</option>${truckGroups(trucks, d.companyId).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((t) => `<option value="${t.id}" ${ob.truck && ob.truck.id === t.id ? 'selected' : ''}>${esc(t.unit)}${t.details ? ', ' + esc(t.details) : ''}${t.location ? ' (' + esc(t.location) + ')' : ''}</option>`).join('')}</optgroup>`).join('')}</select>
@@ -348,7 +349,7 @@
     const noteHtml = (n) => `<li data-note="${n.id}"><div class="meta"><b>${esc(n.author)}</b>${n.kind ? `<span class="ck">${esc(CONTACT_TEXT(n))}</span>` : ''}${n.fromExtension ? '<span class="ext">from the extension</span>' : ''}<span class="grow">${esc(when(n.createdAt))}${n.updatedAt && new Date(n.updatedAt) - new Date(n.createdAt) > 60000 ? ', edited' : ''}</span>
       ${n.mine || admin ? '<button class="linkbtn" data-act="editNote">Edit</button><button class="linkbtn red" data-act="delNote">Delete</button>' : ''}</div><div class="body">${esc(n.body)}</div>${imHtml(n)}</li>`;
     const sourceLine = [d.source, d.sourceDetail].filter(Boolean).map(esc).join(', ');
-    const onb = ob ? onbCard(d, ob) : '';
+    const onb = ob ? onbCard(d, ob, r.needed || []) : '';
     view.innerHTML = header('leads') + `<main>
       <a class="back" href="#/leads">← Leads</a>
       <section class="dhead">
