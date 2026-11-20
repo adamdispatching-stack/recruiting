@@ -1324,3 +1324,44 @@ details.fbadd.card{padding:0}
 .bteam th[scope=row],.bteam td{vertical-align:middle}.bteam th[scope=row]{text-align:left;padding-left:14px}
 #pops .pop.k-message{background:#1D4E9E} #pops .pop.k-message b{color:#CFE0FF}
 #bellpanel .k-message .bk{color:var(--blue)}
+
+/* ---------- Facebook: the order of the day, ad pictures, How to ---------- */
+.fbtile{position:relative}
+.fbtile .tn{position:absolute;top:10px;right:12px;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--page);color:var(--mut);font-size:12px;font-weight:800}
+.fbtile.done .tn{background:var(--viz-1);color:#fff}
+.fbord{margin:6px 0 10px;font-size:17px}
+.fbnew{margin-bottom:14px;border-left:4px solid var(--yellow);background:var(--yellow-t)}
+.picup .drop.multi{display:flex;align-items:center;justify-content:center;min-height:86px;padding:14px;border:2px dashed var(--line);border-radius:12px;background:var(--page);color:var(--mut);font-weight:600;text-align:center;cursor:pointer}
+.picup .drop.multi:hover,.picup .drop.multi.over{border-color:var(--viz-1);color:var(--green-d);background:var(--green-t)}
+.picup .drop.multi.busy{opacity:.7;cursor:progress}
+.picpick{border:0;padding:0;margin:0}
+.picpick legend{padding:0;margin-bottom:6px;font-weight:600;font-size:13px}
+.picpick .picrow{display:flex;flex-wrap:wrap;gap:8px}
+.picpick label{position:relative;display:block;width:92px;height:92px;border-radius:9px;overflow:hidden;border:3px solid transparent;cursor:pointer}
+.picpick label img{width:100%;height:100%;object-fit:cover;display:block}
+.picpick input{position:absolute;opacity:0;pointer-events:none}
+.picpick label:has(input:checked){border-color:var(--viz-1);box-shadow:0 0 0 2px var(--green-t)}
+.picpick label:has(input:focus-visible){outline:2px solid var(--blue);outline-offset:2px}
+.picpick label.used{cursor:not-allowed;opacity:.45}
+.picpick label span{position:absolute;left:4px;bottom:4px;padding:0 6px;border-radius:6px;background:rgba(0,0,0,.65);color:#fff;font-size:11px}
+.picpick label span:empty{display:none}
+.picpick.none{padding:10px 12px;border-radius:9px;background:var(--yellow-t);color:var(--yellow-ink);font-size:13px}
+.fbguide .lead{font-size:15px}
+.gtoc{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+.gtoc a{padding:5px 12px;border:1px solid var(--line);border-radius:16px;background:#fff;color:var(--ink);font-size:13px;font-weight:600;text-decoration:none}
+.gtoc a:hover{border-color:var(--viz-1)}
+.fbguide .card{margin-bottom:14px}
+.fbguide h2{margin:0 0 10px;font-size:19px}
+.fbguide .ghead{margin:22px 0 10px}
+.gstep h3{display:flex;align-items:center;gap:10px;margin:0 0 8px;font-size:17px}
+.gstep h3 small{font-size:12.5px;font-weight:500;color:var(--mut)}
+.gn{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--green);color:#fff;font-size:14px;font-weight:800}
+.gstep h4{margin:16px 0 6px;font-size:13.5px}
+.gsteps{margin:0;padding-left:22px;line-height:1.6}
+.gsteps li{margin:3px 0}
+.gvary{margin:0;padding-left:20px;columns:2;font-size:13px;line-height:1.6}
+.gcopy{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start;margin:6px 0;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--page)}
+.gcopy pre{margin:0;white-space:pre-wrap;font:13px/1.5 var(--font)}
+kbd{padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;background:#fff;font:600 12px var(--font)}
+.fbguide code{padding:1px 5px;border-radius:4px;background:var(--page);font-size:12.5px}
+@media (max-width:640px){ .gvary{columns:1} .gcopy{grid-template-columns:minmax(0,1fr)} }

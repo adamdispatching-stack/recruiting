@@ -163,7 +163,7 @@ window.App = (() => {
   }
   async function openNotice(n) { await seen([n.id]); setBell(Math.max(0, (S.unread || 1) - 1)); closeBell(); if (n.link) go(n.link); }
   // ---------- today's goal: the ring in the menu, on every page, and the celebration when it is all done ----------
-  const KNAME = { post: ['group post', 'group posts'], comment: ['comment', 'comments'], contact: ['driver messaged', 'drivers messaged'], chat: ['group chat', 'group chats'], ppost: ['personal post', 'personal posts'], pcomment: ['other comment', 'other comments'] };
+  const KNAME = { picture: ['ad picture', 'ad pictures'], post: ['group post', 'group posts'], comment: ['comment', 'comments'], contact: ['driver messaged', 'drivers messaged'], chat: ['group chat', 'group chats'], ppost: ['personal post', 'personal posts'], pcomment: ['other comment', 'other comments'] };
   const RING_R = 26, RING_C = 2 * Math.PI * RING_R;
   function goalRing() {
     if (!S.me || S.me.role === 'admin') return '';
@@ -276,6 +276,13 @@ window.App = (() => {
     go('#/');
   }
   window.addEventListener('hashchange', render);
+  // links to a part of the same page (#fb-post, #bg-leads): scroll there instead of going to another screen
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="#"]'); if (!a || a.getAttribute('href').startsWith('#/')) return;
+    const el = document.getElementById(a.getAttribute('href').slice(1)); if (!el) return;
+    e.preventDefault(); el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    if (el.tagName === 'DETAILS') el.open = true;
+  });
 
   // The menu down the left side (a bar with a menu button on a phone). A screen with its own search and filters
   // passes them as "extra"; they sit in a green strip at the top of the page.

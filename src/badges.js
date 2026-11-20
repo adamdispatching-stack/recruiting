@@ -43,6 +43,7 @@ const BADGES = [
 
   { id: 'on_fire', group: 'facebook', icon: '🔥', name: 'On fire', what: 'Best streak of days with every Facebook target met', unit: 'days in a row', need: [3, 5, 10, 20, 50] },
   { id: 'perfect_month', group: 'facebook', icon: '🗓️', name: 'Perfect month', what: 'Months with every Facebook target met each working day', unit: 'months', need: [1, 2, 3, 6, 12] },
+  { id: 'ad_maker', group: 'facebook', icon: '🎨', name: 'Ad maker', what: 'Ad pictures made with ChatGPT', unit: 'pictures', need: [25, 100, 250, 500, 1000] },
   { id: 'poster', group: 'facebook', icon: '📣', name: 'Poster', what: 'Ads posted in groups', unit: 'posts', need: [25, 100, 250, 500, 1000] },
   { id: 'commenter', group: 'facebook', icon: '💬', name: 'Commenter', what: 'Comments on driver ads', unit: 'comments', need: [100, 500, 1000, 2500, 5000] },
   { id: 'networker', group: 'facebook', icon: '🤝', name: 'Networker', what: 'Drivers messaged on Facebook', unit: 'drivers', need: [50, 250, 500, 1000, 2500] },
@@ -95,7 +96,7 @@ async function counts(u) {
 }
 async function facebook(u) {
   const f = await challenge.fbStats(u); const t = f.totals;
-  return { on_fire: f.best, perfect_month: f.perfectMonths, poster: t.post || 0, commenter: t.comment || 0, networker: t.contact || 0, fb_eye: f.leads, real_person: (t.ppost || 0) + (t.pcomment || 0) };
+  return { on_fire: f.best, perfect_month: f.perfectMonths, ad_maker: t.picture || 0, poster: t.post || 0, commenter: t.comment || 0, networker: t.contact || 0, fb_eye: f.leads, real_person: (t.ppost || 0) + (t.pcomment || 0) };
 }
 
 // ---------- levels, kept and announced ----------

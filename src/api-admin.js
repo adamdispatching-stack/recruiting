@@ -94,8 +94,8 @@ module.exports = (app) => {
     }
     if (b.fbTargets !== undefined) {
       const t = b.fbTargets || {}; const v = {};
-      for (const k of ['post', 'comment', 'contact', 'chat', 'ppost', 'pcomment']) { const n = Math.round(+(t[k] ?? db.settings.fbTargets[k] ?? 0)); if (!(n >= 0 && n <= 200)) return res.status(400).json({ error: 'Daily targets: a number from 0 to 200' }); v[k] = n; }
-      if (JSON.stringify(v) !== JSON.stringify(db.settings.fbTargets)) { await db.saveSetting('fbTargets', v); changed.push(`Facebook daily targets (${v.post} posts, ${v.comment} comments, ${v.contact} drivers messaged, ${v.chat} group chats, ${v.ppost} personal posts, ${v.pcomment} other comments)`); }
+      for (const k of ['picture', 'post', 'comment', 'contact', 'chat', 'ppost', 'pcomment']) { const n = Math.round(+(t[k] ?? db.settings.fbTargets[k] ?? 0)); if (!(n >= 0 && n <= 200)) return res.status(400).json({ error: 'Daily targets: a number from 0 to 200' }); v[k] = n; }
+      if (JSON.stringify(v) !== JSON.stringify(db.settings.fbTargets)) { await db.saveSetting('fbTargets', v); changed.push(`Facebook daily targets (${v.picture} ad pictures, ${v.post} posts, ${v.comment} comments, ${v.contact} drivers messaged, ${v.chat} group chats, ${v.ppost} personal posts, ${v.pcomment} other comments)`); }
     }
     if (b.noAnswer !== undefined) {
       const n = b.noAnswer || {}; const text = String(n.text || '').trim().slice(0, 600);

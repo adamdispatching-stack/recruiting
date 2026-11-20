@@ -1,4 +1,5 @@
 // Facebook work: what each recruiter did in Facebook groups today, with links and pictures, against daily targets.
+//   picture an ad picture made with ChatGPT, uploaded first; each group post then uses one of them (once)
 //   post    an ad picture posted in a group: group name and link, the post's link, the picture
 //   comment a comment under someone else's ad: the ad's link and a screenshot of the comment
 //   contact a driver messaged: profile link, name, OTR? Class A CDL? and how it went; can become a lead
@@ -12,8 +13,8 @@ const lib = require('./lib');
 const { q } = db;
 const { wrap, needUser, needAdmin, act, isDate } = lib;
 
-const KINDS = ['post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'];
-const LABEL = { post: 'group post', comment: 'comment', contact: 'driver messaged', chat: 'group chat joined', ppost: 'personal post', pcomment: 'comment on another post' };
+const KINDS = ['picture', 'post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'];
+const LABEL = { picture: 'ad picture', post: 'group post', comment: 'comment', contact: 'driver messaged', chat: 'group chat joined', ppost: 'personal post', pcomment: 'comment on another post' };
 const OUTCOMES = ['messaged', 'replied', 'interested', 'not interested'];
 const MAX_IMAGE = 4 * 1024 * 1024;
 const KEEP_IMAGES_DAYS = 120;
@@ -43,7 +44,7 @@ async function counts(userIds, from, to) {
   const rows = (await q(`SELECT user_id, kind, count(*)::int n, count(*) FILTER (WHERE review = 'problem')::int bad, count(*) FILTER (WHERE review IS NULL)::int open
     FROM fb_entries WHERE user_id = ANY($1::int[]) AND day BETWEEN $2::date AND $3::date GROUP BY 1, 2`, [userIds, from, to])).rows;
   const res = {};
-  for (const id of userIds) res[id] = { post: 0, comment: 0, contact: 0, chat: 0, ppost: 0, pcomment: 0, problems: 0, unreviewed: 0 };
+  for (const id of userIds) res[id] = { picture: 0, post: 0, comment: 0, contact: 0, chat: 0, ppost: 0, pcomment: 0, problems: 0, unreviewed: 0 };
   for (const r of rows) { res[r.user_id][r.kind] = r.n; res[r.user_id].problems += r.bad; res[r.user_id].unreviewed += r.open; }
   return res;
 }
@@ -90,7 +91,11 @@ module.exports = (app) => {
     const groups = [...listed, ...used.filter((u) => !listed.some((g) => g.name.toLowerCase() === u.name.toLowerCase()))];
     // problems the admin flagged on earlier days that are still open (the recruiter should see them)
     const flagged = (await q(`${SELECT} WHERE e.user_id = $1 AND e.review = 'problem' AND e.day <> $2::date AND e.day > $2::date - 14 ORDER BY e.day DESC LIMIT 30`, [uid, day])).rows.map(out);
-    res.json({ day, today: t, person, targets: db.settings.fbTargets, counts: c, score: score(c), entries, groups, flagged, outcomes: OUTCOMES });
+    const pictures = (await q(`SELECT e.id, e.image_id, to_char(e.day, 'YYYY-MM-DD') dayt, e.note,
+        EXISTS (SELECT 1 FROM fb_entries p WHERE p.image_id = e.image_id AND p.kind = 'post') used
+      FROM fb_entries e WHERE e.user_id = $1 AND e.kind = 'picture' AND e.image_id IS NOT NULL AND e.day > $2::date - 3 ORDER BY e.created_at DESC LIMIT 40`, [uid, t])).rows
+      .map((x) => ({ entryId: x.id, imageId: x.image_id, day: x.dayt, prompt: x.note, used: x.used }));
+    res.json({ day, today: t, person, targets: db.settings.fbTargets, counts: c, score: score(c), entries, groups, flagged, outcomes: OUTCOMES, pictures });
   }));
 
   // ---------- the team's day (admin) ----------
@@ -175,10 +180,14 @@ module.exports = (app) => {
     const link = clean(b.link, 600); const key = link ? linkKey(link) : null;
     const groupName = clean(b.groupName, 150); const groupLink = clean(b.groupLink, 600);
     if (link && !key) return { error: 'That link does not look right. Copy it from the address bar.' };
+    if (kind === 'picture' && !b.imageId) return { error: 'Add the picture you made with ChatGPT' };
     if (kind === 'post') {
       if (!groupName) return { error: 'Which group did you post in?' };
       if (!key || !isFb(key)) return { error: 'Paste the link to your post in the group (from Facebook)' };
-      if (!b.imageId) return { error: 'Add the picture you posted' };
+      // the link to the post itself, not to the group
+      const gk = groupLink ? linkKey(groupLink) : null;
+      if (key === gk || /^facebook\.com\/groups\/[^/?]+$/.test(key) || /^facebook\.com\/share\/g\//.test(key)) return { error: "That is the link to the group, not to your post. In the group, click the time under your name on your post (like \"2m\"), then copy the address from the top of the browser." };
+      if (!b.imageId) return { error: 'Pick one of the ad pictures you made today' };
     }
     if (kind === 'comment') {
       if (!key || !isFb(key)) return { error: 'Paste the link to the post you commented on (from Facebook)' };
@@ -198,9 +207,15 @@ module.exports = (app) => {
       if (dup) return { error: kind === 'contact' ? `${dup.name} already messaged this driver on ${dup.d}` : `This ${LABEL[kind]} was already recorded by ${dup.name} on ${dup.d}` };
     }
     if (b.imageId) {
-      const img = (await q(`SELECT i.user_id, (SELECT count(*)::int FROM fb_entries e WHERE e.image_id = i.id AND ($2::int IS NULL OR e.id <> $2::int)) used FROM fb_images i WHERE i.id = $1`, [+b.imageId || 0, exceptId || null])).rows[0];
+      const img = (await q(`SELECT i.user_id,
+          (SELECT count(*)::int FROM fb_entries e WHERE e.image_id = i.id AND e.kind <> 'picture' AND ($2::int IS NULL OR e.id <> $2::int)) used,
+          (SELECT count(*)::int FROM fb_entries e WHERE e.image_id = i.id AND e.kind = 'picture' AND ($2::int IS NULL OR e.id <> $2::int)) made
+        FROM fb_images i WHERE i.id = $1`, [+b.imageId || 0, exceptId || null])).rows[0];
       if (!img || img.user_id !== userId) return { error: 'Upload the picture again' };
-      if (img.used) return { error: 'That picture is already on another entry' };
+      if (kind === 'post') {
+        if (!img.made) return { error: 'Pick one of your ad pictures. Upload it under "Ad pictures" first.' };
+        if (img.used) return { error: 'That picture is already in another post. Use a different picture for each group.' };
+      } else if (img.used || img.made) return { error: 'That picture is already on another entry' };
     }
     const answers = kind === 'contact' ? { otr: yn(b.otr), cdlA: yn(b.cdlA), phone: clean(b.phone, 30) } : {};
     if (kind === 'contact' && b.outcome && !OUTCOMES.includes(b.outcome)) return { error: 'Unknown outcome' };
@@ -265,6 +280,7 @@ module.exports = (app) => {
     const e = await loadEntry(req, res); if (!e) return;
     const admin = req.user.role === 'admin';
     if (!admin && (e.user_id !== req.user.id || e.dayt !== await today() || e.review === 'ok')) return res.status(403).json({ error: 'You can remove your own entries on the same day, before an admin checks them' });
+    if (e.kind === 'picture' && e.image_id && (await q(`SELECT 1 FROM fb_entries WHERE image_id = $1 AND kind = 'post'`, [e.image_id])).rows[0]) return res.status(400).json({ error: 'This picture is in a post. Remove the post first.' });
     await q(`DELETE FROM fb_entries WHERE id = $1`, [e.id]);
     require('./challenge').forget(e.user_id);
     if (e.image_id) await q(`DELETE FROM fb_images WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM fb_entries WHERE image_id = $1)`, [e.image_id]);

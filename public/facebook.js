@@ -3,10 +3,11 @@
 (() => {
   const { $, esc, view, S, api, toast, fail, on, header, dialog, plural, dateText, addDays, when } = App;
   const KINDS = [
+    { k: 'picture', title: 'Ad pictures (made with ChatGPT)', one: 'ad picture', what: 'First thing each day: make your ad pictures with ChatGPT (see How to) and upload each one here. Each group post then uses one of them, a different one for each group.' },
     { k: 'post', title: 'Posts in groups', one: 'post', what: 'An ad picture (made with ChatGPT) posted in a Facebook group: the group, the link to your post, and the picture.' },
     { k: 'comment', title: 'Comments on ads', one: 'comment', what: "A comment under another company's driver ad: the link to that post and a screenshot of your comment." },
     { k: 'contact', title: 'Drivers messaged', one: 'driver', what: "A driver you messaged: their profile link, name, and what they said about OTR and a Class A CDL. Interested drivers can become leads." },
-    { k: 'chat', title: 'Group chats joined', one: 'group chat', what: 'A Facebook group chat for truck drivers you were added to.' },
+    { k: 'chat', title: 'Group chats joined', one: 'group chat', what: 'Drivers talk in group chats all day, and few recruiters are in them, so every chat you join brings drivers for weeks. Find them in a group\'s Chats tab, in links in posts, or ask "Is there a group chat for drivers here?" (see How to).' },
     { k: 'ppost', title: 'Posts on your own profile', one: 'personal post', personal: true, what: 'Something personal on your own profile or page, not about the job: a photo, a thought, a share. Facebook limits accounts that only post job ads.' },
     { k: 'pcomment', title: 'Comments on other posts', one: 'comment', personal: true, what: 'A comment or reply on a post that has nothing to do with trucking jobs: friends, hobbies, local news, sports.' }
   ];
@@ -46,15 +47,23 @@
     drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = e.dataTransfer.files[0]; if (f) upload(f, box); };
     form.addEventListener('paste', (e) => { const f = [...(e.clipboardData || {}).files || []][0]; if (f) { e.preventDefault(); upload(f, box); } });
   }
+  // A group post uses one of the ad pictures made today (or in the last days), each picture once
+  const pickField = (pics, current) => {
+    const ok = pics.filter((p) => !p.used || p.imageId === current);
+    if (!ok.length) return `<div class="fld wide picpick none"><b>No ad picture ready.</b> Make your pictures with ChatGPT and upload them under <a href="#fb-picture">Ad pictures</a> first, then come back to log the post.</div>`;
+    return `<fieldset class="fld wide picpick"><legend>Which ad picture did you post?</legend><div class="picrow">${pics.map((p) => { const free = !p.used || p.imageId === current;
+      return `<label class="${free ? '' : 'used'}" title="${free ? 'Use this picture' : 'Already in a post'}"><input type="radio" name="imageId" value="${p.imageId}" required ${free ? '' : 'disabled'} ${p.imageId === current ? 'checked' : ''}><img src="/api/fb/images/${p.imageId}" alt="Ad picture" loading="lazy"><span>${free ? '' : 'Used'}</span></label>`; }).join('')}</div></fieldset>`;
+  };
   const picField = (label) => `<div class="fld picbox">${label}<input type="hidden" name="imageId"><label class="drop" tabindex="0"><input type="file" accept="image/*" hidden><span>Choose a picture, drop it here, or paste it (Ctrl+V)</span></label></div>`;
 
   // ---------- the add form of each kind ----------
-  function form(k, groups) {
+  function form(k, groups, pics = [], current = null) {
     const dl = `<datalist id="fbGroups">${groups.map((g) => `<option value="${esc(g.name)}">`).join('')}</datalist>`;
     const f = {
       post: `<label class="fld">Group name<input type="text" name="groupName" list="fbGroups" required maxlength="150" placeholder="e.g. CDL Truck Drivers USA"></label>
         <label class="fld">Group link<input name="groupLink" type="url" placeholder="https://www.facebook.com/groups/…"></label>
-        <label class="fld wide">Link to your post<input name="link" type="url" required placeholder="https://www.facebook.com/groups/…/posts/…"></label>${picField('The ad picture')}`,
+        <label class="fld wide">Link to your post (not the group)<input name="link" type="url" required placeholder="https://www.facebook.com/groups/…/posts/…"><small class="mut">Click the time under your name on the post (like "2m"), then copy the address.</small></label>${pickField(pics, current)}`,
+      picture: `${picField('The picture from ChatGPT')}`,
       comment: `<label class="fld wide">Link to the post you commented on<input name="link" type="url" required placeholder="https://www.facebook.com/…"></label>${picField('Screenshot of your comment')}`,
       contact: `<label class="fld wide">Driver's profile link<input name="link" type="url" required placeholder="https://www.facebook.com/…"></label>
         <label class="fld">Name<input type="text" name="personName" maxlength="120"></label>
@@ -82,6 +91,7 @@
       contact: `<b>${esc(e.personName || 'No name')}</b> <a href="${esc(e.link)}" target="_blank" rel="noopener" class="small">profile</a>
         <div class="small">OTR: <b>${yn(e.answers.otr)}</b> · Class A CDL: <b>${yn(e.answers.cdlA)}</b>${e.answers.phone ? ` · ${esc(e.answers.phone)}` : ''} · <span class="otag o-${esc((e.outcome || '').replace(' ', '-'))}">${esc(OUT[e.outcome] || e.outcome || '')}</span>${e.groupName ? ` · from ${esc(e.groupName)}` : ''}</div>`,
       chat: `<b>${esc(e.groupName || 'Group chat')}</b>${e.link ? ` <a href="${esc(e.link)}" target="_blank" rel="noopener" class="small">${esc(short(e.link))}</a>` : ''}`,
+      picture: `<b>Ad picture</b>${e.note ? `<div class="small mut">${esc(e.note)}</div>` : ''}`,
       ppost: `<a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(short(e.link))}</a>`,
       pcomment: `<a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(short(e.link))}</a>`
     }[e.kind] || '';
@@ -93,7 +103,7 @@
         ${(mine || admin) && editable && e.review !== 'ok' ? '<button class="linkbtn" data-act="fbEdit">Edit</button>' : ''}${(mine && editable && e.review !== 'ok') || admin ? '<button class="linkbtn red" data-act="fbDel">Remove</button>' : ''}</div></div></li>`;
   }
 
-  const tabs = (on) => `<nav class="fbtabs" aria-label="Facebook pages">${[['day', S.me.role === 'admin' ? 'Team' : 'My day', S.me.role === 'admin' ? '#/facebook?user=team' : '#/facebook'], ['groups', 'Groups', '#/facebook/groups']].map(([k, l, h]) => `<a href="${h}"${k === on ? ' class="on" aria-current="page"' : ''}>${l}</a>`).join('')}</nav>`;
+  const tabs = (on) => `<nav class="fbtabs" aria-label="Facebook pages">${[['day', S.me.role === 'admin' ? 'Team' : 'My day', S.me.role === 'admin' ? '#/facebook?user=team' : '#/facebook'], ['guide', 'How to', '#/facebook/guide'], ['groups', 'Groups', '#/facebook/groups']].map(([k, l, h]) => `<a href="${h}"${k === on ? ' class="on" aria-current="page"' : ''}>${l}</a>`).join('')}</nav>`;
   let shown = null;
   async function viewFb(params) {
     const admin = S.me.role === 'admin';
@@ -105,8 +115,8 @@
     const mine = r.person.id === S.me.id; const isToday = r.day === r.today;
     const t = r.targets; const c = r.counts;
     const nav = (d) => `#/facebook?user=${st.user}&day=${d}`;
-    const tile = (x) => { const n = c[x.k] || 0, goal = t[x.k] || 0; const pc = goal ? Math.min(100, Math.round((n / goal) * 100)) : 100;
-      return `<a class="fbtile${goal && n >= goal ? ' done' : ''}" href="#fb-${x.k}"><span class="n"><b>${n}</b>${goal ? ` of ${goal}` : ''}</span><span class="l">${x.title}</span><span class="pbar"><i style="width:${pc}%"></i></span></a>`; };
+    const tile = (x, i) => { const n = c[x.k] || 0, goal = t[x.k] || 0; const pc = goal ? Math.min(100, Math.round((n / goal) * 100)) : 100;
+      return `<a class="fbtile${goal && n >= goal ? ' done' : ''}" href="#fb-${x.k}"><span class="tn" aria-hidden="true">${goal && n >= goal ? '✓' : i + 1}</span><span class="n"><b>${n}</b>${goal ? ` of ${goal}` : ''}</span><span class="l">${x.title}</span><span class="pbar"><i style="width:${pc}%"></i></span></a>`; };
     const list = (k) => r.entries.filter((e) => e.kind === k);
     view.innerHTML = header('facebook') + `<main>${tabs(mine || !admin ? 'day' : '')}${App.pageHead(mine ? 'Facebook work' : `Facebook work: ${esc(r.person.name)}`,
       mine ? 'Log each post, comment, driver and group chat as you do it, with the link and the picture. The admin checks them.' : `What ${esc(r.person.name)} logged. Mark each entry OK, or Problem with a note they will see.`,
@@ -115,6 +125,8 @@
         ${r.day < r.today ? `<a class="btn plain sm" href="${nav(addDays(r.day, 1))}" aria-label="Next day">›</a>${`<a class="linkbtn" href="${nav(r.today)}">Today</a>`}` : ''}
         <span class="grow"></span><span class="fbscore${r.score.met ? ' met' : ''}">${r.score.met ? '✓ Daily target met' : `${r.score.done} of ${r.score.target} done`}</span>
         ${admin && r.entries.some((e) => !e.review) ? '<button class="btn plain sm" data-act="fbAllOk">Mark the rest OK</button>' : ''}</div>
+      ${mine && isToday && !guideSeen() ? `<div class="card fbnew"><b>New to the Facebook work?</b> Read <a href="#/facebook/guide">How to</a> first: every step of the day, with ChatGPT prompts, sample posts and how to copy a post's link.</div>` : ''}
+      <h2 class="fbord">Today, in this order</h2>
       <div class="fbtiles">${KINDS.filter((x) => (t[x.k] || 0) > 0 || (c[x.k] || 0) > 0).map(tile).join('')}</div>
       ${mine && isToday ? safeTips(r) : ''}
       ${r.flagged.length ? `<section class="card fbflag"><h3>Problems the admin found on earlier days</h3><ul class="fblist">${r.flagged.map((e) => entryHtml(e, admin, mine, true).replace('<li class="fbe', `<li data-day="${e.day}" class="fbe`)).join('')}</ul>
@@ -122,9 +134,41 @@
       ${KINDS.map((x) => `${x.k === 'ppost' ? `<h2 class="fbgrp">Personal activity<span>Keeps the account looking like a real person's, so Facebook does not limit or ban it</span></h2>` : ''}<section class="card fbsec${x.personal ? ' personal' : ''}" id="fb-${x.k}"><h3><span class="grow">${x.title}</span><span class="cnt">${list(x.k).length}${t[x.k] ? ` of ${t[x.k]}` : ''}</span></h3>
         <p class="hint">${x.what}</p>
         ${list(x.k).length ? `<ul class="fblist">${list(x.k).map((e) => entryHtml(e, admin, mine, isToday)).join('')}</ul>` : '<p class="hint fbnone">Nothing logged yet.</p>'}
-        ${(mine && isToday) || admin ? `<details class="fbadd"${mine && isToday && list(x.k).length < (t[x.k] || 0) && x.k === firstOpen(r) ? ' open' : ''}><summary>Add a ${x.one}</summary>${form(x.k, r.groups)}</details>` : ''}</section>`).join('')}
+        ${(mine && isToday) || admin ? (x.k === 'picture' ? `<div class="picup"><label class="drop multi" tabindex="0"><input type="file" accept="image/*" multiple hidden><span>Choose your ChatGPT pictures (several at once), drop them here, or paste one with Ctrl+V</span></label><p class="err" role="alert"></p></div>`
+          : `<details class="fbadd"${mine && isToday && list(x.k).length < (t[x.k] || 0) && x.k === firstOpen(r) ? ' open' : ''}><summary>Add a ${x.one}</summary>${form(x.k, r.groups, r.pictures || [])}</details>`) : ''}</section>`).join('')}
     </main>`;
     document.querySelectorAll('.fbform').forEach((f) => { wirePicture(f); wireGroupPick(f, r.groups); f.onsubmit = (e) => save(e, f); });
+    wirePictures(document.querySelector('.picup'), r);
+  }
+  // Ad pictures: several at once. Each is made smaller, uploaded, and saved as today's ad picture.
+  function wirePictures(box, r) {
+    if (!box) return;
+    const input = box.querySelector('input[type=file]'); const drop = box.querySelector('.drop'); const msg = drop.querySelector('span'); const err = box.querySelector('.err');
+    let busy = false;
+    const run = async (files) => {
+      files = [...files].filter((f) => /^image\//.test(f.type)); if (!files.length || busy) return;
+      busy = true; drop.classList.add('busy'); err.textContent = ''; let done = 0; const bad = [];
+      for (const f of files) {
+        msg.textContent = `Uploading ${done + 1} of ${files.length}…`;
+        try {
+          const data = await shrink(f); const im = await api('/api/fb/images', { method: 'POST', body: { data } });
+          const body = { kind: 'picture', imageId: im.id };
+          if (S.me.role === 'admin' && r.person.id !== S.me.id) { body.userId = r.person.id; body.day = r.day; }
+          await api('/api/fb/entries', { method: 'POST', body }); done++;
+        } catch (e) { bad.push(`${f.name}: ${e.message}`); }
+      }
+      busy = false;
+      if (bad.length) err.textContent = bad.join(' ');
+      toast(done ? `${plural(done, 'picture')} saved${bad.length ? `, ${bad.length} not` : ''}` : 'No picture saved', !done);
+      if (done) { App.render(); App.refreshGoal(); } else { drop.classList.remove('busy'); msg.textContent = 'Choose your ChatGPT pictures (several at once), drop them here, or paste one with Ctrl+V'; }
+    };
+    input.onchange = () => run(input.files);
+    drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } };
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+    drop.ondragleave = () => drop.classList.remove('over');
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); run(e.dataTransfer.files); };
+    box.onpaste = (e) => run((e.clipboardData || {}).files || []);
+    if (!document.__fbPaste) { document.__fbPaste = true; document.addEventListener('paste', (e) => { const b = document.querySelector('.picup'); if (b && !e.target.closest('form') && b.onpaste) b.onpaste(e); }); }
   }
   function wireGroupPick(f, groups) {
     const n = f.querySelector('[name=groupName]'), l = f.querySelector('[name=groupLink]'); if (!n || !l) return;
@@ -141,6 +185,7 @@
         <li>Join some groups that are not about trucking jobs too, and take part in them.</li>
         <li>Send only a few friend requests and messages to strangers each hour. If Facebook warns you or asks for a check, stop for the day and tell your admin.</li></ul></details>`;
   }
+  const guideSeen = () => { try { return !!localStorage.getItem('fhFbGuide'); } catch (e) { return true; } };
   const firstOpen = (r) => (KINDS.find((x) => (r.counts[x.k] || 0) < (r.targets[x.k] || 0)) || {}).k;
 
   async function save(e, f) {
@@ -163,11 +208,11 @@
     view.innerHTML = header('facebook') + `<main>${tabs('day')}${App.pageHead('Facebook work', "Each recruiter's posts, comments, drivers messaged and group chats against the daily targets. Open a person to check their links and pictures.", '<a class="btn plain" href="#/settings">Daily targets</a>')}
       <div class="fbday"><a class="btn plain sm" href="${nav(addDays(r.day, -1))}" aria-label="Day before">‹</a><b>${esc(dateText(r.day, { weekday: 'long', month: 'long', day: 'numeric' }))}${r.day === r.today ? ' (today)' : ''}</b>
         ${r.day < r.today ? `<a class="btn plain sm" href="${nav(addDays(r.day, 1))}" aria-label="Next day">›</a><a class="linkbtn" href="${nav(r.today)}">Today</a>` : ''}</div>
-      <div class="sheet"><table class="fbteam"><thead><tr><th>Recruiter</th><th class="n">Posts</th><th class="n">Comments</th><th class="n">Drivers messaged</th><th class="n">Group chats</th><th class="n">Own posts</th><th class="n">Other comments</th><th>Done</th><th class="n">To check</th><th class="n">Problems</th><th class="n">Streak</th><th>Last entry</th></tr></thead>
-        <tbody>${r.people.map((p) => `<tr data-u="${p.id}"><th scope="row"><a href="#/facebook?user=${p.id}&day=${r.day}">${esc(p.name)}</a></th>${['post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'].map((k) => cell(p, k)).join('')}
+      <div class="sheet"><table class="fbteam"><thead><tr><th>Recruiter</th><th class="n">Pictures</th><th class="n">Posts</th><th class="n">Comments</th><th class="n">Drivers messaged</th><th class="n">Group chats</th><th class="n">Own posts</th><th class="n">Other comments</th><th>Done</th><th class="n">To check</th><th class="n">Problems</th><th class="n">Streak</th><th>Last entry</th></tr></thead>
+        <tbody>${r.people.map((p) => `<tr data-u="${p.id}"><th scope="row"><a href="#/facebook?user=${p.id}&day=${r.day}">${esc(p.name)}</a></th>${['picture', 'post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'].map((k) => cell(p, k)).join('')}
           <td><div class="fbdone"><span class="pbar"><i style="width:${p.score.target ? Math.round((p.score.done / p.score.target) * 100) : 0}%"></i></span><b>${p.score.target ? Math.round((p.score.done / p.score.target) * 100) : 0}%</b></div></td>
           <td class="n">${p.counts.unreviewed || '<span class="none">0</span>'}</td><td class="n${p.counts.problems ? ' bad' : ''}">${p.counts.problems || '<span class="none">0</span>'}</td><td class="n" title="Best: ${p.best} days">${p.streak ? `🔥 ${p.streak}` : '<span class="none">0</span>'}</td>
-          <td class="small">${p.lastAt ? esc(new Date(p.lastAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : '<span class="none">Nothing yet</span>'}</td></tr>`).join('') || '<tr><td colspan="12" class="hint">No recruiters yet.</td></tr>'}</tbody></table></div>
+          <td class="small">${p.lastAt ? esc(new Date(p.lastAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : '<span class="none">Nothing yet</span>'}</td></tr>`).join('') || '<tr><td colspan="13" class="hint">No recruiters yet.</td></tr>'}</tbody></table></div>
       <section class="card" style="margin-top:16px"><h3><span class="grow">Groups the team posts in</span><a class="btn plain sm" href="#/facebook/groups">Open the group list</a></h3>
         ${g.groups.filter((x) => x.posts).length ? `<div class="scroll"><table class="mini"><thead><tr><th>Group</th><th class="n">Posts</th><th>Last post</th><th class="n">Team members in it</th></tr></thead><tbody>${g.groups.filter((x) => x.posts).sort((a, b) => (b.lastDay || '').localeCompare(a.lastDay || '')).slice(0, 15).map((x) => `<tr><td><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.name)}</a></td><td class="n">${x.posts}</td><td>${esc(dateText(x.lastDay))} by ${esc(x.lastBy)}</td><td class="n">${x.team.filter((m) => m.status === 'joined').length}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="hint">No posts logged yet.</p>'}</section></main>`;
@@ -198,13 +243,13 @@
   });
   on('fbEdit', (b) => {
     const e = entryOf(b);
-    dialog(`<div class="dform"><h2>Edit the ${KINDS.find((x) => x.k === e.kind).one}</h2>${e.review === 'problem' ? `<p class="rvnote"><b>Admin:</b> ${esc(e.reviewNote || '')}</p>` : ''}${form(e.kind, shown.groups)}
+    dialog(`<div class="dform"><h2>Edit the ${KINDS.find((x) => x.k === e.kind).one}</h2>${e.review === 'problem' ? `<p class="rvnote"><b>Admin:</b> ${esc(e.reviewNote || '')}</p>` : ''}${form(e.kind, shown.groups, shown.pictures || [], e.imageId)}
       <div class="drow"><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></div>`, (d) => {
       const f = d.querySelector('.fbform'); wirePicture(f);
       const set = (n, v) => { const el = f.querySelector(`[name=${n}]`); if (el && v !== undefined && v !== null) el.value = v; };
       set('link', e.link); set('groupName', e.groupName); set('groupLink', e.groupLink); set('personName', e.personName); set('note', e.note); set('outcome', e.outcome);
-      set('otr', e.answers.otr || ''); set('cdlA', e.answers.cdlA || ''); set('phone', e.answers.phone); set('imageId', e.imageId || '');
-      if (e.imageId) f.querySelector('.drop span').textContent = 'The saved picture stays. Drop or paste a new one to change it.';
+      set('otr', e.answers.otr || ''); set('cdlA', e.answers.cdlA || ''); set('phone', e.answers.phone); if (e.kind !== 'post') set('imageId', e.imageId || '');
+      if (e.imageId && f.querySelector('.drop span')) f.querySelector('.drop span').textContent = 'The saved picture stays. Drop or paste a new one to change it.';
       f.querySelector('button.primary').textContent = 'Save changes';
       f.onsubmit = async (ev) => { ev.preventDefault(); const body = Object.fromEntries(new FormData(f)); body.imageId = body.imageId ? +body.imageId : e.imageId;
         try { await api('/api/fb/entries/' + e.id, { method: 'PATCH', body }); d.close(); toast('Saved'); App.render(); } catch (err) { f.querySelector('.err').textContent = err.message; } };
@@ -266,6 +311,7 @@
     dialog(`<div class="dform"><h2>${esc(g.name)}</h2>${groupForm(g)}</div>`, (d) => { const f = d.querySelector('#grpForm');
       f.onsubmit = async (e) => { e.preventDefault(); try { await api('/api/fb/groups/' + g.id, { method: 'PATCH', body: Object.fromEntries(new FormData(f)) }); d.close(); toast('Saved'); viewGroups(); } catch (err) { f.querySelector('.err').textContent = err.message; } }; }); });
 
+  App.fbTabs = tabs;
   App.route(/^#\/facebook$/, viewFb);
   App.route(/^#\/facebook\/groups$/, viewGroups);
 })();

@@ -7,7 +7,7 @@ const hours = require('./api-hours');
 const { q } = db;
 const { wrap, needUser } = lib;
 
-const KINDS = ['post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'];
+const KINDS = ['picture', 'post', 'comment', 'contact', 'chat', 'ppost', 'pcomment'];
 const LOOKBACK = 400; // days of history used for streaks and badges
 
 

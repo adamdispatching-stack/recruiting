@@ -385,7 +385,7 @@ const DEFAULTS = {
   // A working day counts as worked with at least minMinutes of active time; starting more than grace minutes late is a late start.
   // Facebook daily targets for each recruiter (0 = not asked for)
   // ppost / pcomment: personal activity (own profile, posts that are not about the job), so Facebook does not limit the account
-  fbTargets: { post: 5, comment: 15, contact: 20, chat: 2, ppost: 1, pcomment: 5 },
+  fbTargets: { picture: 5, post: 5, comment: 15, contact: 20, chat: 2, ppost: 1, pcomment: 5 },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },

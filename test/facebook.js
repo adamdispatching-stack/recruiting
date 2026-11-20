@@ -20,16 +20,21 @@ const png = (n) => { const zlib = require('zlib'); const crc = (b) => { let c = 
   return 'data:image/png;base64,' + Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]).toString('base64'); };
 (async () => {
   const A = session(); await A('/api/login', { method: 'POST', body: { email, password: pw } });
-  await A('/api/settings', { method: 'PUT', body: { fbTargets: { post: 2, comment: 3, contact: 2, chat: 1, ppost: 0, pcomment: 0 } } });
+  await A('/api/settings', { method: 'PUT', body: { fbTargets: { picture: 0, post: 2, comment: 3, contact: 2, chat: 1, ppost: 0, pcomment: 0 } } });
   const id = (await A('/api/users', { method: 'POST', body: { name: `Fay Facebook ${u}`, email: `fay${u}@example.com`, password: 'fay-pass-12345' } })).body.id;
   const R = session(); await R('/api/login', { method: 'POST', body: { email: `fay${u}@example.com`, password: 'fay-pass-12345' } });
   const pic = async (n) => (await R('/api/fb/images', { method: 'POST', body: { data: png(+u + n) } })).body.id;
   const add = (b) => R('/api/fb/entries', { method: 'POST', body: b });
+  // ad pictures are uploaded first, then each group post uses one of them
+  const adPic = async (n) => { const im = await pic(n); const e = await add({ kind: 'picture', imageId: im }); return e.status === 200 ? im : null; };
+  const loose = await pic(90);
+  ok((await add({ kind: 'post', groupName: 'CDL Drivers USA', link: `https://www.facebook.com/groups/111/posts/${u}0/`, imageId: loose })).body.error.includes('Ad pictures'), 'a post must use one of the ad pictures uploaded first');
+  ok((await add({ kind: 'post', groupName: 'CDL Drivers USA', groupLink: 'https://www.facebook.com/groups/111', link: 'https://www.facebook.com/groups/111/', imageId: loose })).body.error.includes('link to the group'), 'the group link instead of the post link is refused');
   let r = await add({ kind: 'post', groupName: 'CDL Drivers USA', link: `https://www.facebook.com/groups/111/posts/${u}1/` });
   ok(r.status === 400 && /picture/.test(r.body.error), 'a post needs its picture');
   r = await add({ kind: 'post', groupName: 'CDL Drivers USA', link: 'https://example.com/x', imageId: await pic(1) });
   ok(r.status === 400 && /Facebook/.test(r.body.error), 'a post link must be a Facebook link');
-  const p1 = await pic(2);
+  const p1 = await adPic(2); ok(!!p1, 'an ad picture uploaded');
   r = await add({ kind: 'post', groupName: 'CDL Drivers USA', groupLink: 'https://www.facebook.com/groups/111', link: `https://www.facebook.com/groups/111/posts/${u}1/?mibextid=abc`, imageId: p1 });
   ok(r.status === 200, 'post saved with its group, link and picture');
   const e1 = r.body.id;
@@ -39,7 +44,7 @@ const png = (n) => { const zlib = require('zlib'); const crc = (b) => { let c = 
   ok(r.status === 409 && /already used/.test(r.body.error), 'the same picture twice is caught');
   r = await add({ kind: 'post', groupName: 'OTR Drivers', link: `https://www.facebook.com/groups/222/posts/${u}2`, imageId: p1 });
   ok(r.status === 400, 'a picture already on an entry cannot be used again');
-  ok((await add({ kind: 'post', groupName: 'OTR Drivers', link: `https://www.facebook.com/groups/222/posts/${u}2`, imageId: await pic(4) })).status === 200, 'second post');
+  ok((await add({ kind: 'post', groupName: 'OTR Drivers', link: `https://www.facebook.com/groups/222/posts/${u}2`, imageId: await adPic(4) })).status === 200, 'second post, with another ad picture');
   for (let i = 0; i < 2; i++) ok((await add({ kind: 'comment', link: `https://www.facebook.com/${u}c${i}/posts/9${i}`, imageId: await pic(10 + i) })).status === 200, `comment ${i + 1} with its screenshot`);
   ok((await add({ kind: 'comment', link: `https://www.facebook.com/${u}c9/posts/99` })).status === 400, 'a comment needs a screenshot');
   r = await add({ kind: 'contact', link: `https://www.facebook.com/profile.php?id=${u}77&ref=xyz`, personName: 'Tom Trucker', otr: 'yes', cdlA: 'yes', outcome: 'interested', phone: '(267) 555-0' + u.slice(-3) });
@@ -57,7 +62,7 @@ const png = (n) => { const zlib = require('zlib'); const crc = (b) => { let c = 
   ok((await R(`/api/fb/entries/${c1}/lead`, { method: 'POST', body: {} })).body.id === r.body.id, 'asking twice gives the same lead');
   // admin review
   const T = (await A('/api/fb/team')).body.people.find((p) => p.id === id);
-  ok(T && T.counts.post === 2 && T.counts.unreviewed === 6, 'admin sees her on the team day, 6 to check');
+  ok(T && T.counts.post === 2 && T.counts.picture === 2 && T.counts.unreviewed === 8, 'admin sees her on the team day, 8 to check (with her 2 ad pictures)');
   ok((await R('/api/fb/entries/' + e1, { method: 'PATCH', body: { review: 'ok' } })).status === 403, 'a recruiter cannot review');
   ok((await A('/api/fb/entries/' + e1, { method: 'PATCH', body: { review: 'problem' } })).status === 400, 'a problem needs a note');
   ok((await A('/api/fb/entries/' + e1, { method: 'PATCH', body: { review: 'problem', reviewNote: 'The link does not open' } })).status === 200, 'admin flags a problem');
@@ -89,7 +94,7 @@ const png = (n) => { const zlib = require('zlib'); const crc = (b) => { let c = 
   ok((await R(`/api/fb/groups/${gid}`, { method: 'PATCH', body: { members: '46,000' } })).status === 200 && (await R('/api/fb/groups')).body.groups.find((g) => g.id === gid).members === 46000, 'anyone updates the member count');
   ok((await R(`/api/fb/groups/${gid}`, { method: 'DELETE' })).status === 403, 'only an admin removes a group');
   // a post with a group link puts the group on the list, with the poster in it
-  await add({ kind: 'post', groupName: 'Brand New Group', groupLink: `https://www.facebook.com/groups/bng${u}`, link: `https://www.facebook.com/groups/bng${u}/posts/1`, imageId: await pic(40) });
+  await add({ kind: 'post', groupName: 'Brand New Group', groupLink: `https://www.facebook.com/groups/bng${u}`, link: `https://www.facebook.com/groups/bng${u}/posts/1`, imageId: await adPic(40) });
   L = (await R('/api/fb/groups')).body.groups.find((g) => g.name === 'Brand New Group');
   ok(L && L.mine === 'joined' && L.posts === 1, 'posting in a new group puts it on the list');
   const day = (await R('/api/fb/day')).body;

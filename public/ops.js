@@ -73,8 +73,8 @@
       </main>`;
   }
   // ---------- today's challenge: every Facebook target, the streak, badges and the team ----------
-  const KT = { post: 'Group posts', comment: 'Comments on ads', contact: 'Drivers messaged', chat: 'Group chats joined', ppost: 'Personal posts', pcomment: 'Other comments' };
-  const KI = { post: '📣', comment: '💬', contact: '🤝', chat: '👥', ppost: '🙂', pcomment: '🗨️' };
+  const KT = { picture: 'Ad pictures (ChatGPT)', post: 'Group posts', comment: 'Comments on ads', contact: 'Drivers messaged', chat: 'Group chats joined', ppost: 'Personal posts', pcomment: 'Other comments' };
+  const KI = { picture: '🎨', post: '📣', comment: '💬', contact: '🤝', chat: '👥', ppost: '🙂', pcomment: '🗨️' };
   // Badges on My day: the groups, the latest ones, and the closest next level
   function badgeStrip(bd) {
     if (!bd) return '';

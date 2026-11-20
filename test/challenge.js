@@ -18,7 +18,7 @@ const u = Date.now().toString().slice(-5);
   await db.migrate();
   const A = session(); await A('/api/login', { method: 'POST', body: { email, password: pw } });
   const before = (await A('/api/settings')).body.fbTargets;
-  await A('/api/settings', { method: 'PUT', body: { fbTargets: { post: 0, comment: 0, contact: 2, chat: 1, ppost: 0, pcomment: 0 } } });
+  await A('/api/settings', { method: 'PUT', body: { fbTargets: { picture: 0, post: 0, comment: 0, contact: 2, chat: 1, ppost: 0, pcomment: 0 } } });
   const em = `gil${u}@example.com`;
   const id = (await A('/api/users', { method: 'POST', body: { name: `Gil Goal${u}`, email: em, password: 'goal-pass-1234' } })).body.id;
   await A(`/api/team/${id}/hours`, { method: 'PUT', body: { week: Array.from({ length: 7 }, () => ({ s: '00:00', e: '23:59' })) } });
@@ -69,7 +69,7 @@ const u = Date.now().toString().slice(-5);
   ok((await A('/api/beat', { method: 'POST', body: { active: true, visible: true } })).body.goal === null, 'admins have no ring');
 
   // targets off: no challenge
-  await A('/api/settings', { method: 'PUT', body: { fbTargets: { post: 0, comment: 0, contact: 0, chat: 0, ppost: 0, pcomment: 0 } } });
+  await A('/api/settings', { method: 'PUT', body: { fbTargets: { picture: 0, post: 0, comment: 0, contact: 0, chat: 0, ppost: 0, pcomment: 0 } } });
   ok((await R('/api/challenge')).body.on === false, 'no targets set: no challenge');
   await A('/api/settings', { method: 'PUT', body: { fbTargets: before } });
   await db.pool.end();
