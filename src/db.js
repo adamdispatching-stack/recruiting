@@ -203,6 +203,13 @@ async function migrate() {
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS experience TEXT;        -- what they drove: freight, routes, past carriers
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS truck_year INT;         -- owner-operators: their own truck
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS truck_model TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS weeks_out NUMERIC(3,1);  -- how long they will stay out before going home
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS days_home INT;           -- and how many days home after that
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS cdl_expires DATE;        -- active drivers: document expiry dates only, never license numbers
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS med_expires DATE;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS out_since DATE;          -- when the current stretch on the road began
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS left_on DATE;            -- a hired driver who left: no longer active
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS left_reason TEXT;
   `);
   // One-time clean-up of rows from before this version. It must never run again: later, a lead added by hand
   // (say from Facebook) can also pick up an Indeed account, and must keep its own source.

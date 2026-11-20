@@ -69,6 +69,7 @@ app.post('/api/me/password', needUser, wrap(async (req, res) => {
 require('./api-team')(app);
 require('./api-hours')(app);
 require('./api-companies')(app);
+require('./api-active')(app);
 require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-admin')(app);

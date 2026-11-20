@@ -71,7 +71,7 @@ async function range(period) {
   return { period: key, today: r.today, fromDate: r.a, toDate: r.b, from: ts.f, to: ts.t, days: ts.n, tz };
 }
 const today = async () => (await q(`SELECT (now() AT TIME ZONE $1)::date::text d`, [db.settings.tz])).rows[0].d;
-const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !isNaN(new Date(v + 'T00:00:00Z'));
+const isDate = (v) => { const s = String(v || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false; const d = new Date(s + 'T00:00:00Z'); return !isNaN(d) && d.toISOString().slice(0, 10) === s; }; // Feb 30 is not a date
 const niceDate = (v) => new Date(v + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const validTz = (v) => { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return true; } catch (e) { return false; } };
 

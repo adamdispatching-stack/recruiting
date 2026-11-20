@@ -131,6 +131,8 @@
       <div class="grid2">
         <label class="fld">Years driving with a CDL-A<input name="expYears" type="number" min="0" max="60" step="0.5" placeholder="e.g. 3"></label>
         <label class="fld">What they drove<input name="experience" type="text" maxlength="1000" placeholder="Dry van OTR, reefer, Amazon loads, past carriers"></label>
+        <label class="fld">Weeks out before going home<input name="weeksOut" type="number" min="0.5" max="26" step="0.5" placeholder="e.g. 3"></label>
+        <label class="fld">Then days at home<input name="daysHome" type="number" min="0" max="60" step="1" placeholder="e.g. 4"></label>
       </div>
       <div id="ooTruck" hidden><h3 class="fsub">Their truck</h3><div class="grid2">
         <label class="fld">Year<input name="truckYear" type="number" min="1980" max="${yr + 1}" placeholder="${yr - 4}"></label>
@@ -191,6 +193,19 @@
     return [...groups.entries()].sort(([a], [b]) => (a === coId ? -1 : b === coId ? 1 : !a ? 1 : !b ? -1 : 0))
       .map(([k, list]) => [k ? (App.company(k) || { name: 'Company' }).name + (k === coId ? " (this driver's company)" : '') : 'No company', list]);
   }
+  // A hired driver: documents and home time (edited in the same window as on the Active drivers page)
+  function activeCard(d) {
+    const long = (v) => (v ? esc(dateText(v, { year: 'numeric' })) : '<span class="none">Not entered</span>');
+    const t = today(); const soon = (v) => v && v <= addDays(t, 30);
+    const due = d.outSince && d.weeksOut ? addDays(d.outSince, Math.round(d.weeksOut * 7)) : null;
+    return `<section class="card"><h3>${d.leftOn ? 'Left the company' : 'Active driver'}<span class="grow"></span><button class="linkbtn" data-act="activeHere">Edit</button></h3>
+      ${d.leftOn ? `<p class="hint" style="margin:0 0 8px">Left ${long(d.leftOn)}${d.leftReason ? `: ${esc(d.leftReason)}` : ''}. <button class="linkbtn" data-act="activeAgain">Active again</button></p>` : ''}
+      <dl class="facts"><dt>CDL expires</dt><dd class="${soon(d.cdlExpires) ? 'warnv' : ''}">${long(d.cdlExpires)}</dd><dt>Medical card expires</dt><dd class="${soon(d.medExpires) ? 'warnv' : ''}">${long(d.medExpires)}</dd>
+        <dt>Working period</dt><dd>${esc(App.periodText(d)) || '<span class="none">Not entered</span>'}</dd>
+        <dt>On the road</dt><dd>${d.outSince ? `Since ${esc(dateText(d.outSince))}${due ? `, due home ${esc(dateText(due, { weekday: 'short' }))}` : ''}` : '<span class="none">Not entered</span>'}</dd></dl></section>`;
+  }
+  on('activeHere', () => App.activeDialog(cur.driver, again));
+  on('activeAgain', () => patch({ leftOn: null }, 'Back on the active list'));
   const expText = (d) => [d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'year')} with a CDL-A` : '', d.mode === 'Owner-operators' && (d.truckYear || d.truckModel) ? `own truck: ${[d.truckYear, d.truckModel].filter(Boolean).join(' ')}` : ''].filter(Boolean).join(', ');
   function onbCard(d, ob) {
     const done = ob.items.filter((i) => i.done).length, total = ob.items.length, left = total - done;
@@ -261,6 +276,8 @@
         <label class="fld">Driver type<select name="mode" data-ch="editMode"><option value="">Not set</option>${[['Company drivers', 'Company driver'], ['Owner-operators', 'Owner operator']].map(([m, l]) => `<option value="${m}" ${m === d.mode ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="fld">Years with a CDL-A<input name="expYears" type="number" min="0" max="60" step="0.5" value="${d.expYears ?? ''}" style="min-width:90px;width:110px"></label>
         <label class="fld">What they drove<input name="experience" type="text" maxlength="1000" value="${esc(d.experience || '')}"></label>
+        <label class="fld">Weeks out<input name="weeksOut" type="number" min="0.5" max="26" step="0.5" value="${d.weeksOut ?? ''}" style="min-width:90px;width:100px"></label>
+        <label class="fld">Days home<input name="daysHome" type="number" min="0" max="60" value="${d.daysHome ?? ''}" style="min-width:90px;width:100px"></label>
         <span class="ootruck" ${d.mode === 'Owner-operators' ? '' : 'hidden'}><label class="fld">Truck year<input name="truckYear" type="number" min="1980" max="${new Date().getFullYear() + 1}" value="${d.truckYear ?? ''}" style="min-width:90px;width:100px"></label>
           <label class="fld">Truck make and model<input name="truckModel" type="text" maxlength="80" value="${esc(d.truckModel || '')}"></label></span>
         <label class="fld">Source<select name="source">${d.source && S.me.sources.includes(d.source) ? '' : `<option value="">${esc(d.source || 'Not set')}</option>`}${S.me.sources.map((s) => `<option ${s === d.source ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
@@ -285,10 +302,11 @@
           ${d.status !== 'Onboarding' ? onb : ''}
         </div>
         <div>
+          ${d.status === 'Hired' ? activeCard(d) : ''}
           ${d.aiSummary ? `<section class="card"><div class="ai"><b>AI summary</b>${esc(d.aiSummary)}</div></section>` : ''}
           <section class="card"><h3>Profile</h3><dl class="facts">
             ${[['Status', `${badge(d.status)}${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Company', App.coTag(d.companyId)], ['Driver type', esc(one(d.mode))],
-              ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
+              ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Working period', esc(App.periodText(d))], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
               .concat(answerKeys.map((k) => [label(k), esc(a[k])])).filter(([, v]) => v).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}
           </dl></section>
           <section class="card"><h3>History</h3>${r.events.length ? `<ol class="tl">${r.events.map((e) => `<li><time>${esc(when(e.t))}${e.who ? `, ${esc(e.who)}` : ''}</time>${esc(e.text)}</li>`).join('')}</ol>` : '<p class="hint">No activity yet.</p>'}</section>
@@ -304,7 +322,7 @@
       e.preventDefault(); const f = new FormData(e.target); const split = (v) => String(v || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
       const oo = f.get('mode') === 'Owner-operators';
       patch({ name: f.get('name'), phones: split(f.get('phones')), emails: split(f.get('emails')), location: f.get('location'), zip: f.get('zip'), mode: f.get('mode'), source: f.get('source'), sourceDetail: f.get('sourceDetail'),
-        expYears: f.get('expYears'), experience: f.get('experience'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
+        expYears: f.get('expYears'), experience: f.get('experience'), weeksOut: f.get('weeksOut'), daysHome: f.get('daysHome'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
     };
     const sf = $('#stepForm'); if (sf) sf.onsubmit = async (e) => { e.preventDefault(); const v = sf.label.value.trim(); if (!v) return; try { await api(`/api/drivers/${d.id}/checklist`, { method: 'POST', body: { label: v } }); toast('Step added'); again(); } catch (err) { fail(err); } };
   }

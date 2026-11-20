@@ -120,12 +120,13 @@ window.App = (() => {
     export: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
     out: '<path d="M10 4H5v16h5"/><path d="M14 8l4 4-4 4M18 12H9"/>',
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    active: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M3.8 10.5c2.6-.9 5.3-1.2 8.2-1.2s5.6.3 8.2 1.2M10.4 13.6 7 19.6M13.6 13.6l3.4 6"/>',
     companies: '<path d="M4 21V5.5L12 3v18M12 8.5l8 2.5v10"/><path d="M3 21h18M7.5 8h1.5M7.5 12h1.5M7.5 16h1.5M15.5 13h1.5M15.5 17h1.5"/>'
   };
   const icon = (k) => `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
   function header(active, extra = '') {
     const admin = S.me.role === 'admin';
-    const items = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
+    const items = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
     const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
         <div class="brand"><a href="#/">Recruiting</a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>

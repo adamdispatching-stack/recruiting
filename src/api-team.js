@@ -147,7 +147,11 @@ module.exports = (app) => {
         (SELECT count(*) FROM drivers d WHERE d.status = 'Onboarding' AND EXISTS (SELECT 1 FROM checklist c WHERE c.driver_id = d.id) AND NOT EXISTS (SELECT 1 FROM checklist c WHERE c.driver_id = d.id AND NOT c.done))::int ready,
         (SELECT count(*) FROM drivers WHERE status = 'Onboarding')::int onboarding,
         (SELECT count(*) FROM trucks WHERE driver_id IS NULL AND driver_name IS NULL AND NOT out_of_service)::int empty_trucks,
-        (SELECT count(*) FROM trucks)::int trucks
+        (SELECT count(*) FROM trucks)::int trucks,
+        (SELECT count(*) FROM drivers WHERE status = 'Hired' AND left_on IS NULL)::int active_drivers,
+        (SELECT count(*) FROM drivers WHERE status = 'Hired' AND left_on IS NULL AND (cdl_expires <= t.today + 30 OR med_expires <= t.today + 30))::int expiring,
+        (SELECT count(*) FROM drivers WHERE status = 'Hired' AND left_on IS NULL AND (cdl_expires IS NULL OR med_expires IS NULL))::int missing_docs,
+        (SELECT count(*) FROM drivers WHERE status = 'Hired' AND left_on IS NULL AND out_since IS NOT NULL AND weeks_out IS NOT NULL AND out_since + round(weeks_out * 7)::int <= t.today + 3)::int due_home
       FROM (SELECT (now() AT TIME ZONE $1)::date today) t`, [tz, db.ACTIVE, db.COLD_DAYS])).rows[0];
     const pipe = await q(`SELECT status, count(*)::int n FROM drivers GROUP BY 1`);
     const week = await range('7d'); const month = await range('30d');
@@ -163,7 +167,8 @@ module.exports = (app) => {
       WHERE status = ANY($1::text[]) AND EXISTS (SELECT 1 FROM status_log s WHERE s.driver_id = d.id AND s.at >= $2 AND s.to_status = d.status) GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 8`, [db.LOST.concat('Stalled'), month.from]);
     const feed = await q(`SELECT a.*, u.name user_name FROM activity a JOIN users u ON u.id = a.user_id WHERE a.type NOT IN ('open', 'logout') ORDER BY a.at DESC LIMIT 40`);
     res.json({ role: 'admin', now, today: day.today, tz,
-      attention: { due: att.due, unassigned: att.unassigned, cold: att.cold, arriving: att.arriving, late: att.late, stuck: att.stuck, ready: att.ready, onboarding: att.onboarding, emptyTrucks: att.empty_trucks, trucks: att.trucks },
+      attention: { due: att.due, unassigned: att.unassigned, cold: att.cold, arriving: att.arriving, late: att.late, stuck: att.stuck, ready: att.ready, onboarding: att.onboarding, emptyTrucks: att.empty_trucks, trucks: att.trucks,
+        activeDrivers: att.active_drivers, expiring: att.expiring, missingDocs: att.missing_docs, dueHome: att.due_home },
       pipeline: pipe.rows, week: { newLeads: moved.new_leads, forward: moved.forward }, month: { onboarded: moved.onboarded, hired: moved.hired },
       team: await teamStats(day), sources: sources.rows, lost: lost.rows, feed: feed.rows.map(feedRow) });
   }));

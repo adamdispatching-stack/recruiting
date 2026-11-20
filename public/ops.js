@@ -26,6 +26,10 @@
           ${attn(a.stuck, 'onboarding with no step done for 3 days', 'onboardings with no step done for 3 days', '#/onboarding')}
           ${attn(a.ready, 'driver with every step done, ready to mark hired', 'drivers with every step done, ready to mark hired', '#/onboarding')}
           ${attn(a.arriving, 'driver arriving in the next 7 days', 'drivers arriving in the next 7 days', '#/onboarding', false)}</div>
+        <div><h4>Active drivers</h4>
+          ${attn(a.expiring, 'driver with a CDL or medical card expired or expiring in 30 days', 'drivers with a CDL or medical card expired or expiring in 30 days', '#/active')}
+          ${attn(a.dueHome, 'driver due home in 3 days or overdue', 'drivers due home in 3 days or overdue', '#/active')}
+          ${attn(a.missingDocs, 'driver without CDL or medical card dates', 'drivers without CDL or medical card dates', '#/active', false)}</div>
         <div><h4>Trucks</h4>
           ${attn(a.emptyTrucks, 'empty truck', 'empty trucks', '#/trucks', false)}
           <span class="aline plain"><b>${a.onboarding}</b><span>${a.onboarding === 1 ? 'driver' : 'drivers'} in onboarding</span></span>

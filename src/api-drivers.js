@@ -13,6 +13,8 @@ function toClient(d) {
     mode: d.mode, source: d.source, sourceDetail: d.source_detail, job: d.job, account: d.account, answers: d.answers, aiSummary: d.ai_summary, redFlags: d.red_flags, transcript: d.transcript,
     conversationUrl: d.conversation_url, lastMessage: d.last_message, profileSummary: d.profile_summary, lastActive: d.last_active, invitedAt: d.invited_at,
     lastContactAt: d.last_contact_at, followUp: d.follow_up || null, tags: d.tags, ownerId: d.owner_id, createdBy: d.created_by, lostReason: d.lost_reason, leadAt: d.lead_at,
+    weeksOut: d.weeks_out === null || d.weeks_out === undefined ? null : +d.weeks_out, daysHome: d.days_home ?? null, cdlExpires: d.cdl_expires || null, medExpires: d.med_expires || null,
+    outSince: d.out_since || null, leftOn: d.left_on || null, leftReason: d.left_reason || null,
     expYears: d.exp_years === null || d.exp_years === undefined ? null : +d.exp_years, experience: d.experience, truckYear: d.truck_year, truckModel: d.truck_model, companyId: d.company_id,
     createdAt: d.created_at, updatedAt: d.updated_at, noteCount: d.note_count !== undefined ? +d.note_count : undefined, lastNote: d.last_note };
 }
@@ -20,6 +22,7 @@ const cleanPhones = (list) => [...new Set((list || []).map(db.digits).filter(Boo
 const cleanEmails = (list) => [...new Set((list || []).map((e) => String(e || '').trim().toLowerCase()).filter((e) => /^\S+@\S+\.\S+$/.test(e)))];
 // Experience and an owner-operator's own truck, from the add-lead form or the details form. Returns { set, error }.
 const MODES = ['Company drivers', 'Owner-operators'];
+const fullDate = (v) => new Date(v + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 function profileFields(b) {
   const set = {};
   if (b.expYears !== undefined) {
@@ -34,6 +37,21 @@ function profileFields(b) {
     else { const n = +s; if (!Number.isInteger(n) || n < 1980 || n > max) return { error: `Truck year: from 1980 to ${max}` }; set.truck_year = n; }
   }
   if (b.truckModel !== undefined) set.truck_model = String(b.truckModel || '').trim().slice(0, 80) || null;
+  // working period: weeks on the road, then days at home
+  if (b.weeksOut !== undefined) {
+    const s = String(b.weeksOut ?? '').trim();
+    if (!s) set.weeks_out = null; else { const n = Math.round(Number(s) * 2) / 2; if (!(n >= 0.5 && n <= 26)) return { error: 'Weeks out: from 0.5 to 26' }; set.weeks_out = n; }
+  }
+  if (b.daysHome !== undefined) {
+    const s = String(b.daysHome ?? '').trim();
+    if (!s) set.days_home = null; else { const n = +s; if (!Number.isInteger(n) || n < 0 || n > 60) return { error: 'Days home: a whole number from 0 to 60' }; set.days_home = n; }
+  }
+  for (const [k, col, label] of [['cdlExpires', 'cdl_expires', 'CDL expiry'], ['medExpires', 'med_expires', 'Medical card expiry'], ['outSince', 'out_since', 'Out since']]) {
+    if (b[k] === undefined) continue;
+    const v = String(b[k] || '').trim();
+    if (v && !isDate(v)) return { error: `${label}: not a valid date` };
+    set[col] = v || null;
+  }
   return { set };
 }
 async function companyOf(id) { return id ? (await q(`SELECT id, name FROM companies WHERE id = $1`, [+id || 0])).rows[0] || null : null; }
@@ -118,10 +136,10 @@ module.exports = (app) => {
     const co = b.companyId ? await companyOf(b.companyId) : null;
     if (b.companyId && !co) return res.status(400).json({ error: 'That company is not in the list' });
     const r = await q(`INSERT INTO drivers (name, name_key, phones, emails, location, zip, mode, source, source_detail, status, status_locked, status_at, owner_id, created_by, assigned_at, follow_up, lead_at,
-        exp_years, experience, truck_year, truck_model, company_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$13,$14,now(),$10::int,$11,CASE WHEN $10::int IS NULL THEN NULL ELSE now() END,$12::date,now(),$15,$16,$17,$18,$19) RETURNING *`,
+        exp_years, experience, truck_year, truck_model, company_id, weeks_out, days_home)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$13,$14,now(),$10::int,$11,CASE WHEN $10::int IS NULL THEN NULL ELSE now() END,$12::date,now(),$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
       [name, db.keyOf(name), phones, emails, String(b.location || '').trim() || null, String(b.zip || '').trim().slice(0, 10) || null, mode, source, String(b.sourceDetail || '').trim().slice(0, 200) || null, ownerId, req.user.id, b.followUp || null, status,
-        db.LOCKING.includes(status), pf.set.exp_years ?? null, pf.set.experience ?? null, pf.set.truck_year ?? null, pf.set.truck_model ?? null, co ? co.id : null]); // the starting status is a first guess: if the same person also chats on Indeed, the extension may move them forward
+        db.LOCKING.includes(status), pf.set.exp_years ?? null, pf.set.experience ?? null, pf.set.truck_year ?? null, pf.set.truck_model ?? null, co ? co.id : null, pf.set.weeks_out ?? null, pf.set.days_home ?? null]); // the starting status is a first guess: if the same person also chats on Indeed, the extension may move them forward
     const d = r.rows[0];
     await db.statusChanged(db.pool, { id: d.id, status: null }, status, { userId: req.user.id });
     await record(req, 'lead_add', d, `Added the lead (${source}${b.sourceDetail ? ': ' + String(b.sourceDetail).trim().slice(0, 80) : ''})`);
@@ -164,7 +182,23 @@ module.exports = (app) => {
     if (b.mode !== undefined) { const v = MODES.includes(b.mode) ? b.mode : null; if (v !== cur.mode) { set.mode = v; log.push(['edit', `Driver type: ${v ? v.replace(/s$/, '') : 'not set'}`]); } }
     {
       const pf = profileFields(b); if (pf.error) return res.status(400).json({ error: pf.error });
-      for (const [col, v] of Object.entries(pf.set)) if (String(v ?? '') !== String(cur[col] ?? '')) { set[col] = v; edited = true; }
+      const SAY = { cdl_expires: 'CDL expires', med_expires: 'Medical card expires', out_since: 'Out on the road since' };
+      for (const [col, v] of Object.entries(pf.set)) {
+        if (String(v ?? '') === String(cur[col] ?? '')) continue;
+        set[col] = v;
+        if (SAY[col]) log.push(['edit', v ? `${SAY[col]} ${fullDate(v)}` : `${SAY[col]}: cleared`]); else edited = true;
+      }
+    }
+    // a hired driver who left: no longer an active driver, and a fleet truck is freed
+    if (b.leftOn !== undefined) {
+      const v = String(b.leftOn || '').trim() || null;
+      if (v && !isDate(v)) return res.status(400).json({ error: 'The date they left is not a valid date' });
+      if (v && cur.status !== 'Hired') return res.status(400).json({ error: 'Only a hired driver can be marked as left' });
+      if (v !== (cur.left_on || null)) {
+        set.left_on = v; set.left_reason = v ? String(b.leftReason || '').trim().slice(0, 200) || null : null;
+        log.push(['edit', v ? `Left the company on ${niceDate(v)}${set.left_reason ? `: ${set.left_reason}` : ''}` : 'Active driver again']);
+        if (v) { const t = (await q(`SELECT unit FROM trucks WHERE driver_id = $1`, [id])).rows[0]; if (t) { await db.releaseTruck(db.pool, id); log.push(['truck', `Truck ${t.unit} released`]); } }
+      }
     }
     // the company the driver works for. A driver in one of the fleet's trucks belongs to that truck's company.
     if (b.companyId !== undefined) {
