@@ -983,3 +983,30 @@ table.obt tbody tr.ostep>td{border-bottom:1px solid var(--hair)}
 .tiles.mini .tile{padding:7px 12px}
 .tiles.mini .ti{width:30px;height:30px}
 .tiles.mini .lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tiles.mini .tv{min-width:0}
+
+/* monthly report: one row per day */
+table.daysfull{width:100%;margin-top:14px;font-size:13.5px}
+table.daysfull th,table.daysfull td{padding:7px 9px;vertical-align:middle;border-bottom:1px solid var(--hair)}
+table.daysfull thead th{font-size:12px;white-space:nowrap}
+table.daysfull tbody th{font-weight:400;text-align:left;white-space:nowrap}
+table.daysfull tbody tr.dayrow.alt>*{background:#F4F8EF}
+table.daysfull tr.dayrow.rest>*{color:#8A948F}
+table.daysfull tr.dayrow.bad>td:nth-child(2){color:inherit;font-weight:400}
+table.daysfull tr.dayrow.istoday>th{box-shadow:inset 3px 0 0 #087033}
+table.daysfull .dlink{font-weight:700;color:var(--head)}
+table.daysfull .dtag{margin:0 4px 0 0}
+table.daysfull tfoot th,table.daysfull tfoot td{padding:9px;border-top:2px solid var(--line);font-weight:700;background:#F3EFEA}
+.idlebtn{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #E9C766;border-radius:8px;background:#FFF6DD;color:#6B4A00;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}
+.idlebtn:hover{background:#FCEBB8}
+.idlebtn svg{transition:transform .15s}
+.idlebtn.open svg{transform:rotate(180deg)}
+.idlebtn .small{font-weight:600}
+tr.idlerow>td{padding:10px 14px 12px!important;background:#FFFBEF!important;font-size:13.5px;white-space:normal!important}
+.idlelist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0;padding:0;list-style:none}
+.idlelist li{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #EFD98F;border-radius:9px;background:#fff}
+.idlelist li span:not(.idletag){color:var(--mut)}
+@media print{ tr.idlerow[hidden]{display:table-row!important} .idlebtn svg{display:none} }
+table.daysfull{font-size:13px}
+table.daysfull th,table.daysfull td{padding:6px 7px}
+table.daysfull .dtag{padding:0 6px;font-size:11.5px}
+table.daysfull tbody td:nth-child(2){white-space:normal;min-width:110px}

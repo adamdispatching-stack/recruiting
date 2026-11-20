@@ -110,19 +110,21 @@
   function reportHtml(m, admin) {
     const t = m.totals; const ym = m.month; const thisMonth = m.today.slice(0, 7);
     const fig = (v, l, hint, bad) => `<div${hint ? ` title="${esc(hint)}"` : ''}${bad ? ' class="badfig"' : ''}><dd>${v}</dd><dt>${l}</dt></div>`;
-    const lead = (m.days[0].date && (new Date(m.days[0].date + 'T12:00:00Z').getUTCDay() + 6) % 7) || 0;
-    const cell = (d) => {
-      const n = +d.date.slice(8); const show = !['future', 'before'].includes(d.status) && (d.active || d.first);
-      return `<button class="cal ${DCLS[d.status]}${d.date === m.today ? ' istoday' : ''}" data-act="dayOpen" data-d="${d.date}" aria-label="${esc(App.dateText(d.date, { weekday: 'long', month: 'long' }))}: ${esc(dayLabel(d) || 'not yet')}${d.active ? ', ' + dur(d.active) + ' active' : ''}${d.late ? ', late start' : ''}">
-        <span class="dn">${n}</span><span class="ds">${esc(d.status === 'approved' ? 'Off, approved' : DAY[d.status])}</span>
-        ${show ? `<span class="dt">${dur(d.active)}</span><span class="dx">${d.first ? esc(hm(d.first)) + ' to ' + esc(hm(d.last)) : ''}</span>` : ''}
-        ${d.idle ? `<span class="didle">${dur(d.idle)} idle</span>` : ''}
-        ${d.late || d.early ? `<span class="dflags">${d.late ? '<i class="bad">Late</i>' : ''}${d.early ? '<i class="warn">Left early</i>' : ''}</span>` : ''}</button>`;
+    const blank = '<span class="none">–</span>';
+    const row = (d, k) => {
+      const has = d.active || d.first; const nIdle = d.idles.length;
+      return `<tr class="dayrow ${DCLS[d.status]}${k % 2 ? ' alt' : ''}${d.date === m.today ? ' istoday' : ''}" data-d="${d.date}">
+        <th scope="row"><button class="linkbtn dlink" data-act="dayOpen" data-d="${d.date}">${esc(App.dateText(d.date, { weekday: 'short' }))}</button></th>
+        <td><span class="dtag ${DCLS[d.status].split(' ')[0]}">${esc(dayLabel(d))}</span>${d.late ? ' <span class="dtag bad">Late</span>' : ''}${d.early ? ' <span class="dtag warn">Left early</span>' : ''}${d.sch ? `<div class="small mut">${esc(hoursText(d.sch))}</div>` : ''}</td>
+        <td>${d.first ? esc(hm(d.first)) : blank}</td><td>${d.last ? esc(hm(d.last)) : blank}</td>
+        <td class="n strong">${has ? dur(d.active) : blank}</td><td class="n">${has ? dur(d.open) : blank}</td>
+        <td class="n idlec">${d.idle ? `<button class="idlebtn" data-act="idleRow" aria-expanded="false" aria-controls="idle-${d.date}">${dur(d.idle)}<span class="small"> · ${nIdle}×</span><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : d.sch && has ? '<span class="none">None</span>' : blank}</td>
+        <td class="n">${d.clicks || blank}</td><td class="n">${d.opened || blank}</td><td class="n">${d.contacts || blank}${d.calls ? `<div class="small mut">${d.calls} calls</div>` : ''}</td>
+        <td class="n">${d.notes || blank}</td><td class="n">${d.added || blank}</td><td class="n">${d.moved || blank}</td></tr>
+        ${nIdle ? `<tr class="idlerow" id="idle-${d.date}" hidden><td colspan="13"><b>Idle on ${esc(App.dateText(d.date, { weekday: 'long', month: 'long' }))}</b>: no clicks, typing or scrolling on the website during working hours
+          <ol class="idlelist">${d.idles.map((i) => `<li><b>${esc(hm(i.from))} to ${esc(hm(i.to))}</b><span>${dur(i.secs)}</span>${i.now ? '<span class="idletag now">Still idle</span>' : ''}${i.alerted ? '<span class="idletag">Alert sent</span>' : ''}</li>`).join('')}</ol></td></tr>` : ''}`;
     };
-    const row = (d) => `<tr class="${DCLS[d.status]}"><td>${esc(App.dateText(d.date, { weekday: 'short' }))}</td><td>${esc(dayLabel(d))}${d.late ? ' <span class="dtag bad">Late</span>' : ''}${d.early ? ' <span class="dtag warn">Left early</span>' : ''}</td>
-      <td class="small">${d.sch ? esc(hoursText(d.sch)) : '<span class="none">None</span>'}</td><td>${d.first ? esc(hm(d.first)) : ''}</td><td>${d.last ? esc(hm(d.last)) : ''}</td>
-      <td class="n strong">${d.active ? dur(d.active) : ''}</td><td class="n">${d.sch && d.active ? dur(d.inHours) : ''}</td><td class="n">${d.idle ? dur(d.idle) : ''}</td><td class="n">${d.contacts || ''}</td><td class="n">${d.notes || ''}</td><td class="n">${d.added || ''}</td><td class="n">${d.moved || ''}</td></tr>`;
-    const shown = m.days.filter((d) => !['future', 'before'].includes(d.status));
+    const shown = m.days; // every day of the month: later days too, so a day off can be approved ahead
     return `<section class="card report" aria-labelledby="rptTitle">
       <div class="rhead"><h3 id="rptTitle">Monthly report</h3>
         <div class="mnav noprint"><button class="btn plain sm" data-act="monthGo" data-m="${shiftMonth(ym, -1)}" ${ym > (m.firstMonth || ym) ? '' : 'disabled'} aria-label="Previous month">‹</button>
@@ -141,18 +143,15 @@
         <div><h4>Work</h4><dl class="figs">
           ${fig(t.contacts, 'calls, texts, emails', `${t.calls} of them calls`)}${fig(t.notes, 'notes')}${fig(t.added, 'leads added')}${fig(t.moved, 'moved forward')}${fig(t.onboarded, 'to onboarding', 'Their leads that started onboarding this month')}${fig(t.hired, 'hired')}</dl></div>
       </div>
-      <div class="calwrap"><div class="calhead" aria-hidden="true">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((x) => `<span>${x}</span>`).join('')}</div>
-        <div class="calgrid">${'<span class="cal blank"></span>'.repeat(lead)}${m.days.map(cell).join('')}</div></div>
-      <div class="legend noprint"><span><i class="ok"></i>Worked</span><span><i class="bad"></i>Off</span><span><i class="warn"></i>Off, approved</span><span><i class="ok extra"></i>Extra day</span><span><i class="rest"></i>Not a working day</span>
-        <span class="grow"></span><button class="linkbtn" data-act="dayTable" aria-expanded="false">Show day by day</button></div>
-      <div class="scroll daytbl" hidden><table class="mini days"><thead><tr><th>Date</th><th>Day</th><th>Hours</th><th>Started</th><th>Ended</th><th class="n">Active</th><th class="n">In hours</th><th class="n">Idle</th><th class="n">Calls, texts</th><th class="n">Notes</th><th class="n">Added</th><th class="n">Moved</th></tr></thead>
-        <tbody>${shown.map(row).join('') || '<tr><td colspan="11" class="hint">No days yet.</td></tr>'}</tbody></table></div>
-      ${admin ? '<p class="hint foot noprint">Click a day to see it, or to approve a day off (vacation, sick day). Approved days off are counted apart from days off.</p>' : ''}
+      <div class="scroll"><table class="mini days daysfull"><thead><tr><th>Date</th><th>Day, working hours</th><th>Started</th><th>Ended</th><th class="n" title="Time with clicks, typing or scrolling">Active</th><th class="n" title="The site was open and on screen">On site</th><th class="n" title="Stretches of ${m.hours.idleMinutes || 15}+ minutes in working hours with no activity. Click to see the times.">Idle</th><th class="n">Clicks</th><th class="n" title="Different leads opened">Leads</th><th class="n" title="Calls, texts and emails logged">Contacts</th><th class="n">Notes</th><th class="n" title="Leads added">Added</th><th class="n" title="Leads moved forward">Moved</th></tr></thead>
+        <tbody>${shown.map((d, k) => row(d, k)).join('') || '<tr><td colspan="13" class="hint">No days yet.</td></tr>'}</tbody>
+        ${shown.length ? `<tfoot><tr><th scope="row" colspan="4">Month total</th><td class="n strong">${dur(t.active)}</td><td class="n">${dur(t.open)}</td><td class="n">${t.idle ? dur(t.idle) : '<span class="none">None</span>'}</td><td class="n">${(t.clicks || 0).toLocaleString()}</td><td class="n">${t.opened}</td><td class="n">${t.contacts}</td><td class="n">${t.notes}</td><td class="n">${t.added}</td><td class="n">${t.moved}</td></tr></tfoot>` : ''}</table></div>
+      ${admin ? '<p class="hint foot noprint">Click a date to see the day, or to approve a day off (vacation, sick day). Approved days off are counted apart from days off. Click the idle time to see when it happened.</p>' : ''}
     </section>`;
   }
   on('monthGo', (b) => { month = b.dataset.m; App.render(); });
-  on('printReport', () => { const t = $('.daytbl'); const was = t.hidden; t.hidden = false; window.print(); t.hidden = was; });
-  on('dayTable', (b) => { const t = $('.daytbl'); t.hidden = !t.hidden; b.textContent = t.hidden ? 'Show day by day' : 'Hide day by day'; b.setAttribute('aria-expanded', String(!t.hidden)); });
+  on('printReport', () => { const rows = [...document.querySelectorAll('.idlerow')]; const was = rows.map((r) => r.hidden); rows.forEach((r) => { r.hidden = false; }); window.print(); rows.forEach((r, k) => { r.hidden = was[k]; }); });
+  on('idleRow', (b) => { const r = $('#' + b.getAttribute('aria-controls')); if (!r) return; r.hidden = !r.hidden; b.setAttribute('aria-expanded', String(!r.hidden)); b.classList.toggle('open', !r.hidden); });
   on('dayOpen', (b) => {
     const m = shownMonth; const d = m.days.find((x) => x.date === b.dataset.d); if (!d) return;
     const admin = S.me.role === 'admin'; const canOff = admin && !['worked', 'extra', 'before'].includes(d.status);
