@@ -72,7 +72,7 @@
       const where = [one(d.mode), d.location || (d.answers || {}).home].filter(Boolean).map(esc).join(', ');
       return `<tr data-id="${d.id}">${admin ? `<td class="cb"><input type="checkbox" data-sel="${d.id}" ${list.sel.has(d.id) ? 'checked' : ''} aria-label="Select ${esc(d.name)}"></td>` : ''}
         <td><div class="who1">${App.avatar(d.name)}<div><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div></div></div></td>
-        <td>${badge(d.status)}<div class="small fuline">${d.followUp ? `Follow up <span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : ''}</div><div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
+        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}<div class="small fuline">${d.followUp ? `Follow up <span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : ''}</div><div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
         <td>${contact || '<span class="none">No contact yet</span>'}</td>
         <td>${esc(d.source || '') || '<span class="none">Not set</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}</td>
@@ -180,7 +180,7 @@
   // ---------- one driver ----------
   let cur = null;
   const CONTACT_TEXT = (n) => (n.kind === 'call' ? `Call, ${String(n.outcome || '').toLowerCase()}` : n.kind === 'text' ? 'Text sent' : 'Email sent');
-  const AUTO = { truck: 'Ticks itself when a truck is chosen', arrival: 'Ticks itself when the expected arrival is set', arrived: 'Ticks itself when the arrival date is filled in' };
+  const AUTO = { truck: 'Ticks itself when a truck is chosen', arrival: 'Ticks itself when the expected arrival is set', arrived: 'Ticks itself when the arrival date is filled in', amazon: 'Ticks itself when the Amazon steps reach Verified' };
   function convoHtml(c) {
     return String(c || '').split('\n').filter((l) => l.trim()).map((l) => {
       if (l.startsWith('Dispatch: ')) return `<div class="msg d"><span class="w">Dispatch</span>${esc(l.slice(10))}</div>`;
@@ -361,7 +361,7 @@
         </div>
         <div class="ctl">
           <label class="fld">Status<select data-ch="status" data-fk="status" class="stsel">${all.concat(all.includes(d.status) ? [] : [d.status]).map((s) => `<option ${s === d.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
-          ${lostish ? `<label class="fld">Why<select data-ch="lostReason" data-fk="why"><option value="">No reason given</option>${r.lostReasons.map((x) => `<option ${x === d.lostReason ? 'selected' : ''}>${x}</option>`).join('')}</select></label>` : ''}
+          ${lostish ? `<div class="fld">Why<div class="whyline">${d.lostReason ? `<b>${esc(d.lostReason)}</b>${d.lostNote ? `<span>${esc(d.lostNote)}</span>` : ''}` : '<span class="mut">No reason given</span>'}<button class="linkbtn" data-act="whyEdit">${d.lostReason ? 'Change' : 'Add the reason'}</button></div></div>` : ''}
           <div class="fld">Follow-up<div class="fuline"><input type="date" data-ch="followUp" data-fk="fu" aria-label="Follow-up date" value="${esc(d.followUp || '')}">
             <button class="chip" data-act="fuQuick" data-days="1">Tomorrow</button><button class="chip" data-act="fuQuick" data-days="3">In 3 days</button><button class="chip" data-act="fuQuick" data-days="7">Next week</button>${d.followUp ? '<button class="chip" data-act="fuQuick" data-days="">Clear</button>' : ''}</div>
             ${d.followUp && d.followUp <= t ? `<span class="fu due">${esc(fuText(d.followUp))}</span>` : ''}</div>
@@ -388,6 +388,7 @@
       <div class="cols">
         <div>
           ${d.status === 'Onboarding' ? onb : ''}
+          ${amazonCard(d)}
           ${callGuide(d, ob, r.notes)}
           <section class="card"><h3>Notes and contact log</h3>
             ${d.redFlags ? `<div class="flagbox"><span>${esc(d.redFlags)}</span></div>` : ''}
@@ -436,8 +437,56 @@
     const box = $('#newNote'); const body = box.value.trim(); if (!body && !extra.kind) { box.focus(); return; }
     try { await api(`/api/drivers/${cur.driver.id}/notes`, { method: 'POST', body: { body, ...extra } }); box.value = ''; toast(extra.kind ? 'Contact logged' : 'Note added'); await again(); } catch (e) { fail(e); }
   }
-  onChange('status', (el) => patch({ status: el.value }, el.value === 'Onboarding' ? 'Onboarding started' : 'Status saved'));
-  onChange('lostReason', (el) => patch({ lostReason: el.value }, 'Reason saved'));
+  onChange('status', (el) => (S.me.needReason.includes(el.value) ? askWhy(el.value) : patch({ status: el.value }, el.value === 'Onboarding' ? 'Onboarding started' : 'Status saved')));
+  on('whyEdit', () => askWhy(null));
+  // A lost lead needs its reason: ask for it before the status changes. Cancel keeps the old status.
+  function askWhy(status) {
+    const d = cur.driver; const to = status || d.status;
+    let saved = false;
+    dialog(`<form class="dform" id="whyForm"><h2>${status ? `Why is ${esc(d.name)} ${to === 'Stalled' ? 'stalled' : `“${esc(to)}”`}?` : `Why was ${esc(d.name)} lost?`}</h2>
+      <p class="hint">The reason is saved on the lead and counted in the reports, so the team sees why drivers drop out.</p>
+      <fieldset class="whyopts"><legend>Reason</legend>${S.me.lostReasons.map((x) => `<label class="chk"><input type="radio" name="why" value="${esc(x)}" ${x === d.lostReason ? 'checked' : ''} required> ${esc(x)}</label>`).join('')}</fieldset>
+      <label class="fld">Details<textarea name="note" rows="3" maxlength="500" placeholder="What happened, in their words if you can (e.g. wants $2,000 a week, home every weekend)">${esc(d.lostNote || '')}</textarea></label>
+      <p class="err" id="whyErr" role="alert"></p>
+      <div class="drow"><button class="btn primary">${status ? `Save as ${esc(to)}` : 'Save the reason'}</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (dl) => {
+      const f = $('#whyForm', dl);
+      f.onsubmit = async (e) => {
+        e.preventDefault(); const why = (f.querySelector('[name=why]:checked') || {}).value; const note = f.note.value.trim();
+        if (!why) { $('#whyErr').textContent = 'Choose a reason'; return; }
+        if (why === 'Other' && !note) { $('#whyErr').textContent = 'Write a few words on the reason'; f.note.focus(); return; }
+        try { await api('/api/drivers/' + d.id, { method: 'PATCH', body: { ...(status ? { status } : {}), lostReason: why, lostNote: note } }); saved = true; dl.close(); toast(status ? `Saved as ${to}` : 'Reason saved'); }
+        catch (err) { $('#whyErr').textContent = err.message; }
+      };
+      dl.addEventListener('close', () => { again(); }, { once: true }); // also puts the status back after Cancel
+    });
+  }
+
+  // ---------- Amazon Relay, step by step ----------
+  const AZ_NEXT = {
+    '': 'Get the driver\'s email, then send the Relay invite from our Amazon account.',
+    invite: 'The driver opens the invite email (check spam) and creates their Amazon account.',
+    account: 'The driver signs up in Amazon Relay and finishes the profile.',
+    profile: 'Amazon sends the background check to Accurate (accurate.com). The driver fills in the Accurate form from that email.',
+    accurate: 'Accurate runs the check. Ask the driver whether the Accurate form is fully done.',
+    waiting: 'Waiting for Amazon to verify. Check the driver in our Relay account.',
+    verified: 'Verified by Amazon. The driver can be onboarded and dispatched.'
+  };
+  function amazonCard(d) {
+    const steps = S.me.amazon || []; const at = steps.findIndex((x) => x.key === d.amazonStep);
+    const route = S.me.route.indexOf(d.status);
+    if (at < 0 && route < S.me.route.indexOf('Email collected')) return '';
+    const done = d.amazonStep === 'verified'; const log = d.amazonLog || {};
+    return `<section class="card azcard${done ? ' verified' : ''}" aria-labelledby="azH"><h3 id="azH">Amazon Relay${done ? '<span class="azv">✓ Amazon verified</span>' : at >= 0 ? `<span class="azstep">Step ${at + 1} of ${steps.length}: ${esc(steps[at].label)}</span>` : '<span class="azstep">Not started</span>'}</h3>
+      <ol class="azsteps">${steps.map((x, i) => `<li class="${i <= at ? 'done' : ''}${i === at ? ' now' : ''}"><button type="button" data-act="azStep" data-k="${x.key}" aria-pressed="${i <= at}" title="${esc(x.long)}">
+        <span class="azdot">${i <= at ? '✓' : i + 1}</span><span class="azl">${esc(x.label)}</span>${log[x.key] ? `<span class="azt">${esc(shortWhen(log[x.key]))}</span>` : ''}</button></li>`).join('')}</ol>
+      <p class="aznext"><b>${done ? 'Done:' : 'Next:'}</b> ${esc(AZ_NEXT[done ? 'verified' : d.amazonStep || ''])}</p></section>`;
+  }
+  on('azStep', (b) => {
+    const steps = S.me.amazon; const k = b.dataset.k; const to = steps.findIndex((x) => x.key === k); const at = steps.findIndex((x) => x.key === cur.driver.amazonStep);
+    if (to === at) { if (confirm(`Go back one step, to ${to ? steps[to - 1].label : 'not started'}?`)) patch({ amazonStep: to ? steps[to - 1].key : null }, 'Amazon step saved'); return; }
+    if (to < at && !confirm(`Move back to "${steps[to].label}"?`)) return;
+    patch({ amazonStep: k }, k === 'verified' ? 'Amazon verified' : 'Amazon step saved');
+  });
   onChange('followUp', (el) => patch({ followUp: el.value || null }, el.value ? 'Follow-up saved' : 'Follow-up cleared'));
   onChange('company', (el) => patch({ companyId: el.value ? +el.value : null }, el.value ? `Company: ${App.company(+el.value).name}` : 'Company removed'));
   onChange('editMode', (el) => { const x = $('.ootruck'); if (x) x.hidden = el.value !== 'Owner-operators'; });

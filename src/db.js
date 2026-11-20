@@ -233,6 +233,9 @@ async function migrate() {
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS out_since DATE;          -- when the current stretch on the road began
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS left_on DATE;            -- a hired driver who left: no longer active
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS left_reason TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS amazon_step TEXT;          -- where the driver is with Amazon Relay (AMAZON keys)
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS amazon_log JSONB NOT NULL DEFAULT '{}'::jsonb; -- step -> when it was reached
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS lost_note TEXT;            -- the recruiter's words on why a lead was lost
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS call_prep JSONB;          -- AI call suggestions for this lead (optional)
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS call_prep_at TIMESTAMPTZ;
   `);
@@ -252,6 +255,18 @@ async function migrate() {
     up.sources = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
+  if (!up.amazon) {
+    // Amazon steps for drivers from before they existed: a ticked "Amazon Relay verified" means verified;
+    // otherwise the Relay status (or being in onboarding) tells how far they got.
+    await q(`UPDATE checklist SET auto = 'amazon' WHERE key = 'relay' AND auto IS NULL`);
+    await q(`UPDATE drivers d SET amazon_step = 'verified' WHERE amazon_step IS NULL AND EXISTS (SELECT 1 FROM checklist c WHERE c.driver_id = d.id AND c.key = 'relay' AND c.done)`);
+    await q(`UPDATE drivers SET amazon_step = 'profile' WHERE amazon_step IS NULL AND status IN ('Signed up on Relay', 'Onboarding', 'Hired')`);
+    await q(`UPDATE drivers SET amazon_step = 'invite' WHERE amazon_step IS NULL AND status = 'Relay invite sent'`);
+    const cl = (await q(`SELECT value FROM settings WHERE key = 'checklist'`)).rows[0];
+    if (cl && Array.isArray(cl.value)) await q(`UPDATE settings SET value = $1::jsonb WHERE key = 'checklist'`, [JSON.stringify(cl.value.map((x) => (x.key === 'relay' && !x.auto ? { ...x, auto: 'amazon' } : x)))]);
+    up.amazon = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   await loadSettings();
 }
 
@@ -262,7 +277,7 @@ const DEFAULTS = {
   sources: ['Indeed', 'Facebook', 'Referral', 'Craigslist', 'TruckersReport', 'Phone call', 'Walk-in', 'Other'],
   checklist: [
     { key: 'telegram', label: 'Telegram group created', auto: 'telegram' },
-    { key: 'relay', label: 'Amazon Relay verified' },
+    { key: 'relay', label: 'Amazon Relay verified', auto: 'amazon' },
     { key: 'insurance', label: 'Insurance approved' },
     { key: 'mvr', label: 'MVR checked' },
     { key: 'truck', label: 'Truck assigned', auto: 'truck' },
@@ -326,6 +341,25 @@ const sha = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
 const token = (prefix = '') => prefix + crypto.randomBytes(24).toString('base64url');
 
 // ---------- driver records ----------
+// Amazon Relay, step by step: our company account sends the invite, the driver makes an Amazon account and fills in
+// the Relay profile, Accurate (accurate.com) runs the background check, then Amazon verifies the driver.
+const AMAZON = [
+  { key: 'invite', label: 'Invite sent', long: 'Relay invite sent from our Amazon account' },
+  { key: 'account', label: 'Amazon account', long: 'Driver created their Amazon account' },
+  { key: 'profile', label: 'Profile done', long: 'Driver signed up and finished the Relay profile' },
+  { key: 'accurate', label: 'Background check', long: 'Background check started at Accurate (accurate.com)' },
+  { key: 'waiting', label: 'Waiting for Amazon', long: 'Waiting for Amazon to verify the driver' },
+  { key: 'verified', label: 'Verified', long: 'Verified by Amazon' }
+];
+const amazonIdx = (k) => AMAZON.findIndex((x) => x.key === k);
+// Move the Amazon step forward (never back) and log when each step was reached.
+async function amazonTo(c, driverId, key, userId) {
+  const d = (await c.query(`SELECT amazon_step, amazon_log FROM drivers WHERE id = $1`, [driverId])).rows[0];
+  if (!d || amazonIdx(key) < 0 || amazonIdx(key) <= amazonIdx(d.amazon_step)) return false;
+  await c.query(`UPDATE drivers SET amazon_step = $2, amazon_log = amazon_log || jsonb_build_object($2::text, now()) WHERE id = $1`, [driverId, key]);
+  await syncAuto(c, driverId, userId);
+  return true;
+}
 const LOCKING = ['Relay invite sent', 'Onboarding', 'Hired', 'Rejected']; // set by a person: the auto-reply must not change these
 const ROUTE = ['Invited', 'Replied', 'Interested', 'Email collected', 'Relay invite sent', 'Signed up on Relay', 'Onboarding', 'Hired'];
 const OTHER = ['Review', 'Stalled', 'No CDL', 'Not interested', 'Declined on Indeed', 'Rejected'];
@@ -459,6 +493,10 @@ async function syncAuto(c, driverId, userId) {
   for (const [auto, v] of Object.entries(state)) {
     await c.query(`UPDATE checklist SET done = $3, done_at = CASE WHEN $3 THEN now() END, done_by = CASE WHEN $3 THEN $4::int END WHERE driver_id = $1 AND auto = $2 AND done <> $3`, [driverId, auto, v, userId || null]);
   }
+  // "Amazon Relay verified" follows the Amazon steps (left alone while no step is set)
+  const az = (await c.query(`SELECT amazon_step FROM drivers WHERE id = $1`, [driverId])).rows[0];
+  if (az && az.amazon_step) { const v = az.amazon_step === 'verified';
+    await c.query(`UPDATE checklist SET done = $2, done_at = CASE WHEN $2 THEN now() END, done_by = CASE WHEN $2 THEN $3::int END WHERE driver_id = $1 AND (auto = 'amazon' OR key = 'relay') AND done <> $2`, [driverId, v, userId || null]); }
   if (o.telegram_link) await c.query(`UPDATE checklist SET done = TRUE, done_at = now(), done_by = $2::int WHERE driver_id = $1 AND auto = 'telegram' AND NOT done`, [driverId, userId || null]);
 }
 async function releaseTruck(c, driverId) {
@@ -469,13 +507,16 @@ async function releaseTruck(c, driverId) {
 async function statusChanged(c, d, to, { userId = null, via = 'web', at = null, leadAt = null } = {}) {
   await c.query(`INSERT INTO status_log (driver_id, from_status, to_status, user_id, via, at) VALUES ($1, $2, $3, $4, $5, LEAST(COALESCE($6::timestamptz, now()), now()))`, [d.id, d.status, to, userId, via, at]);
   if (to !== 'Invited') await c.query(`UPDATE drivers SET lead_at = LEAST(COALESCE($2::timestamptz, now()), now()) WHERE id = $1 AND lead_at IS NULL`, [d.id, leadAt]);
-  if (!LOST.includes(to) && to !== 'Stalled') await c.query(`UPDATE drivers SET lost_reason = NULL WHERE id = $1 AND lost_reason IS NOT NULL`, [d.id]);
+  if (!LOST.includes(to) && to !== 'Stalled') await c.query(`UPDATE drivers SET lost_reason = NULL, lost_note = NULL WHERE id = $1 AND (lost_reason IS NOT NULL OR lost_note IS NOT NULL)`, [d.id]);
   const notes = [];
+  // the Relay statuses carry the Amazon steps along
+  if (to === 'Relay invite sent') await amazonTo(c, d.id, 'invite', userId);
+  if (to === 'Signed up on Relay') await amazonTo(c, d.id, 'profile', userId);
   if (to === 'Onboarding') await ensureOnboarding(c, d.id, userId);
   if (to === 'Hired') await c.query(`UPDATE onboarding SET completed_at = COALESCE(completed_at, now()) WHERE driver_id = $1`, [d.id]);
   if (LOST.includes(to)) { const unit = await releaseTruck(c, d.id); if (unit) { notes.push(`Truck ${unit} is free again`); await syncAuto(c, d.id, userId); } }
   return notes;
 }
 
-module.exports = { pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, COLD_DAYS,
+module.exports = { AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, COLD_DAYS,
   settings, DEFAULTS, saveSetting, ensureOnboarding, syncAuto, releaseTruck, statusChanged };

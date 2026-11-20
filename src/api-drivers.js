@@ -7,7 +7,9 @@ const { wrap, needUser, needAdmin, act, history, record, loadDriver, visSql, can
 
 const CONTACT = { call: ['Talked', 'No answer', 'Left voicemail', 'Wrong number'], text: ['Sent'], email: ['Sent'] };
 const CONTACT_WORD = { call: 'Call', text: 'Text', email: 'Email' };
-const LOST_REASONS = ['Pay', 'Home time', 'Found another job', 'No response', 'Not qualified', 'Location', 'Equipment', 'Other'];
+const LOST_REASONS = ['Pay', 'Home time', 'Found another job', 'No response', 'Not qualified', 'Driving record', 'Failed background check', 'Failed drug test', 'Location', 'Equipment', 'Changed their mind', 'Other'];
+// a person who sets one of these on the website must say why (the Chrome extension sets some of them itself)
+const NEEDS_REASON = [...db.LOST.filter((s) => s !== 'Declined on Indeed'), 'Stalled'];
 
 function toClient(d) {
   return { id: d.id, name: d.name, status: d.status, statusLocked: d.status_locked, phones: d.phones, emails: d.emails, location: d.location, zip: d.zip,
@@ -16,7 +18,7 @@ function toClient(d) {
     lastContactAt: d.last_contact_at, followUp: d.follow_up || null, tags: d.tags, ownerId: d.owner_id, createdBy: d.created_by, lostReason: d.lost_reason, leadAt: d.lead_at,
     weeksOut: d.weeks_out === null || d.weeks_out === undefined ? null : +d.weeks_out, daysHome: d.days_home ?? null, cdlExpires: d.cdl_expires || null, medExpires: d.med_expires || null,
     outSince: d.out_since || null, leftOn: d.left_on || null, leftReason: d.left_reason || null,
-    callPrep: d.call_prep || null, callPrepAt: d.call_prep_at || null,
+    callPrep: d.call_prep || null, callPrepAt: d.call_prep_at || null, amazonStep: d.amazon_step || null, amazonLog: d.amazon_log || {}, lostNote: d.lost_note || null,
     expYears: d.exp_years === null || d.exp_years === undefined ? null : +d.exp_years, experience: d.experience, truckYear: d.truck_year, truckModel: d.truck_model, companyId: d.company_id,
     createdAt: d.created_at, updatedAt: d.updated_at, noteCount: d.note_count !== undefined ? +d.note_count : undefined, lastNote: d.last_note };
 }
@@ -246,6 +248,30 @@ module.exports = (app) => {
     if (Array.isArray(b.emails)) { const v = cleanEmails(b.emails); if (v.join() !== cur.emails.join()) { set.emails = v; edited = true; } }
     if (b.answers && typeof b.answers === 'object') set.answers = JSON.stringify(b.answers);
     if (b.lostReason !== undefined) { const v = LOST_REASONS.includes(b.lostReason) ? b.lostReason : null; if (v !== cur.lost_reason) { set.lost_reason = v; if (v) log.push(['edit', `Reason: ${v}`]); } }
+    if (b.lostNote !== undefined) { const v = String(b.lostNote || '').trim().slice(0, 500) || null; if (v !== cur.lost_note) { set.lost_note = v; if (v) log.push(['edit', `Why: ${v}`]); } }
+    // setting a lost status on the website needs a reason; "Other" also needs a few words
+    if (newStatus && NEEDS_REASON.includes(newStatus)) {
+      const why = set.lost_reason !== undefined ? set.lost_reason : cur.lost_reason; const words = set.lost_note !== undefined ? set.lost_note : cur.lost_note;
+      if (!why) return res.status(400).json({ error: `Choose why this lead is ${newStatus === 'Stalled' ? 'stalled' : 'lost'}`, needsReason: true });
+      if (why === 'Other' && !words) return res.status(400).json({ error: 'Write a few words on the reason', needsReason: true });
+    }
+    // Amazon Relay steps, set by hand (any step, so a mistake can be put right)
+    let amazonSet = null;
+    if (b.amazonStep !== undefined) {
+      const k = b.amazonStep || null;
+      if (k && db.amazonIdx(k) < 0) return res.status(400).json({ error: 'Unknown Amazon step' });
+      if (k !== cur.amazon_step) {
+        amazonSet = k; set.amazon_step = k;
+        const step = db.AMAZON.find((x) => x.key === k);
+        log.push(['edit', k ? `Amazon: ${step.long}` : 'Amazon steps cleared']);
+        // the Relay statuses follow: invite sent, then signed up
+        const at = db.ROUTE.indexOf(newStatus || cur.status);
+        if (k && at >= 0 && at < db.ROUTE.indexOf('Signed up on Relay')) {
+          const want = db.amazonIdx(k) >= db.amazonIdx('profile') ? 'Signed up on Relay' : 'Relay invite sent';
+          if (db.ROUTE.indexOf(want) > at) { newStatus = want; set.status = want; set.status_locked = true; set.status_at = new Date().toISOString(); log.push(['status', `Status: ${cur.status} → ${want}`]); }
+        }
+      }
+    }
     if (edited) log.push(['edit', 'Edited contact details']);
     // who owns the lead: only an admin changes it (new leads are shared evenly)
     if (b.ownerId !== undefined) {
@@ -261,7 +287,9 @@ module.exports = (app) => {
     const cols = Object.keys(set);
     const ownerOnly = cols.every((c) => c === 'owner_id' || c === 'assigned_at'); // handing a lead over is not work on the lead
     await q(`UPDATE drivers SET ${cols.map((k, i) => `${k} = $${i + 2}`).join(', ')}${ownerOnly ? '' : ', updated_at = now(), web_updated_at = now()'} WHERE id = $1`, [id, ...cols.map((k) => set[k])]);
+    if (amazonSet) await q(`UPDATE drivers SET amazon_log = amazon_log || jsonb_build_object($2::text, now()) WHERE id = $1`, [id, amazonSet]);
     if (newStatus) for (const text of await db.statusChanged(db.pool, cur, newStatus, { userId: u.id })) log.push(['truck', text]);
+    if (b.amazonStep !== undefined) await db.syncAuto(db.pool, id, u.id); // "Amazon Relay verified" on the checklist
     const named = { id, name: set.name || cur.name };
     for (const [type, text] of log) await record(req, type, named, text);
     res.json({ ok: true });
