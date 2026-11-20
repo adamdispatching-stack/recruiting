@@ -45,7 +45,7 @@ window.App = (() => {
   const pageHead = (title, sub, actions = '') => `<div class="phead"><div><h1>${esc(title)}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${actions ? `<div class="pacts">${actions}</div>` : ''}</div>`;
   // A person's initials in a circle.
   const initials = (name) => String(name || '?').trim().split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w[0] || '')).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
-  const avatar = (name, cls = '') => `<span class="av ${cls}" aria-hidden="true">${esc(initials(name))}</span>`;
+  const avatar = (name, cls = '') => { const h = [...String(name || '')].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7); return `<span class="av ${['', 'b', ''][h % 3]} ${cls}" aria-hidden="true">${esc(initials(name))}</span>`; };
   const plus = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 2.5v11M2.5 8h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   // Drawings for empty pages and the dashboard (decoration only)
   const ART = {
@@ -65,11 +65,20 @@ window.App = (() => {
       <path d="M178 150V88h120v62" fill="#fff" stroke="#24553B" stroke-width="2.4" stroke-linejoin="round"/>${[190, 230, 270].map((x) => `<rect x="${x}" y="98" width="24" height="18" fill="#DCEDE2" stroke="#24553B" stroke-width="1.6"/>`).join('')}
       ${[[186, 0], [246, 1]].map(([x]) => `<g><rect x="${x}" y="120" width="40" height="24" rx="2" fill="#fff" stroke="#24553B" stroke-width="2"/><path d="M${x + 40} 126h10l8 8v10h-18z" fill="#fff" stroke="#24553B" stroke-width="2" stroke-linejoin="round"/><circle cx="${x + 10}" cy="146" r="4.5" fill="#24553B"/><circle cx="${x + 48}" cy="146" r="4.5" fill="#24553B"/></g>`).join('')}
       <circle cx="330" cy="140" r="16" fill="#BFD8C8"/><path d="M30 152h330" stroke="#9DBFA8" stroke-width="2.4" stroke-linecap="round"/></svg>`,
-    road: `<svg class="art hero" viewBox="0 0 560 150" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
-      <path d="M120 120l70-70 50 40 60-62 70 60 50-34 70 52 70-46v140H120z" fill="#DCEBE1"/><path d="M220 130l60-44 50 30 60-40 60 46 50-24 60 32v40H220z" fill="#C3DCCB"/>
-      ${[[470, 92], [490, 100], [512, 88], [534, 98], [440, 104]].map(([x, y]) => `<path d="M${x} ${y}l9 -24 9 24z" fill="#5E9C77"/><path d="M${x + 9} ${y}v6" stroke="#5E9C77" stroke-width="2"/>`).join('')}
-      <path d="M300 150c40-30 90-36 150-44s90-20 110-34" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round"/><path d="M300 150c40-30 90-36 150-44s90-20 110-34" fill="none" stroke="#C9D4CD" stroke-width="2" stroke-dasharray="8 8"/>
-      <g transform="translate(390 82)"><rect x="0" y="0" width="58" height="26" rx="2" fill="#fff" stroke="#24553B" stroke-width="2"/><path d="M58 8h14l9 9v9H58z" fill="#2E8B57" stroke="#24553B" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="28" r="4.5" fill="#24553B"/><circle cx="70" cy="28" r="4.5" fill="#24553B"/></g></svg>`
+    road: `<svg class="art hero" viewBox="0 0 720 170" preserveAspectRatio="xMaxYMin slice" aria-hidden="true">
+      <defs><linearGradient id="hz" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#FBF7F2" stop-opacity="0"/><stop offset=".55" stop-color="#EEF1E4"/><stop offset="1" stop-color="#E4EDDA"/></linearGradient>
+        <linearGradient id="fade" x1="0" x2="1"><stop offset="0" stop-color="#FBF7F2"/><stop offset=".22" stop-color="#FBF7F2" stop-opacity="0"/></linearGradient></defs>
+      <rect width="720" height="170" fill="url(#hz)"/>
+      <path d="M150 120 250 58l40 22 70-58 60 40 50-30 70 52 60-44 50 26 70-30v162H150z" fill="#D9E6D3"/>
+      <path d="M230 132 330 84l50 22 70-46 70 44 60-28 60 34 80-40v120H230z" fill="#C4DAC1"/>
+      <path d="M300 150 420 104l70 20 70-30 80 36 80-24v64H300z" fill="#AECDAE"/>
+      <path d="M560 96l9.6 -30 9.6 30z" fill="#4F8B59"/><path d="M578 100l12.8 -40 12.8 40z" fill="#3E7A4A"/><path d="M600 94l8.3 -26 8.3 26z" fill="#5E9C69"/><path d="M616 102l14.7 -46 14.7 46z" fill="#2F6B3E"/><path d="M640 98l10.9 -34 10.9 34z" fill="#4F8B59"/><path d="M660 104l16.6 -52 16.6 52z" fill="#2F6B3E"/><path d="M686 96l9.6 -30 9.6 30z" fill="#5E9C69"/><path d="M340 112l7.0 -22 7.0 22z" fill="#7FB08A"/><path d="M354 114l9.0 -28 9.0 28z" fill="#6AA277"/><path d="M372 112l6.4 -20 6.4 20z" fill="#7FB08A"/><path d="M470 104l7.7 -24 7.7 24z" fill="#6AA277"/><path d="M486 108l9.6 -30 9.6 30z" fill="#5E9C69"/>
+      <path d="M380 170c60-26 120-38 190-46s110-26 150-52v-20c-40 30-80 46-150 54s-140 22-196 64z" fill="#7E9184"/>
+      <path d="M384 170c58-24 118-36 186-44s108-24 150-50" fill="none" stroke="#F7F4EE" stroke-width="2.2" stroke-dasharray="10 9"/>
+      <path d="M372 170c62-30 126-44 198-52s108-28 150-56" fill="none" stroke="#F3F0E9" stroke-width="3"/>
+      <g transform="translate(560 66)"><rect x="0" y="0" width="74" height="30" rx="2" fill="#FBF8F3" stroke="#5B6A60" stroke-width="1.4"/><path d="M-26 10h18l8 0v26h-30l-4-8v-10z" fill="#1E8A3E"/><path d="M-22 13h12v9h-15z" fill="#CFE3D4"/><rect x="-4" y="30" width="80" height="5" fill="#33413A"/>
+        <circle cx="-16" cy="38" r="5" fill="#26312B"/><circle cx="48" cy="38" r="5" fill="#26312B"/><circle cx="62" cy="38" r="5" fill="#26312B"/></g>
+      <rect width="720" height="170" fill="url(#fade)"/></svg>`
   };
   // Activity with the person's initials: "M. Keller moved James Delgado to Interested, 10 minutes ago"
   const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); if (m < 1) return 'just now'; if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`; const h = Math.round(m / 60); if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`; return teamWhen(iso); };
