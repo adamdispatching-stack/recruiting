@@ -913,3 +913,14 @@ table.leads .assign select{max-width:145px}
 .cgai p{margin:6px 0;font-size:14px}
 @media (max-width:900px){ .cg2{grid-template-columns:minmax(0,1fr)} }
 .cgheard{margin:0 0 12px;font-size:14px;color:var(--ink)}
+
+/* sharing new leads */
+.sharewho{display:flex;flex-wrap:wrap;gap:8px 18px;margin:12px 0;padding:10px 12px;border:1px solid var(--hair);border-radius:10px}
+.sharewho legend{padding:0 6px;font-weight:700;color:var(--head);font-size:13.5px}
+#shareForm>.chk{display:flex;align-items:center;gap:8px;font-weight:600}
+.sharewho .chk{display:flex;align-items:center;gap:6px}
+.sharet{width:100%;min-width:0;margin-top:14px;border-collapse:collapse;font-size:14px;table-layout:auto}
+.sharet th{text-align:left;color:var(--mut);font-weight:600;font-size:12.5px;padding:6px 8px;border-bottom:1px solid var(--hair)}
+.sharet td{padding:8px;border-bottom:1px solid var(--hair)}
+.nextpill{margin-left:6px;padding:2px 8px;border-radius:8px;background:var(--green-t);color:#12451F;font-size:12px;font-weight:700}
+#sharing .drow{margin-top:12px}

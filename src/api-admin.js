@@ -1,5 +1,6 @@
 // Admin tools (people, access keys, settings, import and export) and the API the Chrome extension syncs with.
 const db = require('./db');
+const share = require('./share');
 const hours = require('./api-hours');
 const lib = require('./lib');
 const { q, sha, token, hashPassword } = db;
@@ -70,7 +71,7 @@ module.exports = (app) => {
   }));
 
   // ---------- settings ----------
-  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints }));
+  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share }));
   app.put('/api/settings', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const changed = [];
     if (b.tz !== undefined) { if (!validTz(b.tz)) return res.status(400).json({ error: 'That time zone is not known. Use a name like America/New_York.' }); if (b.tz !== db.settings.tz) { await db.saveSetting('tz', b.tz); changed.push('time zone'); } }
@@ -91,6 +92,11 @@ module.exports = (app) => {
       if (!list.length) return res.status(400).json({ error: 'The checklist needs at least one step' });
       if (JSON.stringify(list) !== JSON.stringify(db.settings.checklist)) { await db.saveSetting('checklist', list); await applyTemplate(list); changed.push('onboarding checklist'); }
     }
+    if (b.share !== undefined) {
+      const sh = b.share || {}; const ids = Array.isArray(sh.people) ? [...new Set(sh.people.map((x) => +x).filter(Boolean))] : null;
+      const v = { on: sh.on !== false, people: ids };
+      if (JSON.stringify(v) !== JSON.stringify(db.settings.share)) { await db.saveSetting('share', v); changed.push(v.on ? 'leads shared evenly' : 'leads not shared automatically'); }
+    }
     if (b.callPoints !== undefined) {
       const clean = (a) => (Array.isArray(a) ? a : []).map((x) => String(x || '').trim().slice(0, 400)).filter(Boolean).slice(0, 15);
       const v = { company: clean((b.callPoints || {}).company), owner: clean((b.callPoints || {}).owner) };
@@ -106,7 +112,7 @@ module.exports = (app) => {
       if (JSON.stringify(v) !== JSON.stringify(db.settings.hours)) { await db.saveSetting('hours', v); changed.push(`working hours (${hours.weekText(week)})`); }
     }
     if (changed.length) await act(req.user, 'admin', null, `Changed settings: ${changed.join(', ')}`);
-    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints });
+    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share });
   }));
 
   // ---------- export and import ----------
@@ -144,7 +150,7 @@ module.exports = (app) => {
       await c.query('BEGIN');
       for (const d of items) {
         await c.query('SAVEPOINT one');
-        try { if (await db.mergeFromExtension(c, d, req.key.name, { assignTo: req.key.assign_to })) n++; await c.query('RELEASE SAVEPOINT one'); }
+        try { if (await db.mergeFromExtension(c, d, req.key.name, { assignTo: req.key.assign_to, pick: db.settings.share.on ? () => share.pick(c) : null })) n++; await c.query('RELEASE SAVEPOINT one'); }
         catch (e) { await c.query('ROLLBACK TO SAVEPOINT one'); failed.push({ id: d && d.id, name: d && String(d.name || '').slice(0, 80), error: e.message.slice(0, 160) }); console.error('ext push: could not save', d && d.name, e.message); }
       }
       await c.query('COMMIT');

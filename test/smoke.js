@@ -33,6 +33,8 @@ const sql = async (text, params) => {
   const donId = (await post(admin, '/api/users', { name: 'Dana', email: 'dana@example.com', password: 'another-pass-1' })).body.id;
   const samId = (await post(admin, '/api/users', { name: 'Marcus', email: 'marcus@example.com', password: 'another-pass-2' })).body.id;
   ok(donId && samId, 'admin created two recruiter accounts');
+  // these checks are about a key's own recruiter; sharing leads evenly has its own test (test/share.js)
+  ok((await admin('/api/settings', { method: 'PUT', body: { share: { on: false, people: null } } })).body.share.on === false, 'sharing leads evenly can be turned off');
   ok((await post(admin, '/api/users', { name: 'Dup', email: 'dana@example.com', password: 'another-pass-1' })).status === 400, 'same email twice refused');
   ok((await post(don, '/api/login', { email: 'dana@example.com', password: 'another-pass-1' })).status === 200, 'recruiter signs in');
   await post(sam, '/api/login', { email: 'marcus@example.com', password: 'another-pass-2' });
@@ -106,8 +108,8 @@ const sql = async (text, params) => {
 
   console.log('\n# who owns a lead');
   ok((await patch(sam, '/api/drivers/' + frank, { ownerId: samId })).status === 403, 'a recruiter cannot take someone else\'s lead');
-  ok((await patch(don, '/api/drivers/' + frank, { ownerId: null })).status === 200, 'a recruiter can release their own lead');
-  ok((await patch(sam, '/api/drivers/' + frank, { ownerId: samId })).status === 200, 'another recruiter can take an unassigned lead');
+  ok((await patch(don, '/api/drivers/' + frank, { ownerId: null })).status === 403, 'a recruiter cannot let go of their own lead');
+  ok((await patch(admin, '/api/drivers/' + frank, { ownerId: samId })).status === 200, 'an admin moves a lead to another recruiter');
   ok((await post(admin, '/api/drivers/assign', { ids: [frank, d.id], ownerId: donId })).body.changed === 1, 'admin assigns several leads at once');
   ok((await post(don, '/api/drivers/assign', { ids: [frank], ownerId: samId })).status === 403, 'only an admin can bulk-assign');
   await admin('/api/settings', { method: 'PUT', body: { visibility: 'own' } });
@@ -231,7 +233,7 @@ const sql = async (text, params) => {
   ok((await patch(don, '/api/drivers/' + uma, { ownerId: donId })).status === 403, 'a lead with an active recruiter cannot be taken');
   ok((await patch(admin, '/api/users/' + samId, { active: false })).status === 200 && (await sam('/api/drivers')).status === 401, 'removing access signs the person out');
   ok((await admin('/api/drivers?owner=none')).body.drivers.some((x) => x.id === uma) && (await admin('/api/dashboard')).body.attention.unassigned >= 1, 'their leads count as having no recruiter');
-  ok((await patch(don, '/api/drivers/' + uma, { ownerId: donId })).status === 200, 'and another recruiter can take them');
+  ok((await patch(don, '/api/drivers/' + uma, { ownerId: donId })).status === 403 && (await patch(admin, '/api/drivers/' + uma, { ownerId: donId })).status === 200, 'an admin gives them to another recruiter; a recruiter cannot take them');
   ok((await anon('/')).status === 200 && (await anon('/healthz')).body === 'ok' && (await anon('/api/nope')).status === 404, 'website loads, health check, unknown API path');
   console.log(failed ? `\n${failed} FAILED` : '\nAll passed');
 })().catch((e) => { console.log('ERROR', e); process.exitCode = 1; });

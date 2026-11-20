@@ -160,4 +160,5 @@ module.exports.attendance = attendance;
 module.exports.loadPeople = loadPeople;
 module.exports.cleanWeek = cleanWeek;
 module.exports.weekText = weekText;
+module.exports.weekOf = weekOf;
 module.exports.monthBounds = monthBounds;

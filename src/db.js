@@ -252,6 +252,8 @@ const DEFAULTS = {
   ],
   // Working hours in the team time zone. week[0] is Sunday; null = not a working day.
   // A working day counts as worked with at least minMinutes of active time; starting more than grace minutes late is a late start.
+  // New leads are shared evenly between recruiters (people: null = every active recruiter who is not an admin)
+  share: { on: true, people: null },
   // What a recruiter mentions on a call (Settings, Call guide). From the company facts the Chrome extension's AI uses.
   callPoints: {
     company: [
@@ -341,7 +343,7 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
   if (!d) {
     const at0 = isoOrNull(rec.updatedAt);
     // a new lead belongs to the recruiter this Chrome profile's key is set up for (or to nobody yet)
-    const r = await c.query(`INSERT INTO drivers (name, name_key, account, created_at, updated_at, owner_id, assigned_at) VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()), LEAST(COALESCE($5::timestamptz, now()), now()), $6::int, CASE WHEN $6::int IS NULL THEN NULL ELSE now() END) RETURNING *`, [name, p.nameKey, p.account, isoOrNull(rec.createdAt), at0, opts.assignTo || null]);
+    const r = await c.query(`INSERT INTO drivers (name, name_key, account, created_at, updated_at, owner_id, assigned_at) VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()), LEAST(COALESCE($5::timestamptz, now()), now()), $6::int, CASE WHEN $6::int IS NULL THEN NULL ELSE now() END) RETURNING *`, [name, p.nameKey, p.account, isoOrNull(rec.createdAt), at0, opts.pick ? null : opts.assignTo || null]);
     d = r.rows[0];
   }
   const set = {}; const fields = { location: 'location', zip: 'zip', mode: 'mode', job: 'job', account: 'account', aiSummary: 'ai_summary', redFlags: 'red_flags', transcript: 'transcript', conversationUrl: 'conversation_url', lastMessage: 'last_message', profileSummary: 'profile_summary', lastActive: 'last_active' };
@@ -377,12 +379,22 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
     const forward = a >= 0 && b >= 0 ? a > b : newer;
     if ((byHand && !d.status_locked) || (!d.status_locked && forward)) { set.status = st; set.status_locked = byHand || LOCKING.includes(st); set.status_at = recAt; }
   }
-  // a lead nobody owns goes to the recruiter whose Chrome profile is working it
-  if (!d.owner_id && opts.assignTo && Object.keys(set).length) { set.owner_id = opts.assignTo; set.assigned_at = new Date().toISOString(); }
+  // a lead nobody owns gets a recruiter: the next one in line when leads are shared evenly,
+  // otherwise the recruiter this Chrome profile's key is set up for
+  let given = null;
+  if (!d.owner_id && Object.keys(set).length) {
+    const to = opts.pick ? await opts.pick() : opts.assignTo;
+    if (to) { set.owner_id = to; set.assigned_at = new Date().toISOString(); given = to; }
+  }
   if (Object.keys(set).length) {
     const cols = Object.keys(set);
     const at = isoOrNull(rec.updatedAt); // keep the real time of the activity (matters for imported backups)
     await c.query(`UPDATE drivers SET ${cols.map((k, i) => `${k} = $${i + 3}`).join(', ')}, updated_at = GREATEST(updated_at, LEAST(COALESCE($2::timestamptz, now()), now())) WHERE id = $1`, [d.id, at, ...cols.map((k) => set[k])]);
+    if (given) {
+      const who = (await c.query(`SELECT name FROM users WHERE id = $1`, [given])).rows[0];
+      await c.query(`INSERT INTO driver_events (driver_id, type, text, who, fp) VALUES ($1, 'web', $2, 'Website', $3)`,
+        [d.id, `Assigned to ${who ? who.name : 'a recruiter'}${opts.pick ? ' (leads shared evenly)' : ''}`, require('crypto').randomBytes(12).toString('hex')]);
+    }
     if (set.status) {
       // when it happened, not when it reached the website: an old backup must not look like this week's leads
       const firstReply = (Array.isArray(rec.events) ? rec.events : []).map((e) => (e && e.type === 'reply' ? isoOrNull(e.t) : null)).filter(Boolean).sort()[0];

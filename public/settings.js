@@ -12,14 +12,22 @@
   async function viewSettings() {
     document.title = 'Settings · FleetHire';
     const admin = S.me.role === 'admin';
-    let keys = [], cfg = null; const live = App.drawing();
-    if (admin) { keys = await api('/api/keys'); cfg = await api('/api/settings'); if (!live()) return; steps = cfg.checklist.map((x) => ({ ...x })); }
+    let keys = [], cfg = null, sh = null; const live = App.drawing();
+    if (admin) { [keys, cfg, sh] = await Promise.all([api('/api/keys'), api('/api/settings'), api('/api/share')]); if (!live()) return; steps = cfg.checklist.map((x) => ({ ...x })); }
     const people = S.me.people.filter((p) => p.active);
     view.innerHTML = header('settings') + `<main class="narrow">${App.pageHead(admin ? 'Settings' : 'Your password', admin ? 'Time zone, working hours, lead sources, the onboarding checklist and the Chrome extension.' : '')}
       ${admin ? `
       <section class="card"><h3>Team time zone</h3>
         <p class="hint lead">Reports count a day from midnight to midnight in this time zone, and "today" for follow-ups starts here. Pick the zone your recruiters' working day belongs to, so one shift is one day.</p>
         <form id="tzForm" class="form"><label class="fld">Time zone<select name="tz">${(ZONES.some(([z]) => z === cfg.tz) ? ZONES : [[cfg.tz, cfg.tz]].concat(ZONES)).map(([z, l]) => `<option value="${z}" ${z === cfg.tz ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label><button class="btn primary">Save</button></form></section>
+      <section class="card" id="sharing"><h3>Sharing new leads</h3>
+        <p class="hint lead">New leads from the Chrome extension go to the recruiter who has been given the fewest leads today, so everyone gets the same number. Someone on a day off or not working today is skipped. Leads a recruiter adds themselves stay theirs and don't count. Only an admin can change who a lead belongs to.</p>
+        <form id="shareForm"><label class="chk"><input type="checkbox" name="on" ${sh.on ? 'checked' : ''}> Share new leads evenly</label>
+          <fieldset class="sharewho"><legend>Who gets leads</legend>${S.me.people.filter((p) => p.active).map((p) => `<label class="chk"><input type="checkbox" name="p" value="${p.id}" ${(Array.isArray(cfg.share && cfg.share.people) ? cfg.share.people.includes(p.id) : p.role !== 'admin') ? 'checked' : ''}> ${esc(p.name)}${p.role === 'admin' ? ' <span class="mut">(admin)</span>' : ''}</label>`).join('')}</fieldset>
+          <button class="btn primary">Save</button></form>
+        ${sh.people.length ? `<table class="sharet"><thead><tr><th>Recruiter</th><th>Given today</th><th>Last 7 days</th><th>Status today</th></tr></thead><tbody>${sh.people.map((p) => `<tr><td><b>${esc(p.name)}</b>${p.id === sh.next && sh.on ? ' <span class="nextpill">gets the next lead</span>' : ''}</td><td>${p.today}</td><td>${p.week}</td><td>${p.off ? 'Day off' : p.working ? 'Working' : 'Not working today'}</td></tr>`).join('')}</tbody></table>` : '<p class="hint">Nobody is ticked to get leads.</p>'}
+        ${sh.waiting ? `<div class="drow"><span class="grow">${sh.waiting} lead${sh.waiting > 1 ? 's are' : ' is'} in progress with no recruiter.</span><button class="btn plain" data-act="shareNow">Share ${sh.waiting > 1 ? 'them' : 'it'} evenly now</button></div>` : ''}
+      </section>
       <section class="card" id="callpts"><h3>Call guide</h3>
         <p class="hint lead">What recruiters see under "Mention" on each lead, one point per line. The home time line is added from the driver's state.</p>
         <form id="callForm"><div class="grid2">
@@ -45,7 +53,7 @@
         <form id="tplForm"><ol class="tpl" id="tplList">${stepRows()}</ol>
           <div class="form" style="margin-top:8px"><button type="button" class="btn plain" data-act="stepNew">Add a step</button><button class="btn primary">Save checklist</button></div></form></section>
       <section class="card"><h3>Connect the Chrome extension</h3>
-        <p class="hint lead">Create one key for each Chrome profile. In that profile, open the extension's side panel, then Settings, then Shared database, and paste this website's address and the key. New leads from that profile go to the recruiter you choose.</p>
+        <p class="hint lead">Create one key for each Chrome profile. In that profile, open the extension's side panel, then Settings, then Shared database, and paste this website's address and the key. ${S.me.share ? 'New leads are shared evenly (see Sharing new leads above), so the recruiter set on a key is used only when sharing is off.' : 'New leads from that profile go to the recruiter you choose.'}</p>
         <form id="keyForm" class="form"><label class="fld">Name<input name="name" type="text" placeholder="e.g. Davy profile" required></label>
           <label class="fld">New leads go to<select name="assignTo"><option value="">Nobody (unassigned)</option>${people.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label><button class="btn primary">Create key</button></form>
         <div id="newKey"></div>
@@ -67,6 +75,7 @@
     const save = async (body, msg) => { try { await api('/api/settings', { method: 'PUT', body }); S.me = await api('/api/me'); toast(msg); viewSettings(); } catch (err) { fail(err); } };
     $('#tzForm').onsubmit = (e) => { e.preventDefault(); save({ tz: new FormData(e.target).get('tz') }, 'Time zone saved'); };
     $('#callForm').onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target); const lines = (k) => String(f.get(k) || '').split('\n').map((x) => x.trim()).filter(Boolean); await save({ callPoints: { company: lines('company'), owner: lines('owner') } }, 'Talking points saved'); await App.reloadMe(); };
+    $('#shareForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ share: { on: !!f.get('on'), people: f.getAll('p').map(Number) } }, 'Saved'); };
     $('#hoursForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ hours: { week: App.readWeek(e.target), minMinutes: +f.get('minMinutes'), grace: +f.get('grace') } }, 'Working hours saved'); };
     $('#visForm').onsubmit = (e) => { e.preventDefault(); save({ visibility: new FormData(e.target).get('visibility') }, 'Saved'); };
     $('#srcForm').onsubmit = (e) => { e.preventDefault(); save({ sources: String(new FormData(e.target).get('sources')).split('\n') }, 'Sources saved'); };
@@ -86,6 +95,11 @@
   on('delKey', async (b) => { if (!confirm('Revoke this key? That Chrome profile stops syncing until it gets a new key.')) return; await api('/api/keys/' + b.closest('[data-key]').dataset.key, { method: 'DELETE' }); viewSettings(); });
   on('copyKey', async (b) => { await navigator.clipboard.writeText($('#kc').textContent); b.textContent = 'Copied'; });
   App.onChange('keyAssign', async (el) => { await api('/api/keys/' + el.closest('[data-key]').dataset.key, { method: 'PATCH', body: { assignTo: el.value ? +el.value : null } }); toast('Saved'); });
+  on('shareNow', async (b) => {
+    b.disabled = true;
+    try { const r = await api('/api/share/now', { method: 'POST' }); toast(r.shared ? `Shared ${r.shared} lead${r.shared > 1 ? 's' : ''}: ${r.given.map((g) => `${g.name} ${g.n}`).join(', ')}` : 'Nobody is in line to get leads'); viewSettings(); }
+    catch (e) { fail(e); b.disabled = false; }
+  });
   on('import', async () => {
     const file = $('#impFile').files[0]; if (!file) { $('#impMsg').textContent = 'Pick a backup file first.'; return; }
     let data; try { data = JSON.parse(await file.text()); } catch (err) { $('#impMsg').textContent = 'That file is not a backup from the extension.'; return; }

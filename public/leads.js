@@ -73,7 +73,7 @@
         <td>${contact || '<span class="none">No contact yet</span>'}</td>
         <td>${esc(d.source || '') || '<span class="none">Not set</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}</td>
         <td>${App.coTag(d.companyId) || '<span class="none">Not assigned</span>'}</td>
-        <td>${admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. Anyone can take the lead.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}</td>
+        <td>${admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. An admin will give the lead to someone else.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}</td>
         </tr>`;
     }).join('');
     const any = sum('n');
@@ -148,7 +148,7 @@
         <label class="fld">Company<select name="companyId">${App.coOptions(null, 'Not decided yet')}</select></label>
         <label class="fld">Status<select name="status">${['Replied', 'Interested', 'Email collected', 'Relay invite sent', 'Signed up on Relay', 'Review'].map((s) => `<option ${s === 'Interested' ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
         <label class="fld">Follow up on<input name="followUp" type="date" min="${today()}"></label>
-        ${admin ? `<label class="fld">Recruiter<select name="ownerId">${people().map((p) => `<option value="${p.id}" ${p.id === S.me.id ? 'selected' : ''}>${esc(p.name)}${p.id === S.me.id ? ' (you)' : ''}</option>`).join('')}<option value="">Nobody yet</option></select></label>` : ''}
+        ${admin ? `<label class="fld">Recruiter<select name="ownerId">${S.me.share ? '<option value="share" selected>Next in line (shared evenly)</option>' : ''}${people().map((p) => `<option value="${p.id}" ${!S.me.share && p.id === S.me.id ? 'selected' : ''}>${esc(p.name)}${p.id === S.me.id ? ' (you)' : ''}</option>`).join('')}<option value="">Nobody yet</option></select></label>` : ''}
       </div>
       <label class="fld">First note<textarea name="note" placeholder="What they said, what to do next"></textarea></label>
       <div id="dupBox"></div><p class="err" id="addErr" role="alert"></p>
@@ -157,7 +157,7 @@
       f.onsubmit = async (e) => {
         e.preventDefault(); const body = Object.fromEntries(new FormData(f)); if (force) body.force = true;
         body.companyId = body.companyId ? +body.companyId : null;
-        if (admin) body.ownerId = body.ownerId ? +body.ownerId : null;
+        if (admin) body.ownerId = body.ownerId === 'share' ? 'share' : body.ownerId ? +body.ownerId : null;
         $('#addErr').textContent = ''; $('#dupBox').innerHTML = '';
         try { const r = await api('/api/drivers', { method: 'POST', body }); d.close(); toast('Lead added'); go('#/driver/' + r.id); }
         catch (err) {
@@ -331,8 +331,8 @@
     const all = S.me.route.concat(S.me.other); const lostish = S.me.lost.concat('Stalled').includes(d.status);
     const owner = admin
       ? '' && `<label class="fld">Recruiter<select data-ch="owner" data-fk="owner"><option value="">Nobody yet</option>${S.me.people.filter((p) => p.active || p.id === d.ownerId).map((p) => `<option value="${p.id}" ${p.id === d.ownerId ? 'selected' : ''}>${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select></label>`
-      : `<div class="fld">Recruiter<div class="ownerline">${d.ownerId && hasAccess(d.ownerId) ? `<b>${d.ownerId === S.me.id ? 'You' : esc(person(d.ownerId))}</b>${d.ownerId === S.me.id ? '<button class="linkbtn" data-act="releaseLead">Release</button>' : ''}`
-        : `<span class="mut">${d.ownerId ? esc(person(d.ownerId)) + ', no access now' : 'Nobody yet'}</span><button class="btn plain sm" data-act="takeLead">Take this lead</button>`}</div></div>`;
+      : `<div class="fld">Recruiter<div class="ownerline">${d.ownerId && hasAccess(d.ownerId) ? `<b>${d.ownerId === S.me.id ? 'You' : esc(person(d.ownerId))}</b>`
+        : `<span class="mut">${d.ownerId ? esc(person(d.ownerId)) + ', no access now' : 'Nobody yet'}. An admin assigns it.</span>`}</div></div>`;
     const noteHtml = (n) => `<li data-note="${n.id}"><div class="meta"><b>${esc(n.author)}</b>${n.kind ? `<span class="ck">${esc(CONTACT_TEXT(n))}</span>` : ''}${n.fromExtension ? '<span class="ext">from the extension</span>' : ''}<span class="grow">${esc(when(n.createdAt))}${n.updatedAt && new Date(n.updatedAt) - new Date(n.createdAt) > 60000 ? ', edited' : ''}</span>
       ${n.mine || admin ? '<button class="linkbtn" data-act="editNote">Edit</button><button class="linkbtn red" data-act="delNote">Delete</button>' : ''}</div><div class="body">${esc(n.body)}</div></li>`;
     const sourceLine = [d.source, d.sourceDetail].filter(Boolean).map(esc).join(', ');
@@ -440,8 +440,6 @@
   onChange('onbField', (el) => patchOnb({ [el.dataset.f]: el.value }, 'Saved'));
   onChange('step', async (el) => { try { await api('/api/checklist/' + el.closest('[data-step]').dataset.step, { method: 'PATCH', body: { done: el.checked } }); } catch (e) { fail(e); } await again(); });
   on('fuQuick', (b) => patch({ followUp: b.dataset.days ? addDays(today(), +b.dataset.days) : null }, b.dataset.days ? 'Follow-up saved' : 'Follow-up cleared'));
-  on('takeLead', () => patch({ ownerId: S.me.id }, 'This lead is yours now'));
-  on('releaseLead', () => { if (confirm('Release this lead? It goes back to the unassigned leads and another recruiter can take it.')) patch({ ownerId: null }, 'Lead released'); });
   on('startOnb', () => patch({ status: 'Onboarding' }, 'Onboarding started'));
   on('hire', () => { const left = cur.onboarding.items.filter((i) => !i.done).length; if (!left || confirm(`${plural(left, 'step')} still open. Mark as hired anyway?`)) patch({ status: 'Hired' }, 'Marked as hired'); });
   on('logContact', (b) => addNote({ kind: b.dataset.kind, outcome: b.dataset.outcome }));

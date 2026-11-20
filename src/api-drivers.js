@@ -1,6 +1,7 @@
 // Leads: the list, one driver, notes and contact log, who owns a lead.
 const db = require('./db');
 const lib = require('./lib');
+const share = require('./share');
 const { q } = db;
 const { wrap, needUser, needAdmin, act, history, record, loadDriver, visSql, canSee, isDate, niceDate } = lib;
 
@@ -128,8 +129,8 @@ module.exports = (app) => {
         duplicates: (strong.length ? strong : weak).map((x) => ({ id: canSee(req.user, x) ? x.id : null, name: x.name, status: x.status, owner: x.owner_id ? people[x.owner_id] || null : null })) });
     }
     const status = db.ORDER.includes(b.status) ? b.status : 'Interested';
-    let ownerId = req.user.id;
-    if (req.user.role === 'admin' && b.ownerId !== undefined) ownerId = b.ownerId ? +b.ownerId : null;
+    let ownerId = req.user.id; // a recruiter keeps the leads they find themselves
+    if (req.user.role === 'admin' && b.ownerId !== undefined) ownerId = b.ownerId === 'share' ? await share.pick() : b.ownerId ? +b.ownerId : null;
     if (ownerId && !(await q(`SELECT 1 FROM users WHERE id = $1 AND active`, [ownerId])).rows[0]) return res.status(400).json({ error: 'That person cannot take leads' });
     const mode = MODES.includes(b.mode) ? b.mode : null;
     const pf = profileFields(b); if (pf.error) return res.status(400).json({ error: pf.error });
@@ -147,6 +148,31 @@ module.exports = (app) => {
     const note = String(b.note || '').trim();
     if (note) { await q(`INSERT INTO notes (driver_id, user_id, body) VALUES ($1, $2, $3)`, [d.id, req.user.id, note.slice(0, 5000)]); await act(req.user, 'note', d, note.slice(0, 140)); }
     res.json({ id: d.id });
+  }));
+
+  // Sharing leads evenly: who is in line, and handing out the leads nobody has (admin).
+  app.get('/api/share', needUser, needAdmin, wrap(async (req, res) => {
+    const people = (await share.standings()).sort(share.order);
+    const waiting = (await q(`SELECT count(*)::int n FROM drivers d WHERE ${lib.unownedSql('d')} AND d.status <> 'Hired' AND NOT (d.status = ANY($1::text[]))`, [db.LOST])).rows[0].n;
+    res.json({ ...db.settings.share, next: await share.pick(), people, waiting });
+  }));
+  app.post('/api/share/now', needUser, needAdmin, wrap(async (req, res) => {
+    const c = await db.pool.connect(); const given = {}; const done = [];
+    try {
+      await c.query('BEGIN');
+      const rows = (await c.query(`SELECT d.id FROM drivers d WHERE ${lib.unownedSql('d')} AND d.status <> 'Hired' AND NOT (d.status = ANY($1::text[])) ORDER BY d.created_at FOR UPDATE`, [db.LOST])).rows;
+      for (const r of rows) {
+        const to = await share.pick(c); if (!to) break;
+        await c.query(`UPDATE drivers SET owner_id = $2, assigned_at = now() WHERE id = $1`, [r.id, to]);
+        given[to] = (given[to] || 0) + 1; done.push([r.id, to]);
+      }
+      await c.query('COMMIT');
+    } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+    const names = Object.fromEntries((await q(`SELECT id, name FROM users WHERE id = ANY($1::int[])`, [Object.keys(given).map(Number)])).rows.map((x) => [x.id, x.name]));
+    for (const [id, to] of done) await history(id, `Assigned to ${names[to]} (leads shared evenly)`, req.user.name);
+    const n = done.length;
+    if (n) await act(req.user, 'assign', null, `Shared ${n} unassigned lead${n > 1 ? 's' : ''} evenly: ${Object.entries(given).map(([id, k]) => `${names[id]} ${k}`).join(', ')}`);
+    res.json({ ok: true, shared: n, given: Object.entries(given).map(([id, k]) => ({ id: +id, name: names[id], n: k })) });
   }));
 
   // Give several leads to one recruiter at once.
@@ -221,11 +247,11 @@ module.exports = (app) => {
     if (b.answers && typeof b.answers === 'object') set.answers = JSON.stringify(b.answers);
     if (b.lostReason !== undefined) { const v = LOST_REASONS.includes(b.lostReason) ? b.lostReason : null; if (v !== cur.lost_reason) { set.lost_reason = v; if (v) log.push(['edit', `Reason: ${v}`]); } }
     if (edited) log.push(['edit', 'Edited contact details']);
-    // who owns the lead: an admin decides; a recruiter can take a lead nobody has, or let go of their own
+    // who owns the lead: only an admin changes it (new leads are shared evenly)
     if (b.ownerId !== undefined) {
       const to = b.ownerId ? +b.ownerId : null;
       if (to !== cur.owner_id) {
-        if (u.role !== 'admin' && !((to === u.id && lib.unowned(cur)) || (to === null && cur.owner_id === u.id))) return res.status(403).json({ error: 'Only an admin can move a lead between recruiters' });
+        if (u.role !== 'admin') return res.status(403).json({ error: 'Only an admin can change the recruiter on a lead' });
         if (to && !(await q(`SELECT 1 FROM users WHERE id = $1 AND active`, [to])).rows[0]) return res.status(400).json({ error: 'That person cannot take leads' });
         set.owner_id = to; set.assigned_at = to ? new Date().toISOString() : null;
         log.push(['assign', to === u.id ? 'Took the lead' : to === null ? (cur.owner_id === u.id ? 'Released the lead' : 'Set to no recruiter') : `Assigned to ${await personName(to)}`]);
