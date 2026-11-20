@@ -2,7 +2,7 @@
 (() => {
   const { $, $$, esc, view, S, api, toast, fail, go, on, onChange, redraw, header, badge, fmtPhone, when, shortWhen, today, addDays, dateText, dayOf, fuText, person, hasAccess, dialog, plural } = App;
   const SHORT = { 'Declined on Indeed': 'Declined' };
-  const LABELS = { cdl: 'License', qualify: 'CDL and record', qualifyNote: 'Screening', endorsements: 'Endorsements', freight: 'Freight hauled', relay: 'Amazon Relay', relayApp: 'Relay sign-up', equipment: 'Truck', currentJob: 'Working now', availability: 'Can start', interest: 'Interest', lookingFor: 'Looking for', homeTimeWanted: 'Home time', payExpectation: 'Pay wanted', home: 'Home', declineReason: 'Declined because', notes: 'Other details', fullName: 'Full name', zip: 'Zip' };
+  const LABELS = { cdl: 'License', qualify: 'CDL and record', qualifyNote: 'Screening', endorsements: 'Endorsements', freight: 'Freight hauled', relay: 'Amazon Relay', relayApp: 'Relay sign-up', telegram: 'Telegram', equipment: 'Truck', currentJob: 'Working now', availability: 'Can start', interest: 'Interest', lookingFor: 'Looking for', homeTimeWanted: 'Home time', payExpectation: 'Pay wanted', home: 'Home', declineReason: 'Declined because', notes: 'Other details', fullName: 'Full name', zip: 'Zip' };
   const label = (k) => LABELS[k] || k.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
   const ICON_SEARCH = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
   const one = (mode) => (mode || '').replace(/s$/, '').replace('Owner-operator', 'Owner operator');
