@@ -32,6 +32,11 @@
         ${sh.people.length ? `<table class="sharet"><thead><tr><th>Recruiter</th><th>Given today</th><th>Last 7 days</th><th>Status today</th></tr></thead><tbody>${sh.people.map((p) => `<tr><td><b>${esc(p.name)}</b>${p.id === sh.next && sh.on ? ' <span class="nextpill">gets the next lead</span>' : ''}</td><td>${p.today}</td><td>${p.week}</td><td>${p.off ? 'Day off' : p.working ? 'Working' : 'Not working today'}</td></tr>`).join('')}</tbody></table>` : '<p class="hint">Nobody is ticked to get leads.</p>'}
         ${sh.waiting ? `<div class="drow"><span class="grow">${sh.waiting} lead${sh.waiting > 1 ? 's are' : ' is'} in progress with no recruiter.</span><button class="btn plain" data-act="shareNow">Share ${sh.waiting > 1 ? 'them' : 'it'} evenly now</button></div>` : ''}
       </section>
+      <section class="card" id="noanswer"><h3>Indeed message after a missed call</h3>
+        <p class="hint lead">When a recruiter logs "Called, no answer" or "Left voicemail" on a lead that came from an Indeed chat, the Chrome extension sends this message in that chat. It goes out from a Chrome profile that has the chat, with Indeed Messages open and auto-reply on. At most one every 12 hours to the same driver. {first} is the driver's first name, {me} the first name of the person who called.</p>
+        <form id="naForm" class="naform"><label class="chk"><input type="checkbox" name="on" ${(cfg.noAnswer || {}).on !== false ? 'checked' : ''}> Send it</label>
+          <label class="fld">Message<textarea name="text" rows="3" maxlength="600">${esc((cfg.noAnswer || {}).text || '')}</textarea></label>
+          <button class="btn primary">Save</button></form></section>
       <section class="card" id="callpts"><h3>Call guide</h3>
         <p class="hint lead">What recruiters see under "Mention" on each lead, one point per line. The home time line is added from the driver's state.</p>
         <form id="callForm"><div class="grid2">
@@ -83,6 +88,7 @@
     $('#tzForm').onsubmit = (e) => { e.preventDefault(); save({ tz: new FormData(e.target).get('tz') }, 'Time zone saved'); };
     $('#callForm').onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target); const lines = (k) => String(f.get(k) || '').split('\n').map((x) => x.trim()).filter(Boolean); await save({ callPoints: { company: lines('company'), owner: lines('owner') } }, 'Talking points saved'); await App.reloadMe(); };
     $('#fbtForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ fbTargets: { post: +f.get('post'), comment: +f.get('comment'), contact: +f.get('contact'), chat: +f.get('chat') } }, 'Targets saved'); };
+    $('#naForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ noAnswer: { on: !!f.get('on'), text: String(f.get('text') || '') } }, 'Saved'); };
     $('#shareForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ share: { on: !!f.get('on'), people: f.getAll('p').map(Number) } }, 'Saved'); };
     $('#hoursForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ hours: { week: App.readWeek(e.target), minMinutes: +f.get('minMinutes'), grace: +f.get('grace'), idleMinutes: +f.get('idleMinutes'), idleAlert: +f.get('idleAlert') } }, 'Working hours saved'); };
     $('#visForm').onsubmit = (e) => { e.preventDefault(); save({ visibility: new FormData(e.target).get('visibility') }, 'Saved'); };

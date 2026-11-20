@@ -261,6 +261,23 @@ async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS notices_user ON notices(user_id, seen_at);
     ALTER TABLE notices ADD COLUMN IF NOT EXISTS driver_id INT REFERENCES drivers(id) ON DELETE CASCADE;
+    -- Indeed messages the website asks the Chrome extension to send (after a call with no answer).
+    -- pending -> sending (an extension took it) -> sent | failed
+    CREATE TABLE IF NOT EXISTS indeed_outbox (
+      id SERIAL PRIMARY KEY,
+      driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+      note_id INT REFERENCES notes(id) ON DELETE SET NULL,
+      created_by INT REFERENCES users(id) ON DELETE SET NULL,
+      text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      claimed_by TEXT,
+      claimed_at TIMESTAMPTZ,
+      done_at TIMESTAMPTZ,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS indeed_outbox_status ON indeed_outbox(status, created_at);
+    CREATE INDEX IF NOT EXISTS indeed_outbox_driver ON indeed_outbox(driver_id, created_at);
     CREATE TABLE IF NOT EXISTS days_off (
       user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       day DATE NOT NULL,
@@ -359,6 +376,9 @@ const DEFAULTS = {
   // A working day counts as worked with at least minMinutes of active time; starting more than grace minutes late is a late start.
   // Facebook daily targets for each recruiter (0 = not asked for)
   fbTargets: { post: 5, comment: 15, contact: 20, chat: 2 },
+  // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
+  // {first} = the driver's first name, {me} = the first name of the person who called.
+  noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },
   // New leads are shared evenly between recruiters (people: null = every active recruiter who is not an admin)
   share: { on: true, people: null },
   // What a recruiter mentions on a call (Settings, Call guide). From the company facts the Chrome extension's AI uses.

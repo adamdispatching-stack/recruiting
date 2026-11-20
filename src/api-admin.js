@@ -71,7 +71,7 @@ module.exports = (app) => {
   }));
 
   // ---------- settings ----------
-  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets }));
+  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets, noAnswer: db.settings.noAnswer }));
   app.put('/api/settings', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const changed = [];
     if (b.tz !== undefined) { if (!validTz(b.tz)) return res.status(400).json({ error: 'That time zone is not known. Use a name like America/New_York.' }); if (b.tz !== db.settings.tz) { await db.saveSetting('tz', b.tz); changed.push('time zone'); } }
@@ -97,6 +97,12 @@ module.exports = (app) => {
       for (const k of ['post', 'comment', 'contact', 'chat']) { const n = Math.round(+t[k]); if (!(n >= 0 && n <= 200)) return res.status(400).json({ error: 'Daily targets: a number from 0 to 200' }); v[k] = n; }
       if (JSON.stringify(v) !== JSON.stringify(db.settings.fbTargets)) { await db.saveSetting('fbTargets', v); changed.push(`Facebook daily targets (${v.post} posts, ${v.comment} comments, ${v.contact} drivers messaged, ${v.chat} group chats)`); }
     }
+    if (b.noAnswer !== undefined) {
+      const n = b.noAnswer || {}; const text = String(n.text || '').trim().slice(0, 600);
+      if (n.on !== false && !text) return res.status(400).json({ error: 'Write the message, or turn it off' });
+      const v = { on: n.on !== false, text: text || db.settings.noAnswer.text };
+      if (JSON.stringify(v) !== JSON.stringify(db.settings.noAnswer)) { await db.saveSetting('noAnswer', v); changed.push(v.on ? 'Indeed message after a missed call' : 'no Indeed message after a missed call'); }
+    }
     if (b.share !== undefined) {
       const sh = b.share || {}; const ids = Array.isArray(sh.people) ? [...new Set(sh.people.map((x) => +x).filter(Boolean))] : null;
       const v = { on: sh.on !== false, people: ids };
@@ -120,7 +126,7 @@ module.exports = (app) => {
       if (JSON.stringify(v) !== JSON.stringify(db.settings.hours)) { await db.saveSetting('hours', v); changed.push(`working hours (${hours.weekText(week)})`); }
     }
     if (changed.length) await act(req.user, 'admin', null, `Changed settings: ${changed.join(', ')}`);
-    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets });
+    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets, noAnswer: db.settings.noAnswer });
   }));
 
   // ---------- export and import ----------

@@ -342,8 +342,11 @@
       ? '' && `<label class="fld">Recruiter<select data-ch="owner" data-fk="owner"><option value="">Nobody yet</option>${S.me.people.filter((p) => p.active || p.id === d.ownerId).map((p) => `<option value="${p.id}" ${p.id === d.ownerId ? 'selected' : ''}>${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select></label>`
       : `<div class="fld">Recruiter<div class="ownerline">${d.ownerId && hasAccess(d.ownerId) ? `<b>${d.ownerId === S.me.id ? 'You' : esc(person(d.ownerId))}</b>`
         : `<span class="mut">${d.ownerId ? esc(person(d.ownerId)) + ', no access now' : 'Nobody yet'}. An admin assigns it.</span>`}</div></div>`;
+    const IM = { pending: ['wait', 'Indeed message waiting for Chrome'], sending: ['wait', 'Sending on Indeed…'], sent: ['ok', 'Indeed message sent'], failed: ['bad', 'Indeed message not sent'] };
+    const imHtml = (n) => (r.indeedMsgs || []).filter((m) => m.noteId === n.id).map((m) => `<div class="imsg ${IM[m.status][0]}" data-im="${m.id}" title="${esc(m.text)}"><span>${IM[m.status][1]}${m.status === 'sent' && m.doneAt ? ', ' + esc(when(m.doneAt)) : ''}${m.status === 'failed' && m.error ? `: ${esc(m.error)}` : ''}</span>
+      ${m.status === 'failed' ? '<button type="button" class="linkbtn" data-act="imRetry">Try again</button>' : m.status === 'pending' ? '<button type="button" class="linkbtn" data-act="imStop">Don\'t send</button>' : ''}</div>`).join('');
     const noteHtml = (n) => `<li data-note="${n.id}"><div class="meta"><b>${esc(n.author)}</b>${n.kind ? `<span class="ck">${esc(CONTACT_TEXT(n))}</span>` : ''}${n.fromExtension ? '<span class="ext">from the extension</span>' : ''}<span class="grow">${esc(when(n.createdAt))}${n.updatedAt && new Date(n.updatedAt) - new Date(n.createdAt) > 60000 ? ', edited' : ''}</span>
-      ${n.mine || admin ? '<button class="linkbtn" data-act="editNote">Edit</button><button class="linkbtn red" data-act="delNote">Delete</button>' : ''}</div><div class="body">${esc(n.body)}</div></li>`;
+      ${n.mine || admin ? '<button class="linkbtn" data-act="editNote">Edit</button><button class="linkbtn red" data-act="delNote">Delete</button>' : ''}</div><div class="body">${esc(n.body)}</div>${imHtml(n)}</li>`;
     const sourceLine = [d.source, d.sourceDetail].filter(Boolean).map(esc).join(', ');
     const onb = ob ? onbCard(d, ob) : '';
     view.innerHTML = header('leads') + `<main>
@@ -403,7 +406,7 @@
                 <button type="button" class="btn plain sm" data-act="logContact" data-kind="call" data-outcome="No answer">Called, no answer</button>
                 <button type="button" class="btn plain sm" data-act="logContact" data-kind="call" data-outcome="Left voicemail">Left voicemail</button>
                 <button type="button" class="btn plain sm" data-act="logContact" data-kind="text" data-outcome="Sent">Texted</button>
-                <button type="button" class="btn plain sm" data-act="logContact" data-kind="email" data-outcome="Sent">Emailed</button></div></form>
+                <button type="button" class="btn plain sm" data-act="logContact" data-kind="email" data-outcome="Sent">Emailed</button></div>${r.indeedChat && S.me.noAnswerOn ? '<p class="hint imhint">No answer or voicemail: Chrome also sends an Indeed message in this driver\'s chat.</p>' : ''}</form>
             ${r.notes.length ? `<ul class="notes">${r.notes.map(noteHtml).join('')}</ul>` : '<p class="hint" style="margin:10px 0 0">No notes yet.</p>'}
           </section>
           <section class="card"><h3>Conversation</h3>${d.transcript ? `<div class="convo" id="cv">${convoHtml(d.transcript)}</div>` : '<p class="hint">No Indeed conversation saved for this driver.</p>'}</section>
@@ -439,7 +442,12 @@
   async function patchOnb(body, okText) { try { await api(`/api/drivers/${cur.driver.id}/onboarding`, { method: 'PATCH', body }); if (okText) toast(okText); } catch (e) { fail(e); } await again(); }
   async function addNote(extra = {}) {
     const box = $('#newNote'); const body = box.value.trim(); if (!body && !extra.kind) { box.focus(); return; }
-    try { await api(`/api/drivers/${cur.driver.id}/notes`, { method: 'POST', body: { body, ...extra } }); box.value = ''; toast(extra.kind ? 'Contact logged' : 'Note added'); await again(); } catch (e) { fail(e); }
+    try {
+      const r = await api(`/api/drivers/${cur.driver.id}/notes`, { method: 'POST', body: { body, ...extra } }); box.value = '';
+      const ix = r.indeed;
+      toast(ix && ix.queued ? 'Call logged. An Indeed message goes out from Chrome' : ix && ix.skip && (ix.why === 'recent' || ix.why === 'lost') ? `Call logged. No Indeed message: ${ix.skip}` : extra.kind ? 'Contact logged' : 'Note added');
+      await again();
+    } catch (e) { fail(e); }
   }
   onChange('status', (el) => (S.me.needReason.includes(el.value) ? askWhy(el.value) : patch({ status: el.value }, el.value === 'Onboarding' ? 'Onboarding started' : 'Status saved')));
   on('whyEdit', () => askWhy(null));
@@ -502,6 +510,8 @@
   on('startOnb', () => patch({ status: 'Onboarding' }, 'Onboarding started'));
   on('hire', () => { const left = cur.onboarding.items.filter((i) => !i.done).length; if (!left || confirm(`${plural(left, 'step')} still open. Mark as hired anyway?`)) patch({ status: 'Hired' }, 'Marked as hired'); });
   on('logContact', (b) => addNote({ kind: b.dataset.kind, outcome: b.dataset.outcome }));
+  on('imRetry', async (b) => { await api('/api/indeed-outbox/' + b.closest('[data-im]').dataset.im, { method: 'POST', body: { action: 'retry' } }); toast('It goes out again from Chrome'); await again(); });
+  on('imStop', async (b) => { await api('/api/indeed-outbox/' + b.closest('[data-im]').dataset.im, { method: 'POST', body: { action: 'cancel' } }); toast('Not sent'); await again(); });
   on('editContact', () => { const f = $('#contactForm'); f.hidden = !f.hidden; if (!f.hidden) f.querySelector('input').focus(); });
   on('cancelContact', () => { $('#contactForm').hidden = true; });
   on('editNote', (b) => {

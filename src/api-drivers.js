@@ -2,6 +2,7 @@
 const db = require('./db');
 const lib = require('./lib');
 const share = require('./share');
+const outbox = require('./indeed-outbox');
 const { q } = db;
 const { wrap, needUser, needAdmin, act, history, record, loadDriver, visSql, canSee, isDate, niceDate } = lib;
 
@@ -111,7 +112,8 @@ module.exports = (app) => {
     const ops = require('./api-ops');
     res.json({ driver: toClient(d),
       notes: notes.rows.map((n) => ({ id: n.id, body: n.body, kind: n.kind, outcome: n.outcome, author: n.author || (n.source ? 'Chrome extension (' + n.source.slice(4) + ')' : 'Unknown'), mine: n.user_id === req.user.id, fromExtension: !!n.source, createdAt: n.created_at, updatedAt: n.updated_at })),
-      events: ev.rows, onboarding: await ops.onboardingOf(d.id), lostReasons: LOST_REASONS });
+      events: ev.rows, onboarding: await ops.onboardingOf(d.id), lostReasons: LOST_REASONS, indeedMsgs: await outbox.ofDriver(d.id),
+      indeedChat: !!(d.conversation_url && /[?&]conversationId=/.test(d.conversation_url)) });
   }));
 
   // Add a lead by hand. The source is required, and someone already in the list is not added twice.
@@ -332,7 +334,9 @@ module.exports = (app) => {
     if (kind) await act(req.user, 'contact', d, `${CONTACT_WORD[kind]}, ${outcome.toLowerCase()}${body ? ': ' + body.slice(0, 140) : ''}`);
     else await act(req.user, 'note', d, body.slice(0, 140));
     if (d.owner_id && d.owner_id !== req.user.id) await db.notify(db.pool, d.owner_id, 'note', `${req.user.name} on ${d.name}: ${kind ? CONTACT_WORD[kind] + ', ' + outcome.toLowerCase() + (body ? ' - ' : '') : ''}${body.slice(0, 160)}`, `#/driver/${d.id}`, { driverId: d.id });
-    res.json({ id: r.rows[0].id });
+    // a missed call on a lead with an Indeed chat: the Chrome extension sends "I just tried to call you" there
+    const indeed = kind === 'call' && b.indeed !== false ? await outbox.afterCall(d, req.user, outcome, r.rows[0].id).catch((e) => ({ skip: e.message })) : null;
+    res.json({ id: r.rows[0].id, indeed });
   }));
   async function ownNote(req, res) {
     const n = (await q(`SELECT * FROM notes WHERE id = $1`, [+req.params.id || 0])).rows[0];
