@@ -122,8 +122,26 @@ window.App = (() => {
     if (!S.me) return;
     const body = JSON.stringify({ active: !document.hidden && Date.now() - sig.last < 31000, visible: !document.hidden, clicks: sig.clicks, mobile: !!onMobile, ...extra });
     sig.clicks = 0;
-    fetch('/api/beat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, credentials: 'same-origin', keepalive: true }).catch(() => {});
+    fetch('/api/beat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, credentials: 'same-origin', keepalive: true })
+      .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.notices) showNotices(j.notices); }).catch(() => {});
   }
+  // ---------- alerts (idle alerts): a box at the top right, and a desktop notification when allowed ----------
+  const shownN = new Set(JSON.parse(sessionStorage.getItem('fhShown') || '[]'));
+  function showNotices(list) {
+    let box = document.getElementById('notices');
+    if (!list.length) { if (box) box.remove(); return; }
+    if (!box) { box = document.createElement('div'); box.id = 'notices'; box.setAttribute('role', 'alert'); document.body.appendChild(box); }
+    const canAsk = 'Notification' in window && Notification.permission === 'default';
+    box.innerHTML = list.map((n) => `<div class="notice" data-n="${n.id}"><b>Idle alert</b><p>${esc(n.text)}</p>
+      <div class="nrow">${n.link ? `<a href="${esc(n.link)}" data-act="noticeOpen">Open</a>` : ''}<button type="button" class="linkbtn" data-act="noticeSeen">Dismiss</button></div></div>`).join('')
+      + (canAsk ? '<button type="button" class="btn plain sm" data-act="noticePerm">Also show alerts on my desktop</button>' : '');
+    for (const n of list) {
+      if (shownN.has(n.id)) continue; shownN.add(n.id);
+      try { if ('Notification' in window && Notification.permission === 'granted') { const x = new Notification('FleetHire: idle alert', { body: n.text, tag: 'fh' + n.id }); x.onclick = () => { window.focus(); if (n.link) go(n.link); }; } } catch (e) { /* not allowed here */ }
+    }
+    try { sessionStorage.setItem('fhShown', JSON.stringify([...shownN].slice(-50))); } catch (e) { /* private mode */ }
+  }
+  const seen = async (ids) => { await fetch('/api/notices/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }), credentials: 'same-origin' }).catch(() => {}); };
   function startSignals() { if (sig.timer) return; beat({ start: true }); sig.timer = setInterval(beat, 30000); }
   function stopSignals() { clearInterval(sig.timer); sig.timer = null; sig.page = ''; }
   document.addEventListener('visibilitychange', () => { if (document.hidden) beat(); });
@@ -239,6 +257,10 @@ window.App = (() => {
     return d;
   }
   on('closeDialog', () => { const d = $('#dlg'); if (d) d.close(); });
+  const dropNotice = (b) => { const el = b.closest('.notice'); const id = +el.dataset.n; el.remove(); seen([id]); const box = $('#notices'); if (box && !box.querySelector('.notice')) box.remove(); };
+  on('noticeSeen', (b) => dropNotice(b));
+  on('noticeOpen', (b, e) => { e.preventDefault(); const to = b.getAttribute('href'); dropNotice(b); go(to); });
+  on('noticePerm', async (b) => { try { await Notification.requestPermission(); } catch (e) { /* blocked */ } b.remove(); });
 
   // ---------- sign-in ----------
   function viewLogin() {

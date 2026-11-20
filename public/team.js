@@ -17,6 +17,10 @@
     return `<span class="dtag ${tag[0]}">${tag[1]}</span>${d.late ? '<span class="dtag bad">Late start</span>' : ''}${d.early ? '<span class="dtag warn">Left early</span>' : ''}<div class="small mut">${esc(hoursText(d.sch))}</div>`;
   }
 
+  // idle time: total, how many stretches, and whether the person is idle right now
+  const idleCell = (t) => (t.idle ? `${dur(t.idle)}${t.idleCount > 1 ? `<div class="small mut">${t.idleCount} times</div>` : ''}${t.idleNow ? '<div><span class="idletag now">Idle now</span></div>' : ''}` : '<span class="none">None</span>');
+  const idleList = (d) => d.idles.map((i) => `${esc(hm(i.from))} to ${esc(hm(i.to))} (${dur(i.secs)}${i.now ? ', still idle' : ''}${i.alerted ? ', alert sent' : ''})`).join('<br>');
+
   // ---------- the team table ----------
   async function viewTeam() {
     if (S.me.role !== 'admin') return go('#/team/me');
@@ -27,19 +31,19 @@
     const row = (p) => `<tr class="${p.active ? '' : 'off'}"><th scope="row"><a href="#/team/${p.id}">${esc(p.name)}</a>${p.role === 'admin' ? '<span class="rtag">Admin</span>' : ''}${p.active ? presenceHtml(p, r.now) : '<span class="pres never"><i></i>No access</span>'}</th>
       ${day ? `<td>${todayCell(p.day)}</td><td>${p.firstAt ? esc(teamTime(p.firstAt)) : '<span class="none">Not seen</span>'}</td><td>${p.lastAt ? esc(teamTime(p.lastAt)) : ''}</td>`
         : `<td class="n" title="${esc(p.weekText)}">${p.att.worked - p.att.extra} of ${p.att.scheduled}${p.att.extra ? `<div class="small mut">+${plural(p.att.extra, 'extra day')}</div>` : ''}</td><td class="n${p.att.off ? ' bad' : ''}">${num(p.att.off)}${p.att.approved ? `<div class="small mut">+${p.att.approved} approved</div>` : ''}</td><td class="n${p.att.late ? ' bad' : ''}">${num(p.att.late)}</td>`}
-      <td class="n">${dur(p.openSeconds)}</td><td class="n strong">${dur(p.activeSeconds)}</td><td class="n">${num(p.clicks)}</td>
+      <td class="n">${dur(p.openSeconds)}</td><td class="n strong">${dur(p.activeSeconds)}</td><td class="n${p.att.idle ? ' bad' : ''}">${idleCell(p.att)}</td><td class="n">${num(p.clicks)}</td>
       <td class="n g">${hl(p.opened)}</td><td class="n">${hl(p.notes)}</td><td class="n">${hl(p.contacts)}</td><td class="n">${hl(p.added)}</td><td class="n">${hl(p.forward)}</td>
       <td class="n g">${hl(p.onboarded)}</td><td class="n">${hl(p.hired)}</td>
       <td class="n g${p.due ? ' bad' : ''}">${num(p.due)}</td><td class="n${p.cold ? ' bad' : ''}">${num(p.cold)}</td><td class="n">${num(p.owned)}</td></tr>`;
     view.innerHTML = header('team') + `<main>${App.pageHead('Team performance', "Who is active, what they are working on, and the leads and hires they are moving forward.", `<button class="btn primary lg" data-act="personAdd">${App.plus} Add a person</button>`)}${periodBar()}</div>
       <div class="sheet"><table class="team"><thead>
-        <tr class="grp"><th></th><th colspan="6">${day ? 'Presence and activity, ' + (r.period === 'today' ? 'today' : 'yesterday') : 'Days and time'}</th><th colspan="5" class="g">Recruiting work</th><th colspan="2" class="g">Hires</th><th colspan="3" class="g">Lead follow-up</th></tr>
-        <tr><th>Person</th>${day ? '<th style="width:150px">Working day</th><th>First seen</th><th>Last seen</th>' : '<th class="n" title="Working days with at least the minimum active time (Settings, Working hours)">Days worked</th><th class="n" title="Working days without enough active time">Days off</th><th class="n">Late starts</th>'}<th class="n" title="The site was open and on screen">On site</th><th class="n" title="Time with clicks, typing or scrolling">Active</th><th class="n">Clicks</th>
+        <tr class="grp"><th></th><th colspan="7">${day ? 'Presence and activity, ' + (r.period === 'today' ? 'today' : 'yesterday') : 'Days and time'}</th><th colspan="5" class="g">Recruiting work</th><th colspan="2" class="g">Hires</th><th colspan="3" class="g">Lead follow-up</th></tr>
+        <tr><th>Person</th>${day ? '<th style="width:150px">Working day</th><th>First seen</th><th>Last seen</th>' : '<th class="n" title="Working days with at least the minimum active time (Settings, Working hours)">Days worked</th><th class="n" title="Working days without enough active time">Days off</th><th class="n">Late starts</th>'}<th class="n" title="The site was open and on screen">On site</th><th class="n" title="Time with clicks, typing or scrolling">Active</th><th class="n" title="Stretches of ${S.me.idleMinutes || 15}+ minutes inside working hours with no activity on the website">Idle</th><th class="n">Clicks</th>
           <th class="n g" title="Different leads opened">Leads opened</th><th class="n">Notes</th><th class="n" title="Calls, texts and emails logged">Calls, texts</th><th class="n">Leads added</th><th class="n" title="Status changes they made that moved a lead forward">Moved forward</th>
           <th class="n g">Onboarding</th><th class="n">Hired</th>
           <th class="n g" title="Follow-ups due today or earlier">Follow-ups due</th><th class="n" title="In progress, no follow-up set, quiet for ${S.me.coldDays}+ days">Going cold</th><th class="n" title="Leads in progress they own">In progress</th></tr></thead>
         <tbody>${r.people.map(row).join('')}</tbody>
-        <tfoot><tr><th scope="row">Team total</th><td colspan="5"></td><td class="n">${num(tot.clicks)}</td><td class="n g">${num(tot.opened)}</td><td class="n">${num(tot.notes)}</td><td class="n">${num(tot.contacts)}</td><td class="n">${num(tot.added)}</td><td class="n">${num(tot.forward)}</td>
+        <tfoot><tr><th scope="row">Team total</th><td colspan="6"></td><td class="n">${num(tot.clicks)}</td><td class="n g">${num(tot.opened)}</td><td class="n">${num(tot.notes)}</td><td class="n">${num(tot.contacts)}</td><td class="n">${num(tot.added)}</td><td class="n">${num(tot.forward)}</td>
           <td class="n g">${num(tot.onboarded)}</td><td class="n">${num(tot.hired)}</td><td class="n g">${num(tot.due)}</td><td class="n">${num(tot.cold)}</td><td class="n">${num(tot.owned)}</td></tr></tfoot></table></div>
       <p class="hint foot">Only the website on a computer counts here: time, clicks, pages and leads opened on a phone or tablet are left out. <b>Active</b> counts only the time someone clicked, typed or scrolled while the site was on screen. <b>On site</b> also counts time the page was open and untouched.
         Time and clicks show presence, and they are easy to inflate. Judge the work by the middle columns and the results: notes, calls, leads moved forward, drivers hired.</p></main>`;
@@ -112,11 +116,12 @@
       return `<button class="cal ${DCLS[d.status]}${d.date === m.today ? ' istoday' : ''}" data-act="dayOpen" data-d="${d.date}" aria-label="${esc(App.dateText(d.date, { weekday: 'long', month: 'long' }))}: ${esc(dayLabel(d) || 'not yet')}${d.active ? ', ' + dur(d.active) + ' active' : ''}${d.late ? ', late start' : ''}">
         <span class="dn">${n}</span><span class="ds">${esc(d.status === 'approved' ? 'Off, approved' : DAY[d.status])}</span>
         ${show ? `<span class="dt">${dur(d.active)}</span><span class="dx">${d.first ? esc(hm(d.first)) + ' to ' + esc(hm(d.last)) : ''}</span>` : ''}
+        ${d.idle ? `<span class="didle">${dur(d.idle)} idle</span>` : ''}
         ${d.late || d.early ? `<span class="dflags">${d.late ? '<i class="bad">Late</i>' : ''}${d.early ? '<i class="warn">Left early</i>' : ''}</span>` : ''}</button>`;
     };
     const row = (d) => `<tr class="${DCLS[d.status]}"><td>${esc(App.dateText(d.date, { weekday: 'short' }))}</td><td>${esc(dayLabel(d))}${d.late ? ' <span class="dtag bad">Late</span>' : ''}${d.early ? ' <span class="dtag warn">Left early</span>' : ''}</td>
       <td class="small">${d.sch ? esc(hoursText(d.sch)) : '<span class="none">None</span>'}</td><td>${d.first ? esc(hm(d.first)) : ''}</td><td>${d.last ? esc(hm(d.last)) : ''}</td>
-      <td class="n strong">${d.active ? dur(d.active) : ''}</td><td class="n">${d.sch && d.active ? dur(d.inHours) : ''}</td><td class="n">${d.contacts || ''}</td><td class="n">${d.notes || ''}</td><td class="n">${d.added || ''}</td><td class="n">${d.moved || ''}</td></tr>`;
+      <td class="n strong">${d.active ? dur(d.active) : ''}</td><td class="n">${d.sch && d.active ? dur(d.inHours) : ''}</td><td class="n">${d.idle ? dur(d.idle) : ''}</td><td class="n">${d.contacts || ''}</td><td class="n">${d.notes || ''}</td><td class="n">${d.added || ''}</td><td class="n">${d.moved || ''}</td></tr>`;
     const shown = m.days.filter((d) => !['future', 'before'].includes(d.status));
     return `<section class="card report" aria-labelledby="rptTitle">
       <div class="rhead"><h3 id="rptTitle">Monthly report</h3>
@@ -132,7 +137,7 @@
           ${fig(`${t.worked - t.extra} of ${t.scheduled}`, 'working days worked')}${fig(t.off, 'days off', 'Working days without enough active time', t.off)}
           ${fig(t.approved, 'approved days off')}${fig(t.extra, 'extra days', 'Days worked outside the working week')}${fig(t.late, 'late starts', '', t.late)}${fig(t.early, 'left early')}</dl></div>
         <div><h4>Time</h4><dl class="figs">
-          ${fig(dur(t.active), 'active')}${fig(dur(t.avgActive), 'active per day worked')}${fig(pct(t.inHours, t.active), 'inside working hours', 'Share of active time that fell inside the working hours')}${fig(dur(t.open), 'on site')}</dl></div>
+          ${fig(dur(t.active), 'active')}${fig(dur(t.idle), 'idle', `Stretches of ${m.hours.idleMinutes || 15}+ minutes in working hours with no activity${t.idleCount ? ` (${t.idleCount})` : ''}`, t.idle)}${fig(dur(t.avgActive), 'active per day worked')}${fig(pct(t.inHours, t.active), 'inside working hours', 'Share of active time that fell inside the working hours')}${fig(dur(t.open), 'on site')}</dl></div>
         <div><h4>Work</h4><dl class="figs">
           ${fig(t.contacts, 'calls, texts, emails', `${t.calls} of them calls`)}${fig(t.notes, 'notes')}${fig(t.added, 'leads added')}${fig(t.moved, 'moved forward')}${fig(t.onboarded, 'to onboarding', 'Their leads that started onboarding this month')}${fig(t.hired, 'hired')}</dl></div>
       </div>
@@ -140,7 +145,7 @@
         <div class="calgrid">${'<span class="cal blank"></span>'.repeat(lead)}${m.days.map(cell).join('')}</div></div>
       <div class="legend noprint"><span><i class="ok"></i>Worked</span><span><i class="bad"></i>Off</span><span><i class="warn"></i>Off, approved</span><span><i class="ok extra"></i>Extra day</span><span><i class="rest"></i>Not a working day</span>
         <span class="grow"></span><button class="linkbtn" data-act="dayTable" aria-expanded="false">Show day by day</button></div>
-      <div class="scroll daytbl" hidden><table class="mini days"><thead><tr><th>Date</th><th>Day</th><th>Hours</th><th>Started</th><th>Ended</th><th class="n">Active</th><th class="n">In hours</th><th class="n">Calls, texts</th><th class="n">Notes</th><th class="n">Added</th><th class="n">Moved</th></tr></thead>
+      <div class="scroll daytbl" hidden><table class="mini days"><thead><tr><th>Date</th><th>Day</th><th>Hours</th><th>Started</th><th>Ended</th><th class="n">Active</th><th class="n">In hours</th><th class="n">Idle</th><th class="n">Calls, texts</th><th class="n">Notes</th><th class="n">Added</th><th class="n">Moved</th></tr></thead>
         <tbody>${shown.map(row).join('') || '<tr><td colspan="11" class="hint">No days yet.</td></tr>'}</tbody></table></div>
       ${admin ? '<p class="hint foot noprint">Click a day to see it, or to approve a day off (vacation, sick day). Approved days off are counted apart from days off.</p>' : ''}
     </section>`;
@@ -156,7 +161,7 @@
     dialog(`<div class="dform"><h2>${esc(App.dateText(d.date, { weekday: 'long', month: 'long', year: 'numeric' }))}</h2>
       <p><span class="dtag ${DCLS[d.status].split(' ')[0]}">${esc(dayLabel(d) || 'Not yet')}</span>${d.late ? '<span class="dtag bad">Late start</span>' : ''}${d.early ? '<span class="dtag warn">Left early</span>' : ''}</p>
       <dl class="kv">${line('Working hours', esc(hoursText(d.sch)))}
-        ${past ? line('Started', d.first ? esc(hm(d.first)) : 'Not seen') + line('Ended', d.last ? esc(hm(d.last)) : 'Not seen') + line('Active', dur(d.active)) + (d.sch ? line('Inside working hours', dur(d.inHours)) : '') + line('On site', dur(d.open))
+        ${past ? line('Started', d.first ? esc(hm(d.first)) : 'Not seen') + line('Ended', d.last ? esc(hm(d.last)) : 'Not seen') + line('Active', dur(d.active)) + (d.sch ? line('Inside working hours', dur(d.inHours)) : '') + (d.sch ? line('Idle', d.idle ? `${dur(d.idle)}<div class="small mut">${idleList(d)}</div>` : 'None') : '') + line('On site', dur(d.open))
           + line('Calls, texts, emails', d.contacts) + line('Notes', d.notes) + line('Leads added', d.added) + line('Moved forward', d.moved) : ''}</dl>
       ${d.status === 'off' && d.active ? `<p class="hint">Active for ${dur(d.active)}, less than the ${plural(m.hours.minMinutes, 'minute')} a worked day needs.</p>` : ''}
       ${canOff && d.status !== 'approved' ? `<form id="offForm" class="form" style="margin-top:12px"><label class="fld">Reason (optional)<input name="reason" type="text" maxlength="80" list="offReasons" placeholder="Vacation, sick day…"></label>
@@ -211,7 +216,7 @@
       ${periodBar()}</div>
       ${self && !admin ? '<p class="hint foot" style="margin:0 0 10px">This is your own activity. Your manager sees the same page.</p>' : ''}
       <section class="card"><dl class="figs wide">
-        ${fig(dur(p.activeSeconds), 'active', 'Time with clicks, typing or scrolling')}${fig(dur(p.openSeconds), 'on site', 'The site was open and on screen')}
+        ${fig(dur(p.activeSeconds), 'active', 'Time with clicks, typing or scrolling')}${fig(dur(p.att.idle), 'idle', 'Stretches inside working hours with no activity on the website', p.att.idle)}${fig(dur(p.openSeconds), 'on site', 'The site was open and on screen')}
         ${day ? fig(p.firstAt ? esc(teamTime(p.firstAt)) : 'Not seen', 'first seen') + fig(p.lastAt ? esc(teamTime(p.lastAt)) : 'Not seen', 'last seen') : fig(`${p.att.worked - p.att.extra} of ${p.att.scheduled}`, 'days worked', 'Working days with enough active time') + fig(p.att.off, 'days off')}
         ${fig(p.clicks.toLocaleString(), 'clicks')}${fig(p.opened, 'leads opened')}${fig(p.notes, 'notes')}${fig(p.contacts, 'calls, texts, emails', `${p.calls} of them calls`)}${fig(p.added, 'leads added')}${fig(p.forward, 'moved forward', 'Status changes they made that moved a lead forward')}
         ${fig(p.onboarded, 'to onboarding', 'Their leads that started onboarding')}${fig(p.hired, 'hired', 'Their leads that were hired')}

@@ -52,6 +52,9 @@ async function attendance(users, from, to) {
     FROM activity WHERE user_id = ANY($1::int[]) AND at >= ${fromTs} AND at < ${toTs} GROUP BY 1, 2`, [ids, from, to, tz])).rows;
   const moved = (await q(`SELECT user_id, to_char(at AT TIME ZONE $4, 'YYYY-MM-DD') d, count(*)::int n FROM status_log
     WHERE user_id = ANY($1::int[]) AND at >= ${fromTs} AND at < ${toTs} AND array_position($5::text[], to_status) > array_position($5::text[], from_status) GROUP BY 1, 2`, [ids, from, to, tz, db.ROUTE])).rows;
+  const idles = (await q(`SELECT user_id, to_char(started_at AT TIME ZONE $4, 'YYYY-MM-DD') d, to_char(started_at AT TIME ZONE $4, 'HH24:MI') f, to_char(ended_at AT TIME ZONE $4, 'HH24:MI') t,
+      round(extract(epoch FROM ended_at - started_at))::int secs, open, notified_at IS NOT NULL alerted
+    FROM idle_spells WHERE user_id = ANY($1::int[]) AND started_at >= ${fromTs} AND started_at < ${toTs} ORDER BY started_at`, [ids, from, to, tz])).rows;
   const offs = (await q(`SELECT user_id, day::text d, reason FROM days_off WHERE user_id = ANY($1::int[]) AND day BETWEEN $2::date AND $3::date`, [ids, from, to])).rows;
   const dates = (await q(`SELECT g::date::text d, extract(dow FROM g)::int dow FROM generate_series($1::date, $2::date, interval '1 day') g ORDER BY g`, [from, to])).rows;
   const out = {};
@@ -76,7 +79,9 @@ async function attendance(users, from, to) {
       else status = 'off';
       const late = !!(worked && sch && first && mins(first) > mins(sch.s) + H.grace);
       const early = !!(worked && sch && last && d < today && mins(last) < mins(sch.e) - H.grace);
+      const sp = idles.filter((x) => x.user_id === u.id && x.d === d);
       return { date: d, dow, sch, status, active, open, inHours, first, last, late, early, offReason: off ? off.reason || '' : null,
+        idle: sp.reduce((a, x) => a + x.secs, 0), idles: sp.map((x) => ({ from: x.f, to: x.t, secs: x.secs, now: x.open, alerted: x.alerted })),
         clicks: hs.reduce((a, x) => a + x.c, 0), views: hs.reduce((a, x) => a + x.v, 0),
         notes: w.notes || 0, contacts: w.contacts || 0, calls: w.calls || 0, added: w.added || 0, opened: w.opened || 0,
         moved: (moved.find((x) => x.user_id === u.id && x.d === d) || {}).n || 0 };
@@ -86,7 +91,7 @@ async function attendance(users, from, to) {
     const t = {
       scheduled: n((x) => x.sch && !['future', 'before', 'today'].includes(x.status)), // working days so far (today counts once it is worked)
       worked: workedDays, extra: n((x) => x.status === 'extra'), off: n((x) => x.status === 'off'), approved: n((x) => x.status === 'approved' && x.sch),
-      late: n((x) => x.late), early: n((x) => x.early), active: sum('active'), open: sum('open'), inHours: sum('inHours'),
+      late: n((x) => x.late), early: n((x) => x.early), idle: sum('idle'), idleCount: days.reduce((a, x) => a + x.idles.length, 0), idleNow: days.some((x) => x.idles.some((i) => i.now)), active: sum('active'), open: sum('open'), inHours: sum('inHours'),
       notes: sum('notes'), contacts: sum('contacts'), calls: sum('calls'), added: sum('added'), moved: sum('moved'), opened: sum('opened'), clicks: sum('clicks')
     };
     t.avgActive = workedDays ? Math.round(t.active / workedDays) : 0;

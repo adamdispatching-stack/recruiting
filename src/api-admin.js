@@ -108,7 +108,10 @@ module.exports = (app) => {
       const minMinutes = Math.round(+h.minMinutes), grace = Math.round(+h.grace);
       if (!(minMinutes >= 1 && minMinutes <= 600)) return res.status(400).json({ error: 'Minimum active time for a worked day: 1 to 600 minutes' });
       if (!(grace >= 0 && grace <= 180)) return res.status(400).json({ error: 'Late after: 0 to 180 minutes' });
-      const v = { week, minMinutes, grace };
+      const idleMinutes = h.idleMinutes === undefined ? db.settings.hours.idleMinutes : Math.round(+h.idleMinutes), idleAlert = h.idleAlert === undefined ? db.settings.hours.idleAlert : Math.round(+h.idleAlert);
+      if (!(idleMinutes >= 5 && idleMinutes <= 120)) return res.status(400).json({ error: 'Idle after: 5 to 120 minutes' });
+      if (!(idleAlert >= idleMinutes && idleAlert <= 480)) return res.status(400).json({ error: `Idle alert after: ${idleMinutes} to 480 minutes` });
+      const v = { week, minMinutes, grace, idleMinutes, idleAlert };
       if (JSON.stringify(v) !== JSON.stringify(db.settings.hours)) { await db.saveSetting('hours', v); changed.push(`working hours (${hours.weekText(week)})`); }
     }
     if (changed.length) await act(req.user, 'admin', null, `Changed settings: ${changed.join(', ')}`);

@@ -1,5 +1,6 @@
 // Activity tracking, the Team pages, and the dashboard.
 const db = require('./db');
+const idle = require('./idle');
 const lib = require('./lib');
 const hours = require('./api-hours');
 const { q } = db;
@@ -64,12 +65,23 @@ module.exports = (app) => {
     const since = (t) => (t ? Math.round((now - new Date(t).getTime()) / 1000) : 1e9);
     const worked = active && !b.start ? Math.max(0, Math.min(BEAT, since(u.last_active_at))) : 0;
     const open = visible && !b.start ? Math.max(worked, Math.min(BEAT, since(u.last_visible_at))) : 0; // active time is always part of the time on site
+    if (active) await idle.onActive(u.id, u.last_active_at).catch((e) => console.error('idle', e.message)); // back after a long gap: record it
     await q(`UPDATE users SET last_seen_at = now(), last_visible_at = CASE WHEN $2 THEN now() ELSE last_visible_at END, last_active_at = CASE WHEN $3 THEN now() ELSE last_active_at END WHERE id = $1`, [u.id, visible, active]);
     if (visible || clicks) {
       await q(`INSERT INTO activity_hours (user_id, hour, active_seconds, open_seconds, clicks) VALUES ($1, date_trunc('hour', now()), $2, $3, $4)
         ON CONFLICT (user_id, hour) DO UPDATE SET active_seconds = LEAST(3600, activity_hours.active_seconds + EXCLUDED.active_seconds),
           open_seconds = LEAST(3600, activity_hours.open_seconds + EXCLUDED.open_seconds), clicks = activity_hours.clicks + EXCLUDED.clicks, last_at = now()`, [u.id, worked, open, clicks]);
     }
+    const notices = (await q(`SELECT id, kind, text, link, created_at FROM notices WHERE user_id = $1 AND seen_at IS NULL ORDER BY created_at DESC LIMIT 5`, [u.id])).rows;
+    res.json({ ok: true, notices });
+  }));
+  // Alerts for the person signed in (idle alerts). Seen = dismissed.
+  app.get('/api/notices', needUser, wrap(async (req, res) => {
+    res.json({ notices: (await q(`SELECT id, kind, text, link, created_at, seen_at FROM notices WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30`, [req.user.id])).rows });
+  }));
+  app.post('/api/notices/seen', needUser, wrap(async (req, res) => {
+    const ids = (Array.isArray((req.body || {}).ids) ? req.body.ids : []).map(Number).filter(Boolean);
+    await q(`UPDATE notices SET seen_at = now() WHERE user_id = $1 AND seen_at IS NULL ${ids.length ? 'AND id = ANY($2::int[])' : ''}`, ids.length ? [req.user.id, ids] : [req.user.id]);
     res.json({ ok: true });
   }));
   // A page was opened. Opening a lead is also written to the person's feed (once per 10 minutes per lead).

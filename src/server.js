@@ -56,7 +56,7 @@ app.get('/api/me', needUser, wrap(async (req, res) => {
   const people = await q(`SELECT id, name, role, active FROM users ORDER BY lower(name)`);
   const companies = await q(`SELECT id, name, color FROM companies ORDER BY lower(name)`);
   res.json({ id: req.user.id, email: req.user.email, name: req.user.name, role: req.user.role, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources,
-    callPoints: db.settings.callPoints, ai: !!process.env.ANTHROPIC_API_KEY, share: !!(db.settings.share && db.settings.share.on),
+    idleMinutes: db.settings.hours.idleMinutes, callPoints: db.settings.callPoints, ai: !!process.env.ANTHROPIC_API_KEY, share: !!(db.settings.share && db.settings.share.on),
     people: people.rows, companies: companies.rows, route: db.ROUTE, other: db.OTHER, active: db.ACTIVE, lost: db.LOST, coldDays: db.COLD_DAYS, today: await lib.today() });
 }));
 app.post('/api/me/password', needUser, wrap(async (req, res) => {
@@ -98,4 +98,5 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
   await q(`DELETE FROM logins WHERE at < now() - interval '400 days'`);
   const port = process.env.PORT || 3000;
   app.listen(port, () => console.log(`Recruiting pipeline on port ${port}`));
+  require('./idle').start(); // idle time and idle alerts, checked every minute
 })().catch((e) => { console.error(e); process.exit(1); });

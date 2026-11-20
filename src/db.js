@@ -180,6 +180,29 @@ async function migrate() {
       note TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS checklist_key ON checklist(driver_id, key);
+    -- a stretch of working hours with no activity on the website (only long ones are kept)
+    CREATE TABLE IF NOT EXISTS idle_spells (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      started_at TIMESTAMPTZ NOT NULL,
+      ended_at TIMESTAMPTZ NOT NULL,
+      shift_end TIMESTAMPTZ NOT NULL,
+      open BOOLEAN NOT NULL DEFAULT TRUE,
+      notified_at TIMESTAMPTZ,
+      UNIQUE (user_id, started_at)
+    );
+    CREATE INDEX IF NOT EXISTS idle_spells_user ON idle_spells(user_id, started_at);
+    -- messages for one person on the website (idle alerts)
+    CREATE TABLE IF NOT EXISTS notices (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      text TEXT NOT NULL,
+      link TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      seen_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS notices_user ON notices(user_id, seen_at);
     CREATE TABLE IF NOT EXISTS days_off (
       user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       day DATE NOT NULL,
@@ -270,15 +293,18 @@ const DEFAULTS = {
       'A new MC can lease on under ours. Amazon runs its own background check through the Relay invite.'
     ]
   },
-  hours: { week: [null, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, null], minMinutes: 30, grace: 15 }
+  hours: { week: [null, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, { s: '09:00', e: '18:00' }, null], minMinutes: 30, grace: 15, idleMinutes: 15, idleAlert: 60 }
 };
 const settings = { ...DEFAULTS };
 async function loadSettings() {
   const r = await q(`SELECT key, value FROM settings`);
   Object.assign(settings, DEFAULTS);
-  for (const row of r.rows) if (row.key in DEFAULTS) settings[row.key] = row.value;
+  const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
+  // a saved group of settings gets any newer default keys it does not have yet (e.g. idle minutes in working hours)
+  for (const row of r.rows) if (row.key in DEFAULTS) settings[row.key] = plain(DEFAULTS[row.key]) && plain(row.value) ? { ...DEFAULTS[row.key], ...row.value } : row.value;
 }
 async function saveSetting(key, value) {
+  if (value && typeof value === 'object' && !Array.isArray(value) && DEFAULTS[key] && typeof DEFAULTS[key] === 'object' && !Array.isArray(DEFAULTS[key])) value = { ...DEFAULTS[key], ...value };
   await q(`INSERT INTO settings (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, JSON.stringify(value)]);
   settings[key] = value;
 }

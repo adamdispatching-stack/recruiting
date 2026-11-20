@@ -40,7 +40,10 @@
           <div class="form" style="margin-top:12px">
             <label class="fld">A day counts as worked after<span class="fldunit"><input name="minMinutes" type="number" min="1" max="600" required value="${cfg.hours.minMinutes}"> minutes active</span></label>
             <label class="fld">Late start after<span class="fldunit"><input name="grace" type="number" min="0" max="180" required value="${cfg.hours.grace}"> minutes</span></label>
-            <button class="btn primary">Save working hours</button></div></form></section>
+            <label class="fld">Count as idle after<span class="fldunit"><input name="idleMinutes" type="number" min="5" max="120" required value="${cfg.hours.idleMinutes || 15}"> minutes</span></label>
+            <label class="fld">Alert the person and admins after<span class="fldunit"><input name="idleAlert" type="number" min="5" max="480" required value="${cfg.hours.idleAlert || 60}"> minutes idle</span></label>
+            <button class="btn primary">Save working hours</button></div>
+          <p class="hint" style="margin-top:8px">Idle time: a stretch inside working hours, after the person started their day, with no clicks, typing or scrolling on the website. Shorter stretches are not counted.</p></form></section>
       <section class="card"><h3>Who sees which leads</h3>
         <form id="visForm"><label class="chk radio"><input type="radio" name="visibility" value="all" ${cfg.visibility === 'all' ? 'checked' : ''}><span><b>Everyone sees every lead.</b> Good for a small team that covers for each other.</span></label>
           <label class="chk radio"><input type="radio" name="visibility" value="own" ${cfg.visibility === 'own' ? 'checked' : ''}><span><b>Recruiters see only their own leads and leads nobody has taken.</b> Admins still see everything.</span></label>
@@ -76,7 +79,7 @@
     $('#tzForm').onsubmit = (e) => { e.preventDefault(); save({ tz: new FormData(e.target).get('tz') }, 'Time zone saved'); };
     $('#callForm').onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target); const lines = (k) => String(f.get(k) || '').split('\n').map((x) => x.trim()).filter(Boolean); await save({ callPoints: { company: lines('company'), owner: lines('owner') } }, 'Talking points saved'); await App.reloadMe(); };
     $('#shareForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ share: { on: !!f.get('on'), people: f.getAll('p').map(Number) } }, 'Saved'); };
-    $('#hoursForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ hours: { week: App.readWeek(e.target), minMinutes: +f.get('minMinutes'), grace: +f.get('grace') } }, 'Working hours saved'); };
+    $('#hoursForm').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); save({ hours: { week: App.readWeek(e.target), minMinutes: +f.get('minMinutes'), grace: +f.get('grace'), idleMinutes: +f.get('idleMinutes'), idleAlert: +f.get('idleAlert') } }, 'Working hours saved'); };
     $('#visForm').onsubmit = (e) => { e.preventDefault(); save({ visibility: new FormData(e.target).get('visibility') }, 'Saved'); };
     $('#srcForm').onsubmit = (e) => { e.preventDefault(); save({ sources: String(new FormData(e.target).get('sources')).split('\n') }, 'Sources saved'); };
     $('#tplForm').onsubmit = (e) => { e.preventDefault(); readSteps(); save({ checklist: steps.filter((s) => s.label.trim()) }, 'Checklist saved'); };
