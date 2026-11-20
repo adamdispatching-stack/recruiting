@@ -133,10 +133,18 @@ module.exports = (app) => {
   app.get('/api/ext/ping', needKey, (req, res) => res.json({ ok: true, name: req.key.name }));
   app.post('/api/ext/push', needKey, wrap(async (req, res) => {
     const items = Array.isArray((req.body || {}).drivers) ? req.body.drivers.slice(0, 500) : [];
-    const c = await db.pool.connect(); let n = 0;
-    try { await c.query('BEGIN'); for (const d of items) { if (await db.mergeFromExtension(c, d, req.key.name, { assignTo: req.key.assign_to })) n++; } await c.query('COMMIT'); }
-    catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
-    res.json({ ok: true, merged: n });
+    // One record that cannot be saved must never hold back the others: each one gets its own savepoint.
+    const c = await db.pool.connect(); let n = 0; const failed = [];
+    try {
+      await c.query('BEGIN');
+      for (const d of items) {
+        await c.query('SAVEPOINT one');
+        try { if (await db.mergeFromExtension(c, d, req.key.name, { assignTo: req.key.assign_to })) n++; await c.query('RELEASE SAVEPOINT one'); }
+        catch (e) { await c.query('ROLLBACK TO SAVEPOINT one'); failed.push({ id: d && d.id, name: d && String(d.name || '').slice(0, 80), error: e.message.slice(0, 160) }); console.error('ext push: could not save', d && d.name, e.message); }
+      }
+      await c.query('COMMIT');
+    } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
+    res.json({ ok: true, merged: n, failed });
   }));
   // What changed on the website since the last pull: team notes, status set by hand, follow-ups, tags.
   app.get('/api/ext/pull', needKey, wrap(async (req, res) => {

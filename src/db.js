@@ -367,12 +367,12 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
     await c.query(`UPDATE drivers SET ${cols.map((k, i) => `${k} = $${i + 3}`).join(', ')}, updated_at = GREATEST(updated_at, LEAST(COALESCE($2::timestamptz, now()), now())) WHERE id = $1`, [d.id, at, ...cols.map((k) => set[k])]);
     if (set.status) {
       // when it happened, not when it reached the website: an old backup must not look like this week's leads
-      const firstReply = (rec.events || []).map((e) => (e && e.type === 'reply' ? isoOrNull(e.t) : null)).filter(Boolean).sort()[0];
+      const firstReply = (Array.isArray(rec.events) ? rec.events : []).map((e) => (e && e.type === 'reply' ? isoOrNull(e.t) : null)).filter(Boolean).sort()[0];
       await statusChanged(c, d, set.status, { via: 'extension', at, leadAt: firstReply || at });
     }
   }
   // history
-  const events = [...(rec.events || []), ...(rec.event ? [{ ...rec.event, t: rec.event.t || new Date().toISOString() }] : [])];
+  const events = [...(Array.isArray(rec.events) ? rec.events : []), ...(rec.event && typeof rec.event === 'object' ? [{ ...rec.event, t: rec.event.t || new Date().toISOString() }] : [])];
   for (const e of events.slice(-80)) {
     if (!e || !e.text) continue;
     const t = isoOrNull(e.t) || new Date().toISOString();
