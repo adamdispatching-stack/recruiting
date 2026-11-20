@@ -153,7 +153,7 @@ module.exports = (app) => {
       [week.from, week.to, month.from, month.to, db.ROUTE, ENGAGED])).rows[0];
     const sources = await q(`SELECT COALESCE(source, 'Not set') source, count(*)::int leads, count(*) FILTER (WHERE status = ANY($3::text[]))::int engaged, count(*) FILTER (WHERE status IN ('Onboarding', 'Hired'))::int won
       FROM drivers WHERE lead_at >= $1 AND lead_at < $2 GROUP BY 1 ORDER BY 2 DESC, 1`, [month.from, month.to, ENGAGED]);
-    const lost = await q(`SELECT COALESCE(NULLIF(lost_reason, ''), 'No reason given') reason, count(*)::int n FROM drivers d
+    const lost = await q(`SELECT COALESCE(NULLIF(lost_reason, ''), CASE WHEN status IN ('No CDL', 'Declined on Indeed') THEN status ELSE 'No reason given' END) reason, count(*)::int n FROM drivers d
       WHERE status = ANY($1::text[]) AND EXISTS (SELECT 1 FROM status_log s WHERE s.driver_id = d.id AND s.at >= $2 AND s.to_status = d.status) GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 8`, [db.LOST.concat('Stalled'), month.from]);
     const feed = await q(`SELECT a.*, u.name user_name FROM activity a JOIN users u ON u.id = a.user_id WHERE a.type NOT IN ('open', 'logout') ORDER BY a.at DESC LIMIT 40`);
     res.json({ role: 'admin', now, today: day.today, tz,
