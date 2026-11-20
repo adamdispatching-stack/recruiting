@@ -866,3 +866,12 @@ table.team td.n .hl{background:var(--green-t);color:#12451F}
 .hero{min-height:150px}
 @media (max-width:1100px){ .heroimg{opacity:.4} }
 @media (max-width:900px){ .heroimg{width:100%;opacity:.3} }
+
+/* recruiter picker (admin): initials and a plain dropdown, in lists and at the top of a lead */
+.assign{display:inline-flex;align-items:center;gap:7px;max-width:100%}
+.assign select{min-width:0;max-width:150px;height:32px;padding:0 26px 0 9px;border:1px solid #DAD6CF;border-radius:8px;background-color:var(--card);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}
+.assign select:hover{border-color:var(--green)}
+.assign.big select{max-width:220px;height:40px;font-size:15px;font-weight:700}
+.assign.big .av{width:36px;height:36px;font-size:13px}
+.ownbox{display:flex;flex-direction:column;gap:4px;margin-right:6px}
+.ownbox>span{color:var(--mut);font-size:12.5px;font-weight:600}

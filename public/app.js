@@ -83,6 +83,8 @@ window.App = (() => {
   // Activity with the person's initials: "M. Keller moved James Delgado to Interested, 10 minutes ago"
   const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); if (m < 1) return 'just now'; if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`; const h = Math.round(m / 60); if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`; return teamWhen(iso); };
   const feedAv = (rows) => (rows.length ? `<ol class="feedav">${rows.map((f) => `<li>${avatar(f.user, 'sm')}<div><div><b>${esc(f.user)}</b> ${f.driver ? (f.driverId ? `<a href="#/driver/${f.driverId}">${esc(f.driver)}</a>: ` : `${esc(f.driver)}: `) : ''}${esc(f.text || '')}</div><time title="${esc(when(f.at))}">${esc(ago(f.at))}</time></div></li>`).join('')}</ol>` : '<p class="hint">Nothing yet.</p>');
+  // Admin: pick the recruiter for a lead right where it is listed (lead list, dashboard, lead page)
+  const assignPick = (d, cls = '') => `<label class="assign ${cls}">${avatar(d.ownerId ? (S.me.people.find((p) => p.id === d.ownerId) || {}).name || '?' : '?', 'xs')}<select data-ch="assign" data-id="${d.id}" data-fk="assign${d.id}" aria-label="Recruiter for ${esc(d.name)}"><option value="">Nobody yet</option>${S.me.people.filter((p) => p.active || p.id === d.ownerId).map((p) => `<option value="${p.id}" ${p.id === d.ownerId ? 'selected' : ''}>${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select></label>`;
   const reloadMe = async () => { S.me = await api('/api/me'); S.meAt = Date.now(); };
   const presenceHtml = (p, now) => { const x = presence(p, now); return `<span class="pres ${x.state}"><i></i>${esc(x.label)}</span>`; };
 
@@ -200,6 +202,11 @@ window.App = (() => {
     const fn = changes[el.dataset.ch]; if (!fn) return;
     try { await fn(el, e); } catch (err) { fail(err); }
   });
+  onChange('assign', async (el) => {
+    const v = el.value ? +el.value : null;
+    try { await api('/api/drivers/' + el.dataset.id, { method: 'PATCH', body: { ownerId: v } }); toast(v ? `Given to ${(S.me.people.find((p) => p.id === v) || {}).name}` : 'No recruiter now'); render(); }
+    catch (e) { fail(e); render(); }
+  });
   // the menu button on a phone
   on('navToggle', (b) => { const open = document.body.classList.toggle('navopen'); b.setAttribute('aria-expanded', String(open)); });
   window.addEventListener('hashchange', () => document.body.classList.remove('navopen'));
@@ -258,5 +265,5 @@ window.App = (() => {
   onChange('weekDay', (el) => { const r = el.closest('.wrow'); r.querySelectorAll('input[type=time]').forEach((t) => { t.disabled = !el.checked; }); r.classList.toggle('offd', !el.checked); r.querySelector('.wnote').textContent = el.checked ? '' : 'Day off'; });
 
   return { $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
-    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS };
+    api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS };
 })();

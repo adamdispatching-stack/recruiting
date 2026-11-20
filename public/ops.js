@@ -58,7 +58,7 @@
       <div class="dgrid wide1">
         <section class="card"><h3>Recent leads<span class="grow"></span><a class="h3link" href="#/leads">View all leads →</a></h3><p class="hint lead">The latest driver leads in your pipeline</p>
           ${r.recent.length ? `<div class="scroll"><table class="mini recent"><thead><tr><th>Driver</th><th>Source</th><th>Stage</th><th>Recruiter</th><th>Next step</th></tr></thead><tbody>${r.recent.map((d) => `<tr><td><div class="who1">${App.avatar(d.name, 'sm')}<div><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><div class="small mut">${[d.mode === 'Owner-operators' ? 'Owner operator' : d.mode ? 'Company driver' : '', d.expYears !== null ? `${d.expYears} yrs exp` : ''].filter(Boolean).join(', ') || 'No details yet'}</div></div></div></td>
-            <td><span class="srcpill">${esc(d.source || 'Not set')}</span></td><td>${badge(d.status)}</td><td>${d.ownerId ? `<span class="who2">${App.avatar(person(d.ownerId), 'xs')}${esc(person(d.ownerId))}</span>` : '<span class="none">Nobody</span>'}</td><td class="small">${nextStep(d)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">No leads yet.</p>'}</section>
+            <td><span class="srcpill">${esc(d.source || 'Not set')}</span></td><td>${badge(d.status)}</td><td>${App.assignPick(d)}</td><td class="small">${nextStep(d)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">No leads yet.</p>'}</section>
         <section class="card"><h3>Team activity<span class="grow"></span><a class="h3link" href="#/team">Team →</a></h3><p class="hint lead">Recent updates from your recruiting team</p>${App.feedAv(r.feed.slice(0, 8))}</section>
       </div>
       <div class="dgrid three">

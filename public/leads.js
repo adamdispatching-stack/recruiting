@@ -73,7 +73,7 @@
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
         <td>${contact || '<span class="none">No contact yet</span>'}</td>
         <td>${esc(d.source || '') || '<span class="none">Not set</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}</td>
-        <td>${d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. Anyone can take the lead.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}</td>
+        <td>${admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. Anyone can take the lead.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}</td>
         <td class="small mut" title="${esc(when(d.updatedAt))}">${esc(shortWhen(d.updatedAt))}</td></tr>`;
     }).join('');
     const any = sum('n');
@@ -239,7 +239,7 @@
     const answerKeys = Object.keys(LABELS).filter((k) => a[k]).concat(Object.keys(a).filter((k) => !(k in LABELS) && a[k]));
     const all = S.me.route.concat(S.me.other); const lostish = S.me.lost.concat('Stalled').includes(d.status);
     const owner = admin
-      ? `<label class="fld">Recruiter<select data-ch="owner" data-fk="owner"><option value="">Nobody yet</option>${S.me.people.filter((p) => p.active || p.id === d.ownerId).map((p) => `<option value="${p.id}" ${p.id === d.ownerId ? 'selected' : ''}>${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select></label>`
+      ? '' && `<label class="fld">Recruiter<select data-ch="owner" data-fk="owner"><option value="">Nobody yet</option>${S.me.people.filter((p) => p.active || p.id === d.ownerId).map((p) => `<option value="${p.id}" ${p.id === d.ownerId ? 'selected' : ''}>${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select></label>`
       : `<div class="fld">Recruiter<div class="ownerline">${d.ownerId && hasAccess(d.ownerId) ? `<b>${d.ownerId === S.me.id ? 'You' : esc(person(d.ownerId))}</b>${d.ownerId === S.me.id ? '<button class="linkbtn" data-act="releaseLead">Release</button>' : ''}`
         : `<span class="mut">${d.ownerId ? esc(person(d.ownerId)) + ', no access now' : 'Nobody yet'}</span><button class="btn plain sm" data-act="takeLead">Take this lead</button>`}</div></div>`;
     const noteHtml = (n) => `<li data-note="${n.id}"><div class="meta"><b>${esc(n.author)}</b>${n.kind ? `<span class="ck">${esc(CONTACT_TEXT(n))}</span>` : ''}${n.fromExtension ? '<span class="ext">from the extension</span>' : ''}<span class="grow">${esc(when(n.createdAt))}${n.updatedAt && new Date(n.updatedAt) - new Date(n.createdAt) > 60000 ? ', edited' : ''}</span>
@@ -256,6 +256,7 @@
             <div class="tags" id="tags">${(d.tags || []).map((x) => `<span class="tag">${esc(x)}<button data-tag="${esc(x)}" aria-label="Remove tag ${esc(x)}">×</button></span>`).join('')}<input id="tagIn" type="text" placeholder="Add a tag, press Enter" aria-label="Add a tag" data-fk="tag"></div>
           </div>
           <div class="acts">
+            ${admin ? `<div class="ownbox"><span>Recruiter</span>${App.assignPick(d, 'big')}</div>` : ''}
             ${(d.phones || [])[0] ? `<a class="btn primary" href="tel:${esc(d.phones[0])}">Call</a>` : ''}
             ${/^https:\/\//.test(d.conversationUrl || '') ? `<a class="btn plain" href="${esc(d.conversationUrl)}" target="_blank" rel="noopener noreferrer">Open on Indeed</a>` : ''}
             ${!ob || !['Onboarding', 'Hired'].includes(d.status) ? `<button class="btn plain" data-act="startOnb">${ob ? 'Back to onboarding' : 'Start onboarding'}</button>` : ''}
