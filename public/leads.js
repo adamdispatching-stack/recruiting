@@ -19,8 +19,12 @@
     list.rows = more ? list.rows.concat(r.drivers) : r.drivers; list.total = r.total; list.counts = r.counts; list.accounts = r.accounts;
     if (!more) list.sel.clear();
   }
+  // a recruiter starts on their own leads; the default is set once per sign-in, so a filter they pick sticks
+  let ownerDefaultFor = null;
+  const myDefault = () => (S.me.role === 'admin' ? '' : 'me');
   async function viewLeads(params) {
     document.title = 'Leads · FleetHire';
+    if (ownerDefaultFor !== S.me.id) { ownerDefaultFor = S.me.id; FILTERS.forEach((k) => { list[k] = ''; }); list.owner = myDefault(); }
     if ([...params.keys()].length) { // a link from the dashboard, like "follow-ups due"
       FILTERS.forEach((k) => { list[k] = ''; });
       for (const [k, v] of params) if (FILTERS.includes(k)) list[k] = v;
@@ -29,7 +33,7 @@
     view.innerHTML = header('leads') + `<main>${App.pageHead('Driver leads', 'Track and move driver candidates from first contact to hire.', `<button class="btn primary lg" data-act="addLead">${App.plus} Add lead</button>`)}
       <section class="fcard" aria-label="Filters"><div class="tools">
         <label class="search">${ICON_SEARCH}<input id="q" type="search" placeholder="Search name, phone, email, city, notes" aria-label="Search leads"></label>
-        <select id="fOwner" class="pick" aria-label="Recruiter"><option value="">All recruiters</option><option value="me">My leads</option><option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id).map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
+        <select id="fOwner" class="pick" aria-label="Recruiter">${S.me.role === 'admin' ? '<option value="">All recruiters</option><option value="me">My leads</option>' : '<option value="me">My leads</option><option value="">All recruiters</option>'}<option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id).map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
         <select id="fSource" class="pick" aria-label="Source"><option value="">All sources</option>${S.me.sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
         <select id="fAcct" class="pick" aria-label="Indeed account" hidden></select>
         <select id="fMode" class="pick" aria-label="Driver type"><option value="">All types</option><option value="Company drivers">Company drivers</option><option value="Owner-operators">Owner operators</option></select>
@@ -81,6 +85,7 @@
         <thead><tr>${admin ? '<th class="cb"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th>Driver</th><th>Status, follow-up</th><th>Notes</th><th>Contact</th><th>Source</th><th>Company</th><th>Recruiter</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${list.rows.length < list.total ? `<button class="btn plain more" data-act="moreLeads">Show more (${list.total - list.rows.length} left)</button>` : ''}
         ${any < 5 && !list.q ? addMoreArt() : ''}`
+      : S.me.role !== 'admin' && list.owner === 'me' && !(any || list.q || list.source || list.mode || list.account || list.company) ? '<div class="empty"><p>No leads are assigned to you yet. New leads are shared between recruiters as they come in.</p><button class="btn plain" data-act="allLeads">See all leads</button></div>'
       : (any || list.q || list.owner || list.source || list.mode || list.account || list.company ? '<div class="empty"><p>No leads match these filters.</p><button class="btn plain" data-act="clearFilters">Clear filters</button></div>' : addMoreArt());
     drawBulk();
   }
@@ -106,7 +111,8 @@
     else if (e.target.dataset && e.target.dataset.sel) { const id = +e.target.dataset.sel; e.target.checked ? list.sel.add(id) : list.sel.delete(id); drawBulk(); }
   });
   on('moreLeads', () => refresh(true));
-  on('clearFilters', () => { FILTERS.forEach((k) => { list[k] = ''; }); go('#/leads'); });
+  on('allLeads', () => { list.owner = ''; go('#/leads'); });
+  on('clearFilters', () => { FILTERS.forEach((k) => { list[k] = ''; }); list.owner = myDefault(); go('#/leads'); });
   on('bulkClear', () => { list.sel.clear(); $$('[data-sel]').forEach((c) => { c.checked = false; }); drawBulk(); });
   on('bulkAssign', async () => {
     const to = $('#bulkTo').value; if (!to) { toast('Choose who gets these leads', true); return; }
