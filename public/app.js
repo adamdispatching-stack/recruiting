@@ -104,9 +104,11 @@ window.App = (() => {
   const sig = { clicks: 0, last: 0, timer: null, page: '' };
   ['pointerdown', 'keydown', 'wheel', 'touchstart', 'pointermove', 'scroll'].forEach((ev) => document.addEventListener(ev, () => { sig.last = Date.now(); }, { passive: true, capture: true }));
   document.addEventListener('click', () => { sig.clicks++; }, true);
+  // A phone or tablet (also an iPad that says it is a Mac): the server does not count its time on the site
+  const onMobile = (navigator.userAgentData && navigator.userAgentData.mobile) || /Mobi|Android|iPhone|iPod|iPad/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
   function beat(extra) {
     if (!S.me) return;
-    const body = JSON.stringify({ active: !document.hidden && Date.now() - sig.last < 31000, visible: !document.hidden, clicks: sig.clicks, ...extra });
+    const body = JSON.stringify({ active: !document.hidden && Date.now() - sig.last < 31000, visible: !document.hidden, clicks: sig.clicks, mobile: !!onMobile, ...extra });
     sig.clicks = 0;
     fetch('/api/beat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, credentials: 'same-origin', keepalive: true }).catch(() => {});
   }
@@ -114,7 +116,7 @@ window.App = (() => {
   function stopSignals() { clearInterval(sig.timer); sig.timer = null; sig.page = ''; }
   document.addEventListener('visibilitychange', () => { if (document.hidden) beat(); });
   window.addEventListener('pagehide', () => beat());
-  function pageOpened(hash) { const p = hash.split('?')[0]; if (!S.me || p === sig.page) return; sig.page = p; fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }), credentials: 'same-origin' }).catch(() => {}); }
+  function pageOpened(hash) { const p = hash.split('?')[0]; if (!S.me || p === sig.page) return; sig.page = p; fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p, mobile: !!onMobile }), credentials: 'same-origin' }).catch(() => {}); }
 
   // Screens load their data and then draw. If a newer draw started meanwhile (the person clicked on, or typed
   // more in the search box), the older answer is stale and must not be drawn over the newer one.
@@ -228,7 +230,7 @@ window.App = (() => {
       <form id="lf"><label class="fld">Email<input type="email" name="email" autocomplete="username" required></label>
       <label class="fld">Password<input type="password" name="password" autocomplete="current-password" required></label>
       <p class="err" id="lerr" role="alert"></p><button class="btn primary" style="width:100%">Sign in</button>
-      <p class="hint notice">Work on this site is recorded: when you are signed in, how long you are active, and what you change. Your manager can see it, and you can see your own under My activity.</p></form></div>`;
+      <p class="hint notice">Work on this site is recorded: when you are signed in, how long you are active on a computer (phones and tablets are not counted), and what you change. Your manager can see it, and you can see your own under My activity.</p></form></div>`;
     $('#lf input').focus();
     $('#lf').onsubmit = async (e) => {
       e.preventDefault(); const f = new FormData(e.target); $('#lerr').textContent = '';

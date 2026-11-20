@@ -41,7 +41,7 @@
         <tbody>${r.people.map(row).join('')}</tbody>
         <tfoot><tr><th scope="row">Team total</th><td colspan="5"></td><td class="n">${num(tot.clicks)}</td><td class="n g">${num(tot.opened)}</td><td class="n">${num(tot.notes)}</td><td class="n">${num(tot.contacts)}</td><td class="n">${num(tot.added)}</td><td class="n">${num(tot.forward)}</td>
           <td class="n g">${num(tot.onboarded)}</td><td class="n">${num(tot.hired)}</td><td class="n g">${num(tot.due)}</td><td class="n">${num(tot.cold)}</td><td class="n">${num(tot.owned)}</td></tr></tfoot></table></div>
-      <p class="hint foot"><b>Active</b> counts only the time someone clicked, typed or scrolled while the site was on screen. <b>On site</b> also counts time the page was open and untouched.
+      <p class="hint foot">Only the website on a computer counts here: time, clicks, pages and leads opened on a phone or tablet are left out. <b>Active</b> counts only the time someone clicked, typed or scrolled while the site was on screen. <b>On site</b> also counts time the page was open and untouched.
         Time and clicks show presence, and they are easy to inflate. Judge the work by the middle columns and the results: notes, calls, leads moved forward, drivers hired.</p></main>`;
     App.every(60000, viewTeam);
   }

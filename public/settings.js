@@ -21,7 +21,7 @@
         <p class="hint lead">Reports count a day from midnight to midnight in this time zone, and "today" for follow-ups starts here. Pick the zone your recruiters' working day belongs to, so one shift is one day.</p>
         <form id="tzForm" class="form"><label class="fld">Time zone<select name="tz">${(ZONES.some(([z]) => z === cfg.tz) ? ZONES : [[cfg.tz, cfg.tz]].concat(ZONES)).map(([z, l]) => `<option value="${z}" ${z === cfg.tz ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label><button class="btn primary">Save</button></form></section>
       <section class="card" id="hours"><h3>Working hours</h3>
-        <p class="hint lead">The team's normal week, in ${esc(cfg.tz.split('/').pop().replace(/_/g, ' '))} time. A working day with less active time than the minimum below counts as a day off. You can give one person different hours on their page under Team.</p>
+        <p class="hint lead">The team's normal week, in ${esc(cfg.tz.split('/').pop().replace(/_/g, ' '))} time. A working day with less active time on the website (on a computer; phones and tablets do not count) than the minimum below counts as a day off. You can give one person different hours on their page under Team.</p>
         <form id="hoursForm">${App.weekFields(cfg.hours.week)}
           <div class="form" style="margin-top:12px">
             <label class="fld">A day counts as worked after<span class="fldunit"><input name="minMinutes" type="number" min="1" max="600" required value="${cfg.hours.minMinutes}"> minutes active</span></label>

@@ -58,6 +58,7 @@ module.exports = (app) => {
   // by the clock, so two open tabs never count twice.
   app.post('/api/beat', needUser, wrap(async (req, res) => {
     const b = req.body || {}; const u = req.user; const now = Date.now();
+    if (lib.isMobile(req)) return res.json({ ok: true, counted: false }); // phones and tablets do not count as time on the site
     const visible = b.visible !== false; const active = !!b.active && visible;
     const clicks = Math.max(0, Math.min(600, parseInt(b.clicks, 10) || 0));
     const since = (t) => (t ? Math.round((now - new Date(t).getTime()) / 1000) : 1e9);
@@ -74,6 +75,7 @@ module.exports = (app) => {
   // A page was opened. Opening a lead is also written to the person's feed (once per 10 minutes per lead).
   app.post('/api/track', needUser, wrap(async (req, res) => {
     const path = String((req.body || {}).path || '').slice(0, 120);
+    if (lib.isMobile(req)) return res.json({ ok: true, counted: false });
     await q(`INSERT INTO activity_hours (user_id, hour, views) VALUES ($1, date_trunc('hour', now()), 1)
       ON CONFLICT (user_id, hour) DO UPDATE SET views = activity_hours.views + 1, last_at = now()`, [req.user.id]);
     const m = path.match(/^#\/driver\/(\d+)$/);

@@ -75,4 +75,7 @@ const isDate = (v) => { const s = String(v || ''); if (!/^\d{4}-\d{2}-\d{2}$/.te
 const niceDate = (v) => new Date(v + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const validTz = (v) => { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return true; } catch (e) { return false; } };
 
-module.exports = { wrap, cookieOf, sessionUser, needUser, needAdmin, needKey, seesAll, visSql, canSee, loadGone, unowned, unownedSql, loadDriver, act, history, record, range, today, isDate, niceDate, validTz, PERIODS, NOTE_TEXT };
+// Phones and tablets: their time on the site is not counted (activity is the website on a computer only).
+const MOBILE_UA = /Mobi|Android|iPhone|iPod|iPad|Windows Phone|webOS|BlackBerry|Opera Mini|IEMobile|Silk|Kindle/i;
+const isMobile = (req) => MOBILE_UA.test(String(req.headers['user-agent'] || '')) || req.headers['sec-ch-ua-mobile'] === '?1' || !!(req.body && req.body.mobile === true);
+module.exports = { isMobile, wrap, cookieOf, sessionUser, needUser, needAdmin, needKey, seesAll, visSql, canSee, loadGone, unowned, unownedSql, loadDriver, act, history, record, range, today, isDate, niceDate, validTz, PERIODS, NOTE_TEXT };
