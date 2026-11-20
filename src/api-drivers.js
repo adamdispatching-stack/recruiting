@@ -105,6 +105,7 @@ module.exports = (app) => {
   // ---------- one driver ----------
   app.get('/api/drivers/:id', needUser, wrap(async (req, res) => {
     const d = await loadDriver(req, res); if (!d) return;
+    await q(`UPDATE notices SET seen_at = now() WHERE user_id = $1 AND driver_id = $2 AND seen_at IS NULL`, [req.user.id, d.id]); // opening the lead reads its notifications
     const notes = await q(`SELECT n.*, u.name author FROM notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.driver_id = $1 ORDER BY n.created_at DESC`, [d.id]);
     const ev = await q(`SELECT t, type, text, who FROM driver_events WHERE driver_id = $1 ORDER BY t DESC LIMIT 200`, [d.id]);
     const ops = require('./api-ops');
@@ -151,6 +152,7 @@ module.exports = (app) => {
     await record(req, 'lead_add', d, `Added the lead (${source}${b.sourceDetail ? ': ' + String(b.sourceDetail).trim().slice(0, 80) : ''})`);
     const note = String(b.note || '').trim();
     if (note) { await q(`INSERT INTO notes (driver_id, user_id, body) VALUES ($1, $2, $3)`, [d.id, req.user.id, note.slice(0, 5000)]); await act(req.user, 'note', d, note.slice(0, 140)); }
+    if (d.owner_id && d.owner_id !== req.user.id) await db.notify(db.pool, d.owner_id, 'lead_new', `New lead for you: ${d.name} (${source}), added by ${req.user.name}`, `#/driver/${d.id}`, { driverId: d.id });
     res.json({ id: d.id });
   }));
 
@@ -174,6 +176,7 @@ module.exports = (app) => {
     } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
     const names = Object.fromEntries((await q(`SELECT id, name FROM users WHERE id = ANY($1::int[])`, [Object.keys(given).map(Number)])).rows.map((x) => [x.id, x.name]));
     for (const [id, to] of done) await history(id, `Assigned to ${names[to]} (leads shared evenly)`, req.user.name);
+    for (const [to, k] of Object.entries(given)) await db.notify(db.pool, +to, 'lead_new', `${req.user.name} shared ${k === 1 ? 'a lead' : `${k} leads`} with you`, '#/leads?owner=me');
     const n = done.length;
     if (n) await act(req.user, 'assign', null, `Shared ${n} unassigned lead${n > 1 ? 's' : ''} evenly: ${Object.entries(given).map(([id, k]) => `${names[id]} ${k}`).join(', ')}`);
     res.json({ ok: true, shared: n, given: Object.entries(given).map(([id, k]) => ({ id: +id, name: names[id], n: k })) });
@@ -189,6 +192,7 @@ module.exports = (app) => {
     const r = await q(`UPDATE drivers SET owner_id = $2::int, assigned_at = CASE WHEN $2::int IS NULL THEN NULL ELSE now() END WHERE id = ANY($1::int[]) AND owner_id IS DISTINCT FROM $2::int RETURNING id`, [ids, ownerId]);
     const text = who ? `Assigned to ${who}` : 'Set to no recruiter';
     for (const row of r.rows) await history(row.id, text, req.user.name);
+    if (ownerId && ownerId !== req.user.id && r.rows.length) await db.notify(db.pool, ownerId, 'lead_new', r.rows.length === 1 ? `${req.user.name} gave you a lead` : `${req.user.name} gave you ${r.rows.length} leads`, r.rows.length === 1 ? `#/driver/${r.rows[0].id}` : '#/leads?owner=me', r.rows.length === 1 ? { driverId: r.rows[0].id } : {});
     if (r.rows.length) await act(req.user, 'assign', null, who ? `Assigned ${r.rows.length} lead${r.rows.length > 1 ? 's' : ''} to ${who}` : `Removed the recruiter from ${r.rows.length} lead${r.rows.length > 1 ? 's' : ''}`);
     res.json({ ok: true, changed: r.rows.length });
   }));
@@ -295,6 +299,16 @@ module.exports = (app) => {
     if (b.amazonStep !== undefined) await db.syncAuto(db.pool, id, u.id); // "Amazon Relay verified" on the checklist
     const named = { id, name: set.name || cur.name };
     for (const [type, text] of log) await record(req, type, named, text);
+    {
+      const link = `#/driver/${id}`; const nm = set.name || cur.name;
+      if (set.owner_id !== undefined) {
+        if (set.owner_id && set.owner_id !== u.id) await db.notify(db.pool, set.owner_id, 'lead_new', `${u.name} gave you the lead ${nm}`, link, { driverId: id });
+        if (cur.owner_id && cur.owner_id !== u.id && cur.owner_id !== set.owner_id) await db.notify(db.pool, cur.owner_id, 'lead_moved', `${nm} was given to ${set.owner_id ? await personName(set.owner_id) : 'nobody for now'}`, null);
+      }
+      const owner = set.owner_id !== undefined ? set.owner_id : cur.owner_id;
+      const told = log.filter(([type]) => ['status', 'followup', 'truck'].includes(type)).map(([, text]) => text);
+      if (owner && owner !== u.id && told.length && set.owner_id === undefined) await db.notify(db.pool, owner, 'lead_update', `${u.name} changed ${nm}: ${told.join('; ')}`, link, { driverId: id, merge: true });
+    }
     res.json({ ok: true });
   }));
 
@@ -317,6 +331,7 @@ module.exports = (app) => {
     await touch(d.id, !!kind);
     if (kind) await act(req.user, 'contact', d, `${CONTACT_WORD[kind]}, ${outcome.toLowerCase()}${body ? ': ' + body.slice(0, 140) : ''}`);
     else await act(req.user, 'note', d, body.slice(0, 140));
+    if (d.owner_id && d.owner_id !== req.user.id) await db.notify(db.pool, d.owner_id, 'note', `${req.user.name} on ${d.name}: ${kind ? CONTACT_WORD[kind] + ', ' + outcome.toLowerCase() + (body ? ' - ' : '') : ''}${body.slice(0, 160)}`, `#/driver/${d.id}`, { driverId: d.id });
     res.json({ id: r.rows[0].id });
   }));
   async function ownNote(req, res) {

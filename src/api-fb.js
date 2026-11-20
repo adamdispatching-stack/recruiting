@@ -240,6 +240,7 @@ module.exports = (app) => {
       if (v === 'problem' && !clean(b.reviewNote)) return res.status(400).json({ error: 'Say what is wrong, so the recruiter can fix it' });
       await q(`UPDATE fb_entries SET review = $2, review_note = $3, reviewed_by = $4, reviewed_at = CASE WHEN $2::text IS NULL THEN NULL ELSE now() END, updated_at = now() WHERE id = $1`,
         [e.id, v, v === 'problem' ? clean(b.reviewNote, 500) : null, v ? req.user.id : null]);
+      if (v === 'problem' && e.user_id !== req.user.id) await db.notify(db.pool, e.user_id, 'facebook', `Problem in your Facebook ${LABEL[e.kind]} (${e.dayt}): ${clean(b.reviewNote, 300)}`, `#/facebook?day=${e.dayt}`);
       return res.json({ ok: true });
     }
     // the recruiter puts their entry right (also after a problem was flagged); an OK'd entry stays as it is

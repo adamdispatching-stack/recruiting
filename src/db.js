@@ -260,6 +260,7 @@ async function migrate() {
       seen_at TIMESTAMPTZ
     );
     CREATE INDEX IF NOT EXISTS notices_user ON notices(user_id, seen_at);
+    ALTER TABLE notices ADD COLUMN IF NOT EXISTS driver_id INT REFERENCES drivers(id) ON DELETE CASCADE;
     CREATE TABLE IF NOT EXISTS days_off (
       user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       day DATE NOT NULL,
@@ -419,6 +420,17 @@ const AMAZON = [
   { key: 'waiting', label: 'Waiting for Amazon', long: 'Waiting for Amazon to verify the driver' },
   { key: 'verified', label: 'Verified', long: 'Verified by Amazon' }
 ];
+// A notification for one person. With merge, an unread one of the same kind about the same lead is
+// brought up to date instead of adding another (a chatty driver makes one notification, not ten).
+async function notify(c, userId, kind, text, link, { driverId = null, merge = false } = {}) {
+  if (!userId) return;
+  const u = (await c.query(`SELECT 1 FROM users WHERE id = $1 AND active`, [userId])).rows[0]; if (!u) return;
+  if (merge && driverId) {
+    const r = await c.query(`UPDATE notices SET text = $4, created_at = now() WHERE id = (SELECT id FROM notices WHERE user_id = $1 AND kind = $2 AND driver_id = $3 AND seen_at IS NULL ORDER BY id DESC LIMIT 1) RETURNING id`, [userId, kind, driverId, String(text).slice(0, 400)]);
+    if (r.rows[0]) return;
+  }
+  await c.query(`INSERT INTO notices (user_id, kind, text, link, driver_id) VALUES ($1, $2, $3, $4, $5)`, [userId, kind, String(text).slice(0, 400), link || null, driverId]);
+}
 // The driver's answer to "Ever pulled loads on Amazon Relay before?" -> true / false / null (can't tell)
 function relayFrom(text) {
   const t = String(text || '').toLowerCase(); if (!t.trim()) return null;
@@ -529,6 +541,7 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
     const at = isoOrNull(rec.updatedAt); // keep the real time of the activity (matters for imported backups)
     await c.query(`UPDATE drivers SET ${cols.map((k, i) => `${k} = $${i + 3}`).join(', ')}, updated_at = GREATEST(updated_at, LEAST(COALESCE($2::timestamptz, now()), now())) WHERE id = $1`, [d.id, at, ...cols.map((k) => set[k])]);
     if (given) {
+      await notify(c, given, 'lead_new', `New lead for you: ${rec.name || d.name}${opts.pick ? ' (shared evenly)' : ''}, from Indeed`, `#/driver/${d.id}`, { driverId: d.id });
       const who = (await c.query(`SELECT name FROM users WHERE id = $1`, [given])).rows[0];
       await c.query(`INSERT INTO driver_events (driver_id, type, text, who, fp) VALUES ($1, 'web', $2, 'Website', $3)`,
         [d.id, `Assigned to ${who ? who.name : 'a recruiter'}${opts.pick ? ' (leads shared evenly)' : ''}`, require('crypto').randomBytes(12).toString('hex')]);
@@ -538,6 +551,16 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
       const firstReply = (Array.isArray(rec.events) ? rec.events : []).map((e) => (e && e.type === 'reply' ? isoOrNull(e.t) : null)).filter(Boolean).sort()[0];
       await statusChanged(c, d, set.status, { via: 'extension', at, leadAt: firstReply || at });
     }
+  }
+  // tell the lead's recruiter what is new (the website's own edits are told elsewhere)
+  if (d.owner_id && !given) {
+    const what = [];
+    if (set.last_message) what.push(`new message: "${String(set.last_message).slice(0, 90)}"`);
+    if (set.phones) what.push('new phone number');
+    if (set.emails) what.push('new email');
+    if (set.status) what.push(`now ${set.status}`);
+    if (set.relay_before !== undefined) what.push(`ran Amazon Relay before: ${set.relay_before ? 'yes' : 'no'}`);
+    if (what.length) await notify(c, d.owner_id, 'lead_update', `${rec.name || d.name}: ${what.join(', ')}`, `#/driver/${d.id}`, { driverId: d.id, merge: true });
   }
   // history
   const events = [...(Array.isArray(rec.events) ? rec.events : []), ...(rec.event && typeof rec.event === 'object' ? [{ ...rec.event, t: rec.event.t || new Date().toISOString() }] : [])];
@@ -596,5 +619,5 @@ async function statusChanged(c, d, to, { userId = null, via = 'web', at = null, 
   return notes;
 }
 
-module.exports = { relayFrom, AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, COLD_DAYS,
+module.exports = { notify, relayFrom, AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, COLD_DAYS,
   settings, DEFAULTS, saveSetting, ensureOnboarding, syncAuto, releaseTruck, statusChanged };

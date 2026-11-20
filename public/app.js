@@ -123,24 +123,61 @@ window.App = (() => {
     const body = JSON.stringify({ active: !document.hidden && Date.now() - sig.last < 31000, visible: !document.hidden, clicks: sig.clicks, mobile: !!onMobile, ...extra });
     sig.clicks = 0;
     fetch('/api/beat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, credentials: 'same-origin', keepalive: true })
-      .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.notices) showNotices(j.notices); }).catch(() => {});
+      .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.notices) showNotices(j.notices, j.unread); }).catch(() => {});
   }
   // ---------- alerts (idle alerts): a box at the top right, and a desktop notification when allowed ----------
   const shownN = new Set(JSON.parse(sessionStorage.getItem('fhShown') || '[]'));
-  function showNotices(list) {
+  // Idle alerts stay in a box at the top right until dismissed. Everything else goes to the bell (unread count)
+  // and pops up once in the corner for a few seconds, and on the desktop when allowed.
+  const pageStart = Date.now();
+  const NKIND = { lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', idle: 'Idle alert' };
+  function setBell(n) { S.unread = n; document.querySelectorAll('.bellcount').forEach((b) => { b.textContent = n > 99 ? '99+' : String(n); b.hidden = !n; }); }
+  function showNotices(list, unread) {
+    if (unread !== undefined) setBell(unread);
+    const idle = list.filter((n) => n.kind === 'idle');
     let box = document.getElementById('notices');
-    if (!list.length) { if (box) box.remove(); return; }
-    if (!box) { box = document.createElement('div'); box.id = 'notices'; box.setAttribute('role', 'alert'); document.body.appendChild(box); }
-    const canAsk = 'Notification' in window && Notification.permission === 'default';
-    box.innerHTML = list.map((n) => `<div class="notice" data-n="${n.id}"><b>Idle alert</b><p>${esc(n.text)}</p>
-      <div class="nrow">${n.link ? `<a href="${esc(n.link)}" data-act="noticeOpen">Open</a>` : ''}<button type="button" class="linkbtn" data-act="noticeSeen">Dismiss</button></div></div>`).join('')
-      + (canAsk ? '<button type="button" class="btn plain sm" data-act="noticePerm">Also show alerts on my desktop</button>' : '');
-    for (const n of list) {
-      if (shownN.has(n.id)) continue; shownN.add(n.id);
-      try { if ('Notification' in window && Notification.permission === 'granted') { const x = new Notification('FleetHire: idle alert', { body: n.text, tag: 'fh' + n.id }); x.onclick = () => { window.focus(); if (n.link) go(n.link); }; } } catch (e) { /* not allowed here */ }
+    if (!idle.length) { if (box) box.remove(); }
+    else {
+      if (!box) { box = document.createElement('div'); box.id = 'notices'; box.setAttribute('role', 'alert'); document.body.appendChild(box); }
+      const canAsk = 'Notification' in window && Notification.permission === 'default';
+      box.innerHTML = idle.map((n) => `<div class="notice" data-n="${n.id}"><b>Idle alert</b><p>${esc(n.text)}</p>
+        <div class="nrow">${n.link ? `<a href="${esc(n.link)}" data-act="noticeOpen">Open</a>` : ''}<button type="button" class="linkbtn" data-act="noticeSeen">Dismiss</button></div></div>`).join('')
+        + (canAsk ? '<button type="button" class="btn plain sm" data-act="noticePerm">Also show alerts on my desktop</button>' : '');
     }
-    try { sessionStorage.setItem('fhShown', JSON.stringify([...shownN].slice(-50))); } catch (e) { /* private mode */ }
+    for (const n of list.slice().reverse()) { // oldest first, so the newest ends up on top
+      if (shownN.has(n.id)) continue; shownN.add(n.id);
+      // pop up only what arrived while the site is open; older unread ones wait in the bell
+      if (n.kind !== 'idle' && new Date(n.created_at).getTime() > pageStart - 60000) popNotice(n);
+      try { if ('Notification' in window && Notification.permission === 'granted' && document.hidden) { const x = new Notification(`FleetHire: ${NKIND[n.kind] || 'Notification'}`, { body: n.text, tag: 'fh' + n.id }); x.onclick = () => { window.focus(); openNotice(n); }; } } catch (e) { /* not allowed here */ }
+    }
+    try { sessionStorage.setItem('fhShown', JSON.stringify([...shownN].slice(-200))); } catch (e) { /* private mode */ }
   }
+  function popNotice(n) {
+    let st = document.getElementById('pops'); if (!st) { st = document.createElement('div'); st.id = 'pops'; st.setAttribute('aria-live', 'polite'); document.body.appendChild(st); }
+    const el = document.createElement('div'); el.className = 'pop k-' + n.kind;
+    el.innerHTML = `<b>${esc(NKIND[n.kind] || 'Notification')}</b><p>${esc(n.text)}</p><div class="nrow">${n.link ? '<button type="button" class="linkbtn" data-o="1">Open</button>' : ''}<button type="button" class="linkbtn" data-x="1">Close</button></div>`;
+    el.querySelector('[data-o]') && (el.querySelector('[data-o]').onclick = () => { el.remove(); openNotice(n); });
+    el.querySelector('[data-x]').onclick = () => el.remove();
+    st.appendChild(el); while (st.children.length > 3) st.firstChild.remove();
+    setTimeout(() => el.remove(), 9000);
+  }
+  async function openNotice(n) { await seen([n.id]); setBell(Math.max(0, (S.unread || 1) - 1)); closeBell(); if (n.link) go(n.link); }
+  // ---------- the bell: the last notifications, unread first marked ----------
+  const nAgo = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }); };
+  let bellList = [];
+  function closeBell() { const p = document.getElementById('bellpanel'); if (p) p.remove(); }
+  async function openBell() {
+    if (document.getElementById('bellpanel')) return closeBell();
+    const p = document.createElement('div'); p.id = 'bellpanel'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Notifications');
+    p.innerHTML = '<div class="bh"><b>Notifications</b></div><p class="hint" style="padding:12px 14px">Loading…</p>'; document.body.appendChild(p);
+    try { bellList = (await api('/api/notices')).notices; } catch (e) { bellList = []; }
+    const unread = bellList.filter((n) => !n.seen_at).length; setBell(Math.max(unread, 0));
+    p.innerHTML = `<div class="bh"><b>Notifications</b><span class="grow"></span>${unread ? '<button type="button" class="linkbtn" data-act="bellAll">Mark all as read</button>' : ''}<button type="button" class="linkbtn" data-act="bellClose" aria-label="Close">✕</button></div>
+      ${bellList.length ? `<ul class="bl">${bellList.map((n) => `<li class="${n.seen_at ? '' : 'unread'} k-${n.kind}"><button type="button" data-act="bellItem" data-n="${n.id}"><span class="bk">${esc(NKIND[n.kind] || 'Notification')}</span><span class="bt">${esc(n.text)}</span><span class="ba">${esc(nAgo(n.created_at))}</span></button></li>`).join('')}</ul>`
+        : '<p class="hint" style="padding:14px">No notifications yet. New leads, news on your leads and notes from others show up here.</p>'}`;
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBell(); });
+  document.addEventListener('click', (e) => { const p = document.getElementById('bellpanel'); if (p && !p.contains(e.target) && !e.target.closest('[data-act=bellOpen]')) closeBell(); });
   const seen = async (ids) => { await fetch('/api/notices/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }), credentials: 'same-origin' }).catch(() => {}); };
   function startSignals() { if (sig.timer) return; beat({ start: true }); sig.timer = setInterval(beat, 30000); }
   function stopSignals() { clearInterval(sig.timer); sig.timer = null; sig.page = ''; }
@@ -196,6 +233,7 @@ window.App = (() => {
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     active: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M3.8 10.5c2.6-.9 5.3-1.2 8.2-1.2s5.6.3 8.2 1.2M10.4 13.6 7 19.6M13.6 13.6l3.4 6"/>',
     companies: '<path d="M4 21V5.5L12 3v18M12 8.5l8 2.5v10"/><path d="M3 21h18M7.5 8h1.5M7.5 12h1.5M7.5 16h1.5M15.5 13h1.5M15.5 17h1.5"/>',
+    bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     facebook: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M15.5 8h-1.6c-1.1 0-1.9.8-1.9 1.9V21M9.5 13h5.5"/>'
   };
   const icon = (k) => `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
@@ -206,6 +244,7 @@ window.App = (() => {
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
         <div class="brand"><a href="#/" aria-label="FleetHire Recruiting, home"><svg class="logo" viewBox="0 0 40 28" width="38" height="27" aria-hidden="true"><path d="M2 5.5h21v15H2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M23 10h8.5l5.5 5.6v4.9H23z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="9" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><path d="M6 10.5h9M6 14.5h6" stroke="#F4B400" stroke-width="2.4" stroke-linecap="round"/></svg><span><b>FleetHire</b><small>Recruiting</small></span></a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>
         <div class="railnav" id="railnav">
+          <button type="button" class="bell" data-act="bellOpen" aria-haspopup="dialog">${icon('bell')}<span>Notifications</span><b class="bellcount" ${S.unread ? '' : 'hidden'}>${S.unread > 99 ? '99+' : S.unread || 0}</b></button>
           <nav aria-label="Sections">${items.map(link).join('')}</nav>
           <span class="grow"></span>
           <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : 'Recruiter'}</span></div>
@@ -260,6 +299,10 @@ window.App = (() => {
   on('closeDialog', () => { const d = $('#dlg'); if (d) d.close(); });
   const dropNotice = (b) => { const el = b.closest('.notice'); const id = +el.dataset.n; el.remove(); seen([id]); const box = $('#notices'); if (box && !box.querySelector('.notice')) box.remove(); };
   on('noticeSeen', (b) => dropNotice(b));
+  on('bellOpen', () => openBell());
+  on('bellClose', () => closeBell());
+  on('bellAll', async () => { await seen([]); setBell(0); closeBell(); openBell(); });
+  on('bellItem', (b) => { const n = bellList.find((x) => x.id === +b.dataset.n); if (n) openNotice(n); });
   on('noticeOpen', (b, e) => { e.preventDefault(); const to = b.getAttribute('href'); dropNotice(b); go(to); });
   on('noticePerm', async (b) => { try { await Notification.requestPermission(); } catch (e) { /* blocked */ } b.remove(); });
 

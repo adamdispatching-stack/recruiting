@@ -53,6 +53,17 @@ function browserOf(ua) {
   return o ? `${b} on ${o}` : b;
 }
 
+// Once a day, the first time the person is on the site: how many follow-ups are due today.
+const fuChecked = new Map();
+async function followupsDue(u) {
+  const t = Date.now(); if (t - (fuChecked.get(u.id) || 0) < 3600000) return; fuChecked.set(u.id, t);
+  const tz = db.settings.tz;
+  const done = (await q(`SELECT 1 FROM notices WHERE user_id = $1 AND kind = 'followups' AND (created_at AT TIME ZONE $2)::date = (now() AT TIME ZONE $2)::date`, [u.id, tz])).rows[0];
+  if (done) return;
+  const n = (await q(`SELECT count(*)::int n FROM drivers WHERE owner_id = $1 AND follow_up IS NOT NULL AND follow_up <= (now() AT TIME ZONE $2)::date AND NOT (status = ANY($3::text[])) AND status <> 'Hired'`, [u.id, tz, db.LOST])).rows[0].n;
+  if (n) await db.notify(db.pool, u.id, 'followups', `${n} follow-up${n === 1 ? '' : 's'} due today`, '#/leads?owner=me&due=1');
+}
+
 module.exports = (app) => {
   // ---------- "I'm here" signal ----------
   // Sent every 30 seconds while the site is open. A signal counts as active time only when the page was on
@@ -73,10 +84,12 @@ module.exports = (app) => {
         ON CONFLICT (user_id, hour) DO UPDATE SET active_seconds = LEAST(3600, activity_hours.active_seconds + EXCLUDED.active_seconds),
           open_seconds = LEAST(3600, activity_hours.open_seconds + EXCLUDED.open_seconds), clicks = activity_hours.clicks + EXCLUDED.clicks, last_at = now()`, [u.id, worked, open, clicks]);
     }
-    const notices = (await q(`SELECT id, kind, text, link, created_at FROM notices WHERE user_id = $1 AND seen_at IS NULL ORDER BY created_at DESC LIMIT 5`, [u.id])).rows;
-    res.json({ ok: true, notices });
+    await followupsDue(u).catch(() => {});
+    const notices = (await q(`SELECT id, kind, text, link, created_at FROM notices WHERE user_id = $1 AND seen_at IS NULL ORDER BY created_at DESC LIMIT 20`, [u.id])).rows;
+    const unread = (await q(`SELECT count(*)::int n FROM notices WHERE user_id = $1 AND seen_at IS NULL`, [u.id])).rows[0].n;
+    res.json({ ok: true, notices, unread });
   }));
-  // Alerts for the person signed in (idle alerts). Seen = dismissed.
+  // Notifications for the person signed in. Seen = read.
   app.get('/api/notices', needUser, wrap(async (req, res) => {
     res.json({ notices: (await q(`SELECT id, kind, text, link, created_at, seen_at FROM notices WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30`, [req.user.id])).rows });
   }));

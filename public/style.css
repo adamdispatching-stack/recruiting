@@ -1136,3 +1136,33 @@ td.me{min-width:230px}
 .youwait{display:inline-block;margin-bottom:4px;padding:2px 10px;border-radius:999px;background:#FDF1D3;color:#6B4A00;font-weight:800;font-size:12.5px}
 .gbtns{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 details.fbadd.card{padding:0}
+
+/* notifications */
+.rail .bell{position:relative;display:flex;align-items:center;gap:12px;width:100%;margin:0 0 6px;padding:10px 14px;border:0;border-radius:10px;background:rgba(255,255,255,.06);color:#E8F1EA;font:inherit;font-weight:600;cursor:pointer;text-align:left}
+.rail .bell:hover{background:rgba(255,255,255,.12)}
+.bellcount{margin-left:auto;min-width:22px;padding:1px 7px;border-radius:999px;background:#E5484D;color:#fff;font-size:12px;font-weight:800;text-align:center;line-height:18px}
+.bellcount[hidden]{display:none}
+#bellpanel{position:fixed;top:12px;left:248px;z-index:70;width:min(420px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 18px 50px rgba(20,40,20,.22)}
+#bellpanel .bh{position:sticky;top:0;display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--hair);background:#fff}
+#bellpanel .bh b{font-size:16px;color:var(--head)}
+#bellpanel .bl{margin:0;padding:0;list-style:none}
+#bellpanel .bl li{border-bottom:1px solid var(--hair)}
+#bellpanel .bl button{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;padding:10px 14px 10px 26px;border:0;background:none;text-align:left;font:inherit;cursor:pointer;position:relative}
+#bellpanel .bl button:hover{background:#F6FAF2}
+#bellpanel .bl li.unread button{background:#F2F8EC}
+#bellpanel .bl li.unread button::before{content:'';position:absolute;left:11px;top:16px;width:8px;height:8px;border-radius:50%;background:#087033}
+#bellpanel .bk{font-size:11.5px;font-weight:800;color:#05652D}
+#bellpanel .ba{font-size:12px;color:var(--mut);text-align:right}
+#bellpanel .bt{grid-column:1/-1;font-size:14px;color:var(--ink);line-height:1.35}
+#bellpanel li:not(.unread) .bt{color:var(--mut)}
+#bellpanel .k-lead_moved .bk,#bellpanel .k-facebook .bk{color:#8A2418}
+#bellpanel .k-idle .bk,#bellpanel .k-followups .bk{color:#8A5A00}
+#pops{position:fixed;right:14px;bottom:14px;z-index:65;display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 28px))}
+#pops .pop{padding:11px 14px;border-radius:12px;background:#0F3B22;color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:14px;animation:popin .25s ease-out}
+#pops .pop b{display:block;font-size:12px;color:#A9E08A;margin-bottom:2px}
+#pops .pop p{margin:0 0 6px}
+#pops .pop .linkbtn{color:#CFEFC0;font-weight:700}
+#pops .nrow{display:flex;gap:14px}
+@keyframes popin{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){#pops .pop{animation:none}}
+@media (max-width:900px){#bellpanel{left:12px}}
