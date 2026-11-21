@@ -52,7 +52,8 @@ async function digestChat(chatId) {
   let r;
   const unknown = [...new Set(fresh.filter((m) => !m.is_bot && !m.role && m.from_id && m.from_name).map((m) => m.from_name))].slice(0, 12);
   const working = chat.kind === 'dispatch' && !onboarding;
-  try { r = await ai.digest({ working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
+  const promises = working ? (await q(`SELECT id, what, due FROM tg_promises WHERE chat_id = $1 AND state = 'open' AND at > now() - interval '10 days' ORDER BY at DESC LIMIT 15`, [chatId])).rows : [];
+  try { r = await ai.digest({ promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
   catch (e) { console.error('tg digest', e.message); if (/400|invalid/i.test(e.message)) await done(); return null; } // a bad batch is skipped; a network error is tried again
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
@@ -97,6 +98,16 @@ async function digestChat(chatId) {
       await q(`INSERT INTO tg_updates (chat_id, driver_id, msg_id, at, status, place, eta, load_ref, by_role, text) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING`,
         [chatId, chat.driver_id, m.msg_id, m.at, u.status, u.place ? String(u.place).slice(0, 120) : null, u.eta ? String(u.eta).slice(0, 60) : null, u.load_ref ? String(u.load_ref).slice(0, 40) : null, u.by || null, bot.redact(String(m.text || '')).slice(0, 300)]);
       out.updates = (out.updates || 0) + 1;
+    }
+    // the driver's word: what he said he would do, and whether he did
+    for (const p of (r.promises || []).slice(0, 10)) {
+      const m = fresh.find((x) => +x.msg_id === +p.msg_id); if (!m || !p.what || (m.role && m.role !== 'driver')) continue;
+      await q(`INSERT INTO tg_promises (chat_id, driver_id, msg_id, at, what, due) VALUES ($1, $2, $3, $4, $5, $6)`, [chatId, chat.driver_id, m.msg_id, m.at, String(p.what).slice(0, 200), p.due ? String(p.due).slice(0, 60) : null]);
+    }
+    for (const x of (r.promise_results || []).slice(0, 15)) {
+      if (!promises.some((p) => p.id === +x.id) || !['kept', 'broken'].includes(x.result)) continue;
+      await q(`UPDATE tg_promises SET state = $2, evidence = $3, closed_at = now() WHERE id = $1 AND state = 'open'`, [+x.id, x.result, x.evidence ? bot.redact(String(x.evidence)).slice(0, 200) : null]);
+      if (x.result === 'broken') await bot.log('fact', `Did not keep his word: ${(promises.find((p) => p.id === +x.id) || {}).what}`, { chatId, driverId: chat.driver_id });
     }
     for (const k of (r.dispatch_lessons || []).slice(0, 4)) {
       const qn = bot.redact(String(k.situation || '')).trim().slice(0, 300), an = bot.redact(String(k.practice || '')).trim().slice(0, 800);

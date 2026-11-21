@@ -1662,3 +1662,18 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .tgwait .inrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 @media (max-width:640px){.tglog .lgt{display:block}.tgloglist li.tglog{flex-wrap:wrap}.tglog .lgt{margin-left:32px}}
 .tgwork .seg{margin:6px 0}
+/* dispatch autopilot: dispatcher cards; load update checks */
+.dcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:6px}
+.dcard{border:1px solid #DCE3DF;border-radius:10px;padding:12px 14px;background:#fff}
+.dcard header{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+.dcard ul{margin:2px 0 6px;padding-left:18px}
+.dcard p{margin:6px 0}
+.dchips{display:flex;gap:6px;flex-wrap:wrap}
+.dchip{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:#EEF3F0;color:#2D4A3E}
+.dchip.d-harsh,.dchip.d-unclear,.dchip.d-low{background:#FBE9E7;color:#8A2D1B}
+.dchip.d-firm,.dchip.d-mostly_clear,.dchip.d-medium{background:#FFF4DD;color:#7A5A06}
+.upds li{display:flex;gap:10px;align-items:flex-start}
+.uchk{display:inline-flex;gap:4px;flex:none}
+.ub{width:28px;height:28px;border:1px solid #C5CEC9;border-radius:6px;background:#fff;cursor:pointer;font-weight:700}
+.ub.on{background:var(--green);color:#fff;border-color:var(--green)}
+.ub.bad.on{background:#B3261E;border-color:#B3261E}

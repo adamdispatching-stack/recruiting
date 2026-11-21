@@ -105,7 +105,7 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
   require('./share').start();
   require('./callback').start();
   require('./api-coach').start();
-  if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/digest').start(); require('./tg/profile').start(); }
+  if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/digest').start(); require('./tg/profile').start(); require('./tg/dispatchers').start(); }
   require('./needed').start(); // verified drivers missing the arrival date, company or truck
   await q(`DELETE FROM sessions WHERE expires_at < now()`);
   await q(`DELETE FROM activity WHERE at < now() - interval '400 days'`); // the activity log keeps about 13 months

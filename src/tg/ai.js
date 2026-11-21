@@ -91,6 +91,10 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     status: { type: 'string', enum: ['assigned', 'to_pickup', 'at_pickup', 'loaded', 'rolling', 'at_delivery', 'delivered', 'delayed', 'waiting', 'issue'] },
     place: { type: 'string', description: 'City or facility, if said.' }, eta: { type: 'string', description: 'The ETA as said (for example "4 PM" or "Tue 6 AM"), if said.' },
     load_ref: { type: 'string', description: 'Load, trip or container number, if said.' }, by: { type: 'string', enum: ['driver', 'dispatcher', 'other'] } }, required: ['msg_id', 'status'] } },
+  promises: { type: 'array', description: 'ONLY in a WORKING group: what the DRIVER says he will do, with a time (for example "I will be at the shipper by 6 AM", "ETA 4 PM", "I will send the BOL tonight", "I can take the load Monday"). From the NEW messages.', items: { type: 'object', properties: {
+    msg_id: { type: 'integer' }, what: { type: 'string', description: 'Short, in the third person: "Be at the shipper by 6 AM".' }, due: { type: 'string', description: 'When, as said.' } }, required: ['msg_id', 'what'] } },
+  promise_results: { type: 'array', description: 'ONLY for the OPEN PROMISES listed: the ones the NEW messages show he kept or did not keep (late, did not do it, changed it without telling).', items: { type: 'object', properties: {
+    id: { type: 'integer' }, result: { type: 'string', enum: ['kept', 'broken'] }, evidence: { type: 'string', description: 'Short, what shows it.' } }, required: ['id', 'result'] } },
   dispatch_lessons: { type: 'array', description: 'ONLY in a WORKING driver\'s dispatch group: how OUR dispatchers handle things, as general practice a new dispatcher (or a bot doing updates) can follow. Only when the NEW messages clearly show it. No names, numbers, places or dates.', items: { type: 'object', properties: {
     situation: { type: 'string', description: 'When this happens, for example "The driver says he will be late to the delivery".' },
     practice: { type: 'string', description: 'What the dispatcher does or says, for example "Asks for the new ETA right away and tells the driver he will update the broker".' } }, required: ['situation', 'practice'] } },
@@ -116,14 +120,14 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     severity: { type: 'string', enum: ['low', 'high'] }, text: { type: 'string', description: 'One clear sentence.' },
     ask_driver: { type: 'string', description: 'Only for container_mismatch or wrong_location: a short polite question to the driver to clear it up, for example "The photo shows container ABCU 102634 but the load is ABCU 102643. Is this the right one?"' } }, required: ['kind', 'severity', 'text'] } } },
   required: ['truck_events', 'driver_notes', 'alerts'] } };
-async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images, onb = null, unknown = [], working = false }) {
+async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images, onb = null, unknown = [], working = false, promises = [] }) {
   const system = `You read the ${kind} Telegram group of one truck driver (${driver}${truck ? `, truck ${truck}` : ''}) for a US trucking company, and pull out what the managers must know.
 Only report what the NEW messages say; the earlier ones are context. Compare container, trailer and load numbers in the messages with the ones in the pictures: a different number is a container_mismatch.
 Flag unprofessional_dispatcher only for clear rudeness, insults, or telling the driver to break rules. Appointment or pickup/delivery time changes are appointment_change.
 Never include passwords, SSN, license or account numbers. Be factual and short.
 Oil changes, shop visits and repairs are truck_events. "Oil change done" is an oil_change with status fixed; say paid=true when they say it is paid, and give the cost, shop and mileage when said. Do not repeat an event already listed below: mark it fixed (fixed_issue_ids) or paid (paid_ids) instead.
 Open truck issues (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}
-${working ? 'This is a WORKING driver\'s dispatch group (the driver hauls loads for us). Also fill load_updates (each message is numbered #id) and dispatch_lessons: the bot is learning how our dispatchers run updates.\n' : ''}${unknown.length ? `People whose role is not known yet: ${unknown.join('; ')}.
+${working ? 'This is a WORKING driver\'s dispatch group (the driver hauls loads for us). Also fill load_updates (each message is numbered #id), promises, promise_results and dispatch_lessons: the bot is learning how our dispatchers run updates and whether the driver keeps his word.\n' + (promises.length ? `OPEN PROMISES (id: what, due): ${promises.map((x) => `${x.id}: ${x.what}${x.due ? ', ' + x.due : ''}`).join('; ')}\n` : '') : ''}${unknown.length ? `People whose role is not known yet: ${unknown.join('; ')}.
 ` : ''}Truck services not marked paid yet (id: title, cost): ${unpaid.length ? unpaid.map((i) => `${i.id}: ${i.title}${i.cost !== null ? ' $' + i.cost : ''}`).join('; ') : 'none'}${onb ? `
 
 This driver is ONBOARDING (not driving for us yet). Fill "onboarding" every time.
@@ -154,4 +158,17 @@ Be fair and respectful: describe behaviour, not character. Nothing about health,
   const text = `DRIVER: ${driver}\n\nPINNED (from the team):\n${pins || '(none)'}\n\nPREVIOUS PROFILE:\n${previous ? JSON.stringify(previous) : '(none)'}\n\nNOTES FROM THE GROUPS (oldest first):\n${notes.join('\n') || '(none)'}\n\nRECENT DAILY SUMMARIES:\n${summaries.join('\n') || '(none)'}`;
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: text.slice(-80000) }], tool: PROFILE_TOOL, maxTokens: 1500 });
 }
-module.exports = { on, docKind, summarize, onbDoc, driverReply, digest, profile };
+// How one of our dispatchers works, from his messages in the drivers' groups (for the managers, and for the future updater)
+const DISP_TOOL = { name: 'dispatcher_profile', description: 'How this dispatcher works with drivers.', input_schema: { type: 'object', properties: {
+  summary: { type: 'string', description: '2 or 3 sentences.' },
+  tone: { type: 'string', enum: ['friendly', 'neutral', 'firm', 'harsh'] }, clarity: { type: 'string', enum: ['clear', 'mostly_clear', 'unclear'] },
+  professionalism: { type: 'string', enum: ['high', 'medium', 'low'] },
+  update_habits: { type: 'array', items: { type: 'string' }, description: 'How he runs updates: what he asks for and when (ETA, BOL photo, seal, check calls...).' },
+  phrases: { type: 'array', items: { type: 'string' }, description: 'Typical short messages he sends, as patterns, without names or numbers (for example "Send me the BOL once loaded").' },
+  strengths: { type: 'array', items: { type: 'string' } }, improve: { type: 'array', items: { type: 'string' }, description: 'What would make him better, concrete and respectful.' } },
+  required: ['summary', 'tone', 'clarity', 'professionalism', 'update_habits', 'phrases', 'strengths', 'improve'] } };
+async function dispatcherProfile({ name, stats, lines }) {
+  const system = `You review how one dispatcher of a US trucking company works with the drivers in their Telegram groups, so the managers can coach the team and a bot can learn to run updates the same way. Be fair and factual, from the messages only. Never include phone numbers, addresses or load numbers.`;
+  return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: `Dispatcher: ${name}\n${stats}\nMESSAGES (with the driver's message before when it was a reply):\n${lines.join('\n').slice(-60000)}` }], tool: DISP_TOOL, maxTokens: 1200 });
+}
+module.exports = { on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile };

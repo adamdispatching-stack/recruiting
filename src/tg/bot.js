@@ -126,7 +126,9 @@ async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
   if (state.me && !(await isAdmin(chatId))) await log('join', 'Not an admin yet: make the bot an admin of the group so it reads every message', { chatId, driverId });
   await log('connect', `Connected as the ${KINDS[kind]} group for ${d.name}${who ? '' : ` (on the website${opts.by ? ', ' + opts.by : ''})`}`, { chatId, driverId, who });
   await doneWaiting(chatId, who ? who.name : opts.by || 'website', 'connected');
-  if (kind === 'dispatch' && (opts.big || ((await q(`SELECT member_count FROM tg_chats WHERE chat_id = $1`, [chatId])).rows[0] || {}).member_count > 10)) return; // a working driver's group: read along and learn, nothing to start
+  const working = kind === 'dispatch' && (opts.big || ((await q(`SELECT member_count FROM tg_chats WHERE chat_id = $1`, [chatId])).rows[0] || {}).member_count > 10 || ((await q(`SELECT status FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).status === 'Hired');
+  if (working) await q(`UPDATE tg_chats SET mode = $2 WHERE chat_id = $1`, [chatId, CMODES[(db.settings.tg || {}).workMode] ? db.settings.tg.workMode : 'watch']);
+  if (kind === 'dispatch' && working && ((await q(`SELECT status FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).status !== 'Hired') return; // a working driver's group: read along and learn, nothing to start
   if (handlers[kind]) await handlers[kind].begin(chatId, driverId, opts);
 }
 // "register dispatch watch": how the bot works in an onboarding group

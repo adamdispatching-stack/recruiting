@@ -61,9 +61,16 @@ http.createServer((req, res) => {
         const rl = /\[#(\d+) [^\]]*\] [^:]+: Rolling, ETA 4 PM/.exec(fresh); if (rl) load_updates.push({ msg_id: +rl[1], status: 'rolling', eta: '4 PM', place: 'Harrisburg', by: 'driver' });
         if (/send the BOL when loaded/.test(fresh)) dispatch_lessons.push({ situation: 'The driver arrives at the shipper', practice: 'Thanks him and asks for a photo of the BOL once loaded' });
       }
+      const promises = [], promise_results = [];
+      if (working) {
+        const pm = /\[#(\d+) [^\]]*\] [^:]+: I will be at the receiver by 6 AM/.exec(fresh); if (pm) promises.push({ msg_id: +pm[1], what: 'Be at the receiver by 6 AM', due: '6 AM' });
+        const op = /OPEN PROMISES \(id: what, due\): (\d+): Be at the receiver/.exec(j.system);
+        if (op && /Sorry, overslept, will be there at 8/.test(fresh)) promise_results.push({ id: +op[1], result: 'broken', evidence: 'Overslept, 2 hours late' });
+      }
       AI.working = (AI.working || 0) + (working ? 1 : 0);
-      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], people, load_updates, dispatch_lessons } }] }));
+      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], people, load_updates, dispatch_lessons, promises, promise_results } }] }));
     }
+    if (tool === 'dispatcher_profile') { AI.disp = (AI.disp || 0) + 1; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { summary: 'Short, clear messages.', tone: 'friendly', clarity: 'clear', professionalism: 'high', update_habits: ['Asks for the BOL photo once loaded'], phrases: ['Send me the BOL once loaded'], strengths: ['Answers fast'], improve: ['Ask for the ETA earlier'] } }] })); }
     const input = tool === 'group_digest' ? { truck_events: [], driver_notes: [], alerts: [], learned: [] } : tool === 'reply_plan' ? { is_question: false, confident: false, answer: '', progress: 'none', mood: 'neutral' } : { summary: 'A day.', issues: [], mood: 'good' };
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input }] }));
   });
@@ -89,7 +96,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
 (async () => {
   execSync(`pkill -f "node src/serve[r].js" || true; sleep 0.4; su postgres -c "psql -q -h /tmp -p 5433 -c 'DROP DATABASE IF EXISTS recruiting_test' -c 'CREATE DATABASE recruiting_test'"`, { stdio: 'ignore' });
   const env = { ...process.env, DATABASE_URL: DB, PGSSL: 'off', ADMIN_EMAIL: 'admin@example.com', ADMIN_PASSWORD: 'test-password-123', PORT: '3999',
-    TELEGRAM_BOT_TOKEN: '999:test', TG_API_BASE: 'http://localhost:4999', TG_POLL_SECONDS: '1', TG_TICK_MS: '1000', TG_NO_QUIET: '1', TG_DIGEST_MS: '1000', TG_DIGEST_SETTLE_MIN: '0.03', TG_PROFILE_MS: '600000', ANTHROPIC_API_KEY: 'test', ANTHROPIC_BASE_URL: 'http://localhost:4998' };
+    TELEGRAM_BOT_TOKEN: '999:test', TG_API_BASE: 'http://localhost:4999', TG_POLL_SECONDS: '1', TG_TICK_MS: '1000', TG_NO_QUIET: '1', TG_DIGEST_MS: '1000', TG_DIGEST_SETTLE_MIN: '0.03', TG_PROFILE_MS: '1500', TG_DISP_MIN_MSGS: '2', ANTHROPIC_API_KEY: 'test', ANTHROPIC_BASE_URL: 'http://localhost:4998' };
   require('child_process').spawn('node', ['src/server.js'], { cwd: __dirname + '/..', env, stdio: ['ignore', require('fs').openSync('/tmp/server.log', 'w'), require('fs').openSync('/tmp/server.log', 'a')], detached: true }).unref();
   let cookie = '';
   const web = async (path, opts = {}) => { const r = await fetch(BASE + path, { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json', Cookie: opts.cookie || cookie }, body: opts.body ? JSON.stringify(opts.body) : undefined }); const sc = r.headers.get('set-cookie'); if (sc && !opts.cookie) cookie = sc.split(';')[0]; const t = await r.text(); try { return { status: r.status, ...JSON.parse(t) }; } catch (e) { return { status: r.status, text: t }; } };
@@ -276,6 +283,27 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const ad = await web('/api/active/' + hank);
   ok(ad.updates && ad.updates[0].status === 'rolling' && ad.updates[0].eta === '4 PM', 'the active driver page: the latest load update');
   ok(((await web('/api/tg/chats')).chats.find((c) => c.chatId == HCHAT.id).lastUpdate || {}).status === 'rolling', 'the groups list: the latest update');
+  // the driver's word
+  say(HANK, 'I will be at the receiver by 6 AM', HCHAT);
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_promises WHERE driver_id = $1 AND state = 'open'`, [hank])).rows.length, 15000), 'a promise: "be at the receiver by 6 AM"');
+  say(HANK, 'Sorry, overslept, will be there at 8', HCHAT);
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_promises WHERE driver_id = $1 AND state = 'broken'`, [hank])).rows.length, 15000), 'not kept: overslept');
+  const ad2 = await web('/api/active/' + hank);
+  ok(ad2.promises[0].state === 'broken' && ad2.word.broken === 1, 'the active driver page: Keeps his word, 0 of 1');
+  // checking the load updates; the dispatch autopilot
+  const upd = (await web('/api/tg/chats/' + HCHAT.id)).updates;
+  ok((await web('/api/tg/updates/' + upd[0].id, { method: 'POST', body: { ok: true } })).ok && (await web('/api/tg/updates/' + upd[1].id, { method: 'POST', body: { ok: false } })).ok, 'the team checks two load updates: right, wrong');
+  const dr = await web('/api/tg/dispatch-readiness');
+  ok(dr.groups.groups >= 2 && dr.updates.ok === 1 && dr.updates.wrong === 1 && dr.updates.accuracy === 0.5 && dr.practices.waiting === 1 && dr.promises.broken === 1 && !dr.ready, 'Dispatch autopilot: groups, 50% read right, 1 practice to approve, 1 promise broken, still learning');
+  say(DAN, 'Ok Hank, let me know when you are rolling', HCHAT); say(DAN, 'Send me the ETA please', HCHAT);
+  ok(await until(async () => ((await web('/api/tg/dispatch-readiness')).dispatchers.find((x) => x.name === 'Dan Dispatch') || {}).profile, 15000), 'Dan\'s dispatcher profile is written');
+  const dd = (await web('/api/tg/dispatch-readiness')).dispatchers.find((x) => x.name === 'Dan Dispatch');
+  ok(dd.profile.tone === 'friendly' && dd.profile.update_habits.length && dd.msgs30 >= 1, 'with tone, how he runs updates, messages');
+  ok((await web('/api/tg/autopilot', { method: 'PUT', body: { workMode: 'updater' } })).ok && (await web('/api/tg/dispatch-readiness')).settings.workMode === 'updater', 'new working groups can start in Updater');
+  const U2 = { id: -100724, type: 'supergroup', title: 'Walt Worker 2' }; tg.counts[U2.id] = 11;
+  added(U2, UPD);
+  ok(await until(async () => ((await pg.query(`SELECT mode FROM tg_chats WHERE chat_id = $1 AND driver_id = $2`, [U2.id, walt])).rows[0] || {}).mode === 'updater'), 'and they do');
+  await web('/api/tg/autopilot', { method: 'PUT', body: { workMode: 'watch' } });
   // an onboarding group whose driver is hired: it becomes a dispatch group, the bot learns dispatching there
   await web('/api/drivers/' + nina.id, { method: 'PATCH', body: { status: 'Hired' } });
   ok(await until(async () => (await web('/api/tg/log?chat=' + NCHAT.id)).log.some((x) => /is active now: this is the driver's dispatch group/.test(x.text))), 'Nina hired: her group is now a dispatch group (history)');
@@ -283,7 +311,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => AI.working > w0, 15000), 'and the bot reads it as a working group (learns updates)');
   // the group page; updater mode
   const gp = await web('/api/tg/chats/' + HCHAT.id);
-  ok(gp.chat.working && gp.chat.members === 14 && gp.chat.mode === 'watch' && gp.chat.learning.msgs === 3 && gp.chat.learning.dispatchers === 1 && gp.chat.learning.updates === 2 && gp.chat.learning.lessons === 1 && gp.updates.length === 2, 'the group page: working group, 14 people, 3 messages read, 1 dispatcher, 2 load updates, 1 practice');
+  ok(gp.chat.working && gp.chat.members === 14 && gp.chat.mode === 'watch' && gp.chat.learning.msgs >= 3 && gp.chat.learning.dispatchers === 1 && gp.chat.learning.updates >= 2 && gp.chat.learning.lessons === 1 && gp.updates.length >= 2, 'the group page: working group, 14 people, 3 messages read, 1 dispatcher, 2 load updates, 1 practice');
   n = tg.sent.length; say(HANK, 'loaded CONTAINER ABCU9', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_alerts WHERE chat_id = $1`, [HCHAT.id])).rows.length, 15000), 'watch: the container mix-up is an alert on the website');
   await sleep(500); ok(!inChat(n, HCHAT).length, 'and nothing is written in the group');
@@ -317,6 +345,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
     await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist.png', fullPage: false });
     await p.click('[data-act=tgLogF][data-k="tap,reaction,reply"]'); await p.waitForTimeout(500); await p.screenshot({ path: '/tmp/shot/hist2.png' });
     await p.goto(BASE + '/#/telegram/' + HCHAT.id); await p.waitForSelector('.tgwork'); await p.locator('.tgwork').screenshot({ path: '/tmp/shot/work.png' });
+    await p.goto(BASE + '/#/telegram?tab=knowledge'); await p.waitForSelector('.dautop'); await p.locator('.dautop').screenshot({ path: '/tmp/shot/dauto.png' });
+    await p.goto(BASE + '/#/active/' + hank); await p.waitForSelector('.list'); await p.screenshot({ path: '/tmp/shot/driver.png', fullPage: true });
     await p.goto(BASE + '/#/telegram?tab=people'); await p.waitForSelector('table.tgt'); await p.locator('table.tgt').screenshot({ path: '/tmp/shot/people.png' });
     await p.goto(BASE + '/#/telegram/' + PCHAT.id); await p.waitForSelector('#tgLogBox li.tglog'); await p.locator('.tglogc').screenshot({ path: '/tmp/shot/histc.png' });
     await p.setViewportSize({ width: 390, height: 900 }); await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist-m.png' });

@@ -14,7 +14,9 @@ async function build(driverId) {
   const notes = (await q(`SELECT kind, text, to_char(at, 'YYYY-MM-DD') AS day FROM driver_notes WHERE driver_id = $1 ORDER BY at DESC LIMIT 300`, [driverId])).rows.reverse();
   const sums = (await q(`SELECT s.day::text, s.summary FROM tg_summaries s JOIN tg_chats c ON c.chat_id = s.chat_id WHERE c.driver_id = $1 ORDER BY s.day DESC LIMIT 10`, [driverId])).rows.reverse();
   const basics = `${d.name}, ${d.mode === 'Owner-operators' ? 'owner-operator' : 'company driver'}${d.company ? `, ${d.company}` : ''}${d.unit ? `, truck ${d.unit} ${d.details || ''}` : ''}${d.weeks_out ? `, works ${d.weeks_out} weeks out` : ''}${d.days_home ? ` and ${d.days_home} days home` : ''}`;
-  const prof = await ai.profile({ driver: basics, previous: p ? p.profile : null, pins: p ? p.pins : null, notes: notes.map((n) => `${n.day} [${n.kind}] ${n.text}`), summaries: sums.map((s) => `${s.day}: ${s.summary}`) });
+  const pr = (await q(`SELECT count(*) FILTER (WHERE state = 'kept')::int kept, count(*) FILTER (WHERE state = 'broken')::int broken FROM tg_promises WHERE driver_id = $1 AND at > now() - interval '60 days'`, [driverId])).rows[0];
+  const word = pr.kept + pr.broken >= 3 ? ` Keeps his word: ${pr.kept} of ${pr.kept + pr.broken} times he said he would do something by a time (last 60 days).` : '';
+  const prof = await ai.profile({ driver: basics + word, previous: p ? p.profile : null, pins: p ? p.pins : null, notes: notes.map((n) => `${n.day} [${n.kind}] ${n.text}`), summaries: sums.map((s) => `${s.day}: ${s.summary}`) });
   const count = +(await q(`SELECT count(*)::int n FROM driver_notes WHERE driver_id = $1`, [driverId])).rows[0].n;
   await q(`INSERT INTO driver_profiles (driver_id, profile, notes_used, built_at) VALUES ($1, $2, $3, now()) ON CONFLICT (driver_id) DO UPDATE SET profile = $2, notes_used = $3, built_at = now()`, [driverId, JSON.stringify(prof), count]);
   return prof;

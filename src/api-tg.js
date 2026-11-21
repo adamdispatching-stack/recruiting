@@ -15,6 +15,12 @@ const { q } = db;
 const { wrap, needUser, needAdmin, visSql, loadDriver } = lib;
 
 const ROLES = ['driver', 'eld', 'accounting', 'dispatch', 'staff'];
+// messages and reply time per person in a window ($1, like '7 days'): median minutes from a driver's first message to the first reply, within 12 hours
+const REPLY_SQL = `WITH dm AS (SELECT m.chat_id, m.at FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE p.role = 'driver' AND m.at > now() - $1::interval AND NOT m.imported
+    AND NOT EXISTS (SELECT 1 FROM tg_messages b JOIN tg_people bp ON bp.tg_id = b.from_id WHERE b.chat_id = m.chat_id AND bp.role = 'driver' AND b.at < m.at AND b.at > m.at - interval '10 minutes')),
+  rep AS (SELECT x.from_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM x.at - dm.at) / 60) med, count(*)::int n FROM dm
+    CROSS JOIN LATERAL (SELECT m2.from_id, m2.at FROM tg_messages m2 LEFT JOIN tg_people p2 ON p2.tg_id = m2.from_id WHERE m2.chat_id = dm.chat_id AND m2.at > dm.at AND m2.at < dm.at + interval '12 hours' AND NOT m2.is_bot AND coalesce(p2.role, '') <> 'driver' ORDER BY m2.at LIMIT 1) x GROUP BY x.from_id),
+  cnt AS (SELECT from_id, count(*)::int n FROM tg_messages WHERE at > now() - $1::interval AND NOT is_bot AND NOT imported GROUP BY from_id)`;
 function eldView(c) {
   if (!c) return null;
   const s = c.steps || {};
@@ -77,7 +83,7 @@ module.exports = (app) => {
       (SELECT count(*)::int FROM tg_knowledge WHERE chat_id = $1 AND kind = 'dispatch') lessons, (SELECT count(*)::int FROM tg_updates WHERE chat_id = $1) updates,
       (SELECT count(DISTINCT m.tg_id)::int FROM tg_members m JOIN tg_people p ON p.tg_id = m.tg_id WHERE m.chat_id = $1 AND p.role = 'dispatch') dispatchers`, [c.chat_id]).catch((e) => { console.error('tg learning', e.message); return { rows: [{}] }; })).rows[0];
     const working = c.kind === 'dispatch' && (c.driver_status === 'Hired' || c.member_count > 10);
-    const updates = (await q(`SELECT status, place, eta, load_ref, by_role, at, text FROM tg_updates WHERE chat_id = $1 ORDER BY at DESC LIMIT 15`, [c.chat_id])).rows;
+    const updates = (await q(`SELECT id, checked, status, place, eta, load_ref, by_role, at, text FROM tg_updates WHERE chat_id = $1 ORDER BY at DESC LIMIT 15`, [c.chat_id])).rows;
     res.json({ updates, chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, driverStatus: c.driver_status, botAdmin: c.bot_admin, linkedAt: c.linked_at, members: c.member_count, working, mode: c.mode || 'watch', learning: lr }, eld: c.kind === 'eld' ? eldView(e) : null,
       onb: c.kind === 'dispatch' && c.driver_id && c.driver_status !== 'Hired' ? await onbView(c.driver_id) : null,
       alerts: (await q(`SELECT id, kind, severity, text, at, resolved_at, resolved_by FROM tg_alerts WHERE chat_id = $1 ${req.user.role === 'admin' ? '' : "AND kind <> 'unprofessional_dispatcher'"} ORDER BY at DESC LIMIT 40`, [c.chat_id])).rows,
@@ -207,6 +213,30 @@ module.exports = (app) => {
     res.json({ log: r.rows.map((x) => ({ id: x.id, at: x.at, chatId: x.chat_id, driverId: x.driver_id, driver: x.driver, hired: x.status === 'Hired', kind: x.kind, text: x.text, who: x.who, title: x.title })),
       week: Object.fromEntries(counts.map((c) => [c.kind, c.n])), more: r.rows.length === 100 });
   }));
+  // ---------- the dispatch autopilot: how far the bot is with learning dispatching and updates ----------
+  app.get('/api/tg/dispatch-readiness', needUser, wrap(async (req, res) => {
+    const W = `c.active AND c.kind = 'dispatch' AND c.driver_id IS NOT NULL AND (d.status = 'Hired' OR c.member_count > 10)`;
+    const g = (await q(`SELECT count(*)::int groups, count(*) FILTER (WHERE (SELECT min(at) FROM tg_messages m WHERE m.chat_id = c.chat_id) < now() - interval '14 days')::int watched,
+      count(*) FILTER (WHERE c.mode = 'updater')::int updater FROM tg_chats c JOIN drivers d ON d.id = c.driver_id WHERE ${W}`)).rows[0];
+    const m = (await q(`SELECT count(*)::int n FROM tg_messages m JOIN tg_chats c ON c.chat_id = m.chat_id JOIN drivers d ON d.id = c.driver_id WHERE ${W} AND NOT m.is_bot AND m.at > now() - interval '30 days'`)).rows[0].n;
+    const u = (await q(`SELECT count(*)::int total, count(*) FILTER (WHERE checked = 'ok')::int ok, count(*) FILTER (WHERE checked = 'wrong')::int wrong FROM tg_updates`)).rows[0];
+    const k = (await q(`SELECT count(*) FILTER (WHERE active)::int approved, count(*) FILTER (WHERE review AND NOT active)::int waiting FROM tg_knowledge WHERE kind = 'dispatch'`)).rows[0];
+    const p = (await q(`SELECT count(*) FILTER (WHERE state = 'kept')::int kept, count(*) FILTER (WHERE state = 'broken')::int broken, count(*) FILTER (WHERE state = 'open')::int open FROM tg_promises WHERE at > now() - interval '60 days'`)).rows[0];
+    const accuracy = u.ok + u.wrong ? u.ok / (u.ok + u.wrong) : null;
+    const ready = g.watched >= 3 && k.approved >= 10 && u.ok + u.wrong >= 20 && accuracy >= 0.9;
+    let dispatchers = [];
+    if (req.user.role === 'admin') {
+      dispatchers = (await q(`${REPLY_SQL} SELECT p.tg_id::text tg_id, p.name, p.profile, p.profile_at, coalesce(cnt.n, 0) msgs30, (SELECT count(DISTINCT m.chat_id)::int FROM tg_messages m WHERE m.from_id = p.tg_id AND m.at > now() - interval '30 days') groups,
+        round(rep.med::numeric, 0)::int reply_min, rep.n replies FROM tg_people p LEFT JOIN cnt ON cnt.from_id = p.tg_id LEFT JOIN rep ON rep.from_id = p.tg_id WHERE p.role = 'dispatch' ORDER BY coalesce(cnt.n, 0) DESC`, ['30 days'])).rows;
+    }
+    res.json({ groups: g, messages30: m, updates: { ...u, accuracy }, practices: k, promises: p, ready, dispatchers, settings: { workMode: (db.settings.tg || {}).workMode || 'watch' } });
+  }));
+  // the team checks a load update the AI read: right or wrong (that is the accuracy above)
+  app.post('/api/tg/updates/:id', needUser, wrap(async (req, res) => {
+    const r = await q(`UPDATE tg_updates SET checked = $2 WHERE id = $1 RETURNING id`, [+req.params.id || 0, (req.body || {}).ok ? 'ok' : 'wrong']);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
+  }));
   // a working driver's group: watch and learn, or updater
   app.patch('/api/tg/chats/:id/mode', needUser, wrap(async (req, res) => {
     if (req.user.role === 'dispatcher') return res.status(403).json({ error: 'Not for dispatchers' });
@@ -261,14 +291,10 @@ module.exports = (app) => {
   }));
   app.get('/api/tg/people', needUser, needAdmin, wrap(async (req, res) => {
     // last 7 days: messages, and how fast each person answers a driver (median minutes from the driver's first message to the first reply, within 12 hours)
-    const r = (await q(`WITH dm AS (SELECT m.chat_id, m.at FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE p.role = 'driver' AND m.at > now() - interval '7 days' AND NOT m.imported
-        AND NOT EXISTS (SELECT 1 FROM tg_messages b JOIN tg_people bp ON bp.tg_id = b.from_id WHERE b.chat_id = m.chat_id AND bp.role = 'driver' AND b.at < m.at AND b.at > m.at - interval '10 minutes')),
-      rep AS (SELECT x.from_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM x.at - dm.at) / 60) med, count(*)::int n FROM dm
-        CROSS JOIN LATERAL (SELECT m2.from_id, m2.at FROM tg_messages m2 LEFT JOIN tg_people p2 ON p2.tg_id = m2.from_id WHERE m2.chat_id = dm.chat_id AND m2.at > dm.at AND m2.at < dm.at + interval '12 hours' AND NOT m2.is_bot AND coalesce(p2.role, '') <> 'driver' ORDER BY m2.at LIMIT 1) x GROUP BY x.from_id),
-      cnt AS (SELECT from_id, count(*)::int n FROM tg_messages WHERE at > now() - interval '7 days' AND NOT is_bot AND NOT imported GROUP BY from_id)
+    const r = (await q(`${REPLY_SQL}
       SELECT p.tg_id::text tg_id, p.name, p.username, p.role, p.driver_id, d.name driver, p.user_id, u.name user_name, p.seen_at, coalesce(cnt.n, 0) msgs7, round(rep.med::numeric, 0)::int reply_min, rep.n replies,
       (SELECT count(*)::int FROM tg_members m WHERE m.tg_id = p.tg_id) groups FROM tg_people p LEFT JOIN drivers d ON d.id = p.driver_id LEFT JOIN users u ON u.id = p.user_id
-      LEFT JOIN cnt ON cnt.from_id = p.tg_id LEFT JOIN rep ON rep.from_id = p.tg_id ORDER BY (p.role = 'dispatch') DESC NULLS LAST, coalesce(cnt.n, 0) DESC, p.seen_at DESC NULLS LAST LIMIT 500`)).rows;
+      LEFT JOIN cnt ON cnt.from_id = p.tg_id LEFT JOIN rep ON rep.from_id = p.tg_id ORDER BY (p.role = 'dispatch') DESC NULLS LAST, coalesce(cnt.n, 0) DESC, p.seen_at DESC NULLS LAST LIMIT 500`, ['7 days'])).rows;
     res.json({ people: r, roles: ROLES });
   }));
   app.patch('/api/tg/people/:id', needUser, needAdmin, wrap(async (req, res) => {
@@ -371,10 +397,11 @@ module.exports = (app) => {
   }));
   app.put('/api/tg/autopilot', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const v = { ...(db.settings.tg || {}) };
+    if (b.workMode !== undefined) { if (!['watch', 'updater'].includes(b.workMode)) return res.status(400).json({ error: 'Pick watch or updater' }); v.workMode = b.workMode; }
     if (b.onbMode !== undefined) { if (!['watch', 'assist', 'run'].includes(b.onbMode)) return res.status(400).json({ error: 'Pick watch, assist or run' }); v.onbMode = b.onbMode; }
     if (b.autoTick !== undefined) v.autoTick = !!b.autoTick;
     await db.saveSetting('tg', v);
-    await lib.act(req.user, 'admin', null, `Onboarding bot: new groups start in "${v.onbMode}"${v.autoTick ? ', the AI ticks steps itself' : ''}`);
+    await lib.act(req.user, 'admin', null, `${b.workMode !== undefined ? `Working drivers' groups start in "${v.workMode}". ` : ''}Onboarding bot: new groups start in "${v.onbMode}"${v.autoTick ? ', the AI ticks steps itself' : ''}`);
     res.json({ ok: true, ...v });
   }));
   app.post('/api/drivers/:id/tg-link', needUser, wrap(async (req, res) => {

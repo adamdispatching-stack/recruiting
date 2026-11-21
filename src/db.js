@@ -442,6 +442,15 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS tg_updates (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER, msg_id BIGINT, at TIMESTAMPTZ NOT NULL DEFAULT now(),
       status TEXT NOT NULL, place TEXT, eta TEXT, load_ref TEXT, by_role TEXT, text TEXT);
     CREATE INDEX IF NOT EXISTS tg_updates_driver ON tg_updates(driver_id, at DESC);
+    ALTER TABLE tg_updates ADD COLUMN IF NOT EXISTS checked TEXT; -- the team: ok / wrong (how often the AI reads updates right)
+    -- what the driver said he would do ("I'll be there at 6", "ETA 4 PM"), and whether he did
+    CREATE TABLE IF NOT EXISTS tg_promises (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER, msg_id BIGINT, at TIMESTAMPTZ NOT NULL DEFAULT now(), what TEXT NOT NULL, due TEXT,
+      state TEXT NOT NULL DEFAULT 'open', evidence TEXT, closed_at TIMESTAMPTZ);
+    CREATE INDEX IF NOT EXISTS tg_promises_driver ON tg_promises(driver_id, at DESC);
+    -- how each dispatcher works, written by the AI from their messages (admins only)
+    ALTER TABLE tg_people ADD COLUMN IF NOT EXISTS profile JSONB;
+    ALTER TABLE tg_people ADD COLUMN IF NOT EXISTS profile_at TIMESTAMPTZ;
+    ALTER TABLE tg_people ADD COLUMN IF NOT EXISTS profile_msgs INTEGER;
     CREATE UNIQUE INDEX IF NOT EXISTS tg_updates_msg ON tg_updates(chat_id, msg_id, status) WHERE msg_id IS NOT NULL;
     ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'watch';
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS note_by TEXT;
@@ -614,7 +623,7 @@ const DEFAULTS = {
   // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
   // a second tag if nobody answers after remindMin, and the daily AI summary of each group
   // onbMode: how the bot starts in a new onboarding group (watch / assist / run); autoTick: the AI ticks onboarding steps itself
-  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, onbMode: 'watch', autoTick: false },
+  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, workMode: 'watch', onbMode: 'watch', autoTick: false },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },
