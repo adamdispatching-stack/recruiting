@@ -25,6 +25,7 @@ http.createServer((req, res) => {
     }
     if (method === 'sendMessage') { const m = { message_id: ++tg.nextMsg, date: Math.floor(Date.now() / 1000), chat: { id: p.chat_id }, text: p.text, reply_markup: p.reply_markup }; tg.sent.push({ ...p, message_id: m.message_id }); return out(m); }
     if (method === 'editMessageText' || method === 'editMessageReplyMarkup') { tg.edits.push({ method, ...p }); return out(true); }
+    if (method === 'setMessageReaction') { (tg.reactions = tg.reactions || []).push(p); return out(true); }
     if (method === 'answerCallbackQuery') { tg.answers.push(p); return out(true); }
     if (method === 'getChatMember') return out({ status: 'administrator', user: BOT });
     if (method === 'getFile') return out({ file_id: p.file_id, file_path: 'f/' + p.file_id, file_size: 10 });
@@ -102,7 +103,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   let n = tg.sent.length; say(RITA, '/link ' + code);
   await until(() => sentSince(n).some((m) => /Relay invite<\/b> by email soon/.test(m.text)), 8000, 'welcome');
   const w = sentSince(n).map((m) => m.text).join('\n---\n');
-  ok(/now the <b>Dispatch<\/b> group for <b>Olga Onb<\/b>/.test(w) && /Welcome, <b>Olga<\/b>/.test(w) && /with Rita Recruiter/.test(w), 'linked: the bot welcomes Olga, with her recruiter');
+  ok(!/now the <b>Dispatch/.test(w) && /Welcome, <b>Olga<\/b>/.test(w) && /with Rita Recruiter/.test(w), 'linked: the bot welcomes Olga, with her recruiter');
   ok(/Onboarding: Olga Onb/.test(w) && /⬜ Invite sent/.test(w) && /date not set yet/.test(w), 'a card with the Amazon steps and the start date');
   ok((await web('/api/drivers/' + id)).onboarding === null || true, 'card posted');
   // the website moves the Amazon step: the bot follows

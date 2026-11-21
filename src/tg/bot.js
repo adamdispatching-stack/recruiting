@@ -53,6 +53,7 @@ async function edit(chatId, msgId, html, buttons) {
       ...(buttons ? { reply_markup: { inline_keyboard: buttons.map((row) => row.map(([text, data]) => ({ text, callback_data: data }))) } } : {}) });
   } catch (e) { if (!/not modified/i.test(e.message)) throw e; }
 }
+const react = (chatId, msgId, emoji) => call('setMessageReaction', { chat_id: chatId, message_id: msgId, reaction: [{ type: 'emoji', emoji }] }).catch(() => {});
 const dropButtons = (chatId, msgId) => call('editMessageReplyMarkup', { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
 
 // ---------- keeping what was said ----------
@@ -92,10 +93,10 @@ const clip = (t, n = 80) => { const s = stripHtml(String(t || '')).replace(/\s+/
 // Someone not connected to the website did something only the team may do: keep it waiting (and tell the admins) until they connect
 async function wait(chatId, who, { driverId = null, kind = null, what }) {
   const r = await q(`INSERT INTO tg_waiting (chat_id, tg_id, who, driver_id, kind, what) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (chat_id) WHERE done_at IS NULL
-    DO UPDATE SET tg_id = coalesce(EXCLUDED.tg_id, tg_waiting.tg_id), who = coalesce(EXCLUDED.who, tg_waiting.who), driver_id = coalesce(EXCLUDED.driver_id, tg_waiting.driver_id), kind = coalesce(EXCLUDED.kind, tg_waiting.kind) RETURNING (xmax = 0) fresh`,
+    DO UPDATE SET tg_id = coalesce(EXCLUDED.tg_id, tg_waiting.tg_id), who = coalesce(EXCLUDED.who, tg_waiting.who), driver_id = coalesce(EXCLUDED.driver_id, tg_waiting.driver_id), kind = coalesce(EXCLUDED.kind, tg_waiting.kind), what = EXCLUDED.what RETURNING (xmax = 0) fresh`,
   [chatId, who ? who.tg_id : null, who ? who.name : null, driverId, kind, what]);
   await log('wait', what, { chatId, who });
-  if (r.rows[0].fresh) for (const a of (await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows) await db.notify(db.pool, a.id, 'tg', `Waiting: ${what}`, '#/telegram?tab=groups');
+  if (r.rows[0].fresh) for (const id of new Set([...(await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows.map((a) => a.id), ...(who && who.user_id ? [who.user_id] : [])])) await db.notify(db.pool, id, 'tg', `Waiting: ${what}`, '#/telegram?tab=groups');
 }
 const doneWaiting = (chatId, by, how) => q(`UPDATE tg_waiting SET done_at = now(), done_by = $2, done_how = $3 WHERE chat_id = $1 AND done_at IS NULL`, [chatId, by || null, how]);
 const noteMedia = (chatId, msgId, note) => q(`UPDATE tg_messages SET media_note = $3 WHERE chat_id = $1 AND msg_id = $2`, [chatId, msgId, note]);
@@ -120,13 +121,12 @@ async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
   await db.syncAuto(db.pool, driverId, userId || null); // "Telegram group created", "ELD group set up", "Accounting group set up"
   await q(`UPDATE drivers SET updated_at = now() WHERE id = $1`, [driverId]);
   await require('../lib').history(driverId, `${KINDS[kind]} Telegram group linked`, who ? who.name : opts.by || 'Telegram', 'telegram').catch(() => {});
-  await send(chatId, `✅ This is now the <b>${KINDS[kind]}</b> group for <b>${esc(d.name)}</b>.${state.me && !(await isAdmin(chatId)) ? '\n\nPlease make me an admin of this group, so I can read every message (Group settings → Administrators → Add admin).' : ''}`);
+  // silent in the group: a 👍 on the command that asked for it (if any); the website has the rest
+  if (opts.ackMsg) await react(chatId, opts.ackMsg, '👍');
+  if (state.me && !(await isAdmin(chatId))) await log('join', 'Not an admin yet: make the bot an admin of the group so it reads every message', { chatId, driverId });
   await log('connect', `Connected as the ${KINDS[kind]} group for ${d.name}${who ? '' : ` (on the website${opts.by ? ', ' + opts.by : ''})`}`, { chatId, driverId, who });
   await doneWaiting(chatId, who ? who.name : opts.by || 'website', 'connected');
   if (handlers[kind]) await handlers[kind].begin(chatId, driverId, opts);
-  // an onboarding group starts in 👀 Watch and learn (the default): say so once, and how to change it
-  if (kind === 'dispatch' && (await q(`SELECT 1 FROM onb_cases WHERE driver_id = $1 AND chat_id = $2 AND mode = 'watch'`, [driverId, chatId])).rows[0])
-    await send(chatId, '👀 Watch and learn: I read along, sum it up on the website and learn from the team. I won\'t write here.\nTo change: /mode');
 }
 // "register dispatch watch": how the bot works in an onboarding group
 const MODE_WORD = { watch: 'watch', learn: 'watch', quiet: 'watch', silent: 'watch', assist: 'assist', help: 'assist', answer: 'assist', answers: 'assist', run: 'run', auto: 'run', full: 'run' };
@@ -185,24 +185,20 @@ async function autoRegister(chat, who) {
   const info = titleInfo(chat.title);
   if (!info.name && !info.phone) {
     await log('title', `Title "${clip(chat.title, 60)}": no driver name or phone in it`, { chatId: chat.id, who });
-    return send(chat.id, '👋 Hi, I am the FleetHire assistant.\n\nPut the driver\'s name and phone number in the group title and I connect it myself, or type /register.\nPlease also make me an admin, so I can read the messages.');
+    return wait(chat.id, who, { kind: info.kind, what: `The bot is in "${clip(chat.title, 60)}", but the title has no driver name or phone. Pick the driver here, or put the name and phone in the group title.` });
   }
   const f = await findDrivers(info);
-  await log('title', `Title "${clip(chat.title, 60)}": ${f.sure ? `${f.sure.name} (${info.phone && f.sure.phones && f.sure.phones.includes(info.phone) ? 'phone' : 'name'} match)` : f.list.length ? `${f.list.length} possible drivers` : 'no driver found'}, ${KINDS[info.kind]} group`, { chatId: chat.id, driverId: f.sure ? f.sure.id : null, who });
+  await log('title', `Title "${clip(chat.title, 60)}": ${f.sure ? `${f.sure.name} (${f.by} match)` : f.list.length ? `${f.list.length} possible drivers` : 'no driver found'}, ${KINDS[info.kind]} group`, { chatId: chat.id, driverId: f.sure ? f.sure.id : null, who });
   if (f.sure && isStaff(who)) { await addPhone(f.sure.id, info.phone); return linkChat(chat.id, info.kind, f.sure.id, who.user_id || null, who); }
   // the phone in the title is a driver's phone: connected right away, whoever added the bot (Settings can turn this off)
   if (f.sure && f.by === 'phone' && (db.settings.tg || {}).autoPhone !== false) {
     await log('connect', `The phone in the title matches ${f.sure.name}: connected by itself${who ? ` (${who.name} is not connected to the website yet)` : ''}`, { chatId: chat.id, driverId: f.sure.id, who });
     return linkChat(chat.id, info.kind, f.sure.id, null, null, { by: 'the phone in the title' });
   }
-  if (who && !isStaff(who)) await wait(chat.id, who, { driverId: f.sure ? f.sure.id : null, kind: info.kind, what: `${who.name} added the bot to "${clip(chat.title, 60)}" but has not connected Telegram to the website${f.sure ? `. It looks like ${f.sure.name}'s ${KINDS[info.kind]} group` : ''}.` });
-  const later = who && !isStaff(who) ? `\n\n${esc(who.name)}, I connect it as soon as you connect your Telegram to the website (in a private chat with me: /me CODE, the code is under Telegram → Connect my Telegram). An admin can also connect it on the website.` : '';
-  if (f.sure) {
-    await q(`INSERT INTO tg_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`, ['reg:' + chat.id, JSON.stringify({ name: info.name, phone: info.phone, kind: info.kind })]);
-    return send(chat.id, `👋 Hi, I am the FleetHire assistant. This looks like the <b>${KINDS[info.kind]}</b> group for <b>${esc(f.sure.name)}</b>. Someone from our team, tap to connect it:${later}`, { buttons: [[['✅ Connect', `reg:${info.kind}:${f.sure.id}`]]] });
-  }
-  await askWhich(chat.id, info.kind, info, f.list, who);
-  if (later) await send(chat.id, later.trim());
+  // not sure, or added by someone the website does not know: waits on the website (nothing in the group)
+  const by = who && !isStaff(who) ? ` ${who.name} added the bot but has not connected Telegram to the website.` : who ? ` Added by ${who.name}.` : '';
+  return wait(chat.id, who, { driverId: f.sure ? f.sure.id : null, kind: info.kind,
+    what: f.sure ? `"${clip(chat.title, 60)}" looks like ${f.sure.name}'s ${KINDS[info.kind]} group (by the name).${by}` : f.list.length ? `"${clip(chat.title, 60)}": ${f.list.length} drivers fit the title. Pick one.${by}` : `"${clip(chat.title, 60)}": nobody on the website with ${[info.name ? `the name "${info.name}"` : '', info.phone ? `the phone ${info.phone}` : ''].filter(Boolean).join(' or ')}.${by}` });
 }
 // "/register", "register dispatch", "register eld John Smith": the team registers a group from Telegram.
 // With nothing after it, the group title says who and which kind.
@@ -210,7 +206,7 @@ async function register(m, args, who) {
   if (!isStaff(who)) {
     const cur = (await q(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [m.chat.id])).rows[0];
     if (!cur || !cur.driver_id) { const t = titleInfo(m.chat.title); const f = await findDrivers(t); await wait(m.chat.id, who, { driverId: f.sure ? f.sure.id : null, kind: t.kind, what: `${who.name} typed register in "${clip(m.chat.title, 60)}" but has not connected Telegram to the website${f.sure ? `. It looks like ${f.sure.name}'s ${KINDS[t.kind]} group` : ''}.` }); }
-    return send(m.chat.id, 'I don\'t know you yet, so I keep this waiting. Connect your Telegram to the website (in a private chat with me: /me CODE, the code is under Telegram → Connect my Telegram) and I connect this group right away. An admin can also connect it on the website.', { replyTo: m.message_id });
+    return react(m.chat.id, m.message_id, '👀'); // kept waiting on the website, nothing written here
   }
   await log('cmd', `/register ${String(args || '').trim()}`.trim(), { chatId: m.chat.id, who });
   const [w, ...rest] = String(args || '').trim().split(/\s+/).filter(Boolean);
@@ -223,7 +219,7 @@ async function register(m, args, who) {
   kind = kind || t.kind;
   const info = typed ? { ...titleInfo(typed), kind, mode } : { ...t, kind, mode };
   const f = await findDrivers(info);
-  if (f.sure) { await addPhone(f.sure.id, info.phone); return linkChat(m.chat.id, kind, f.sure.id, who.user_id || null, who, { mode }); }
+  if (f.sure) { await addPhone(f.sure.id, info.phone); return linkChat(m.chat.id, kind, f.sure.id, who.user_id || null, who, { mode, ackMsg: m.message_id }); }
   return askWhich(m.chat.id, kind, info, f.list, who, m.message_id);
 }
 async function registerButton(cq, who) {

@@ -206,7 +206,9 @@ module.exports = (app) => {
     const out = [];
     for (const w of r.rows) {
       const f = await bot.findDrivers(bot.titleInfo(w.title));
-      out.push({ id: w.id, chatId: w.chat_id, title: w.title, who: w.who, what: w.what, kind: w.kind || bot.titleInfo(w.title).kind, driverId: w.driver_id, driver: w.driver, at: w.created_at, link: w.invite_link,
+      if (!f.list.length) f.list = (await q(`SELECT id, name, status FROM drivers WHERE status IN ('Onboarding', 'Hired') AND left_on IS NULL ORDER BY (status = 'Onboarding') DESC, updated_at DESC LIMIT 60`)).rows; // nothing in the title: drivers in onboarding, then active
+      const ti = bot.titleInfo(w.title);
+      out.push({ newName: ti.name || null, newPhone: ti.phone || null, id: w.id, chatId: w.chat_id, title: w.title, who: w.who, what: w.what, kind: w.kind || bot.titleInfo(w.title).kind, driverId: w.driver_id, driver: w.driver, at: w.created_at, link: w.invite_link,
         options: f.list.filter((d) => d.id !== w.driver_id).map((d) => ({ id: d.id, name: d.name, status: d.status })) });
     }
     res.json({ waiting: out });
@@ -224,6 +226,16 @@ module.exports = (app) => {
       return res.json({ ok: true, connected: did.length });
     }
     if (b.dismiss) { await q(`UPDATE tg_waiting SET done_at = now(), done_by = $2, done_how = 'dismissed' WHERE id = $1`, [w.id, req.user.name]); await bot.log('wait', `Dismissed on the website: ${w.what}`, { chatId: w.chat_id }); return res.json({ ok: true }); }
+    if (b.newDriver) { // nobody on the website: add the driver from the title (name and phone), then connect
+      const t = bot.titleInfo((await q(`SELECT title FROM tg_chats WHERE chat_id = $1`, [w.chat_id])).rows[0].title);
+      if (!t.name) return res.status(400).json({ error: 'The group title has no name. Add the driver on the website first.' });
+      const onbd = b.newDriver === 'onboarding';
+      const ins = await q(`INSERT INTO drivers (name, name_key, status, source, owner_id, created_by, status_at, status_locked, phones) VALUES ($1, $2, $3, 'Telegram', $4, $4, now(), true, $5) RETURNING id`,
+        [t.name, db.keyOf(t.name), onbd ? 'Onboarding' : 'Hired', req.user.role === 'admin' && !onbd ? null : req.user.id, t.phone ? [t.phone] : []]);
+      if (onbd) await db.ensureOnboarding(db.pool, ins.rows[0].id, req.user.id);
+      await lib.history(ins.rows[0].id, onbd ? 'Added from a Telegram group, in onboarding' : 'Added from a Telegram group as an active driver', req.user.name, 'web');
+      b.driverId = ins.rows[0].id;
+    }
     const driverId = +b.driverId || w.driver_id; const kind = ['dispatch', 'eld', 'accounting'].includes(b.kind) ? b.kind : w.kind || 'dispatch';
     if (!driverId) return res.status(400).json({ error: 'Pick the driver' });
     if (!bot.on()) return res.status(409).json({ error: 'The Telegram bot is not running' });

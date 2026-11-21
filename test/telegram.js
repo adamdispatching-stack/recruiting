@@ -25,6 +25,7 @@ http.createServer((req, res) => {
     }
     if (method === 'sendMessage') { const m = { message_id: ++tg.nextMsg, date: Math.floor(Date.now() / 1000), chat: { id: p.chat_id }, text: p.text, reply_markup: p.reply_markup }; tg.sent.push({ ...p, message_id: m.message_id }); return out(m); }
     if (method === 'editMessageText' || method === 'editMessageReplyMarkup') { tg.edits.push({ method, ...p }); return out(true); }
+    if (method === 'setMessageReaction') { (tg.reactions = tg.reactions || []).push(p); return out(true); }
     if (method === 'answerCallbackQuery') { tg.answers.push(p); return out(true); }
     if (method === 'getChatMember') return out({ status: 'administrator', user: BOT });
     if (method === 'getFile') return out({ file_id: p.file_id, file_path: 'f/' + p.file_id, file_size: 10 });
@@ -79,7 +80,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
 
   // the bot is added to a group
   push({ my_chat_member: { chat: CHAT, from: RITA, date: 1, old_chat_member: { status: 'left', user: BOT }, new_chat_member: { status: 'member', user: BOT } } });
-  ok(await until(() => tg.sent.some((m) => m.chat_id === CHAT.id && /FleetHire assistant/.test(m.text) && /(looks like the <b>ELD<\/b> group for <b>Ruby Ready|name and phone number in the group title|Which driver)/.test(m.text)), 5000, 'intro'), 'added to a group: the bot reads the title (ELD, Ruby Ready) and asks the team to connect it');
+  ok(await until(async () => (await web('/api/tg/waiting')).waiting.some((w) => w.chatId == CHAT.id) || ((await web('/api/tg/chats')).chats.find((c) => c.chatId == CHAT.id) || {}).driverId, 5000, 'intro'), 'added to a group: waiting on the website (or connected)');
+  ok(!tg.sent.some((m) => m.chat_id === CHAT.id), 'nothing written in the group');
   say(RITA, '/link 000000');
   ok(await until(() => tg.sent.some((m) => /not valid/.test(m.text))), 'a wrong code is refused');
   const code = (await web(`/api/drivers/${id}/tg-link`, { method: 'POST', body: { kind: 'eld' } })).code;
@@ -87,7 +89,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   let n = tg.sent.length; say(RITA, '/link ' + code);
   await until(() => tg.sent.some((m) => /please send here/.test(m.text || '')), 8000, 'docs prompt');
   const after = sentSince(n).map((m) => m.text).join('\n----\n');
-  ok(/now the <b>ELD<\/b> group for <b>Ruby Ready<\/b>/.test(after), 'linked: "This is now the ELD group for Ruby Ready"');
+  ok(((await web('/api/tg/chats')).chats.find((c) => c.chatId == CHAT.id) || {}).kind === 'eld' && !/now the <b>ELD/.test(after), 'linked as Ruby\'s ELD group (no "connected" message)');
   ok(/Phone: \(215\) 555-0199/.test(after) && /ruby@example.com/.test(after) && /Bobtail Trucking LLC/.test(after) && /118 \(2022 Freightliner Cascadia\)/.test(after), 'the driver\'s info goes to the ELD team: phone, email, company, truck');
   ok(/ELD setup: Ruby Ready/.test(after) && /✅ Driver info shared/.test(after) && /⬜ CDL photo shared/.test(after), 'a setup card with the steps');
   const d1 = (await web('/api/drivers/' + id)).onboarding.items.find((i) => i.key === 'eld_group');

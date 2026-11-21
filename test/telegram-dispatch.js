@@ -25,6 +25,7 @@ http.createServer((req, res) => {
     }
     if (method === 'sendMessage') { const m = { message_id: ++tg.nextMsg, date: Math.floor(Date.now() / 1000), chat: { id: p.chat_id }, text: p.text, reply_markup: p.reply_markup }; tg.sent.push({ ...p, message_id: m.message_id }); return out(m); }
     if (method === 'editMessageText' || method === 'editMessageReplyMarkup') { tg.edits.push({ method, ...p }); return out(true); }
+    if (method === 'setMessageReaction') { (tg.reactions = tg.reactions || []).push(p); return out(true); }
     if (method === 'answerCallbackQuery') { tg.answers.push(p); return out(true); }
     if (method === 'getChatMember') return out({ status: 'administrator', user: BOT });
     if (method === 'getFile') return out({ file_id: p.file_id, file_path: 'f/' + p.file_id, file_size: 10 });
@@ -105,22 +106,22 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
 
   // someone the bot does not know cannot register a group
   say(STRANGER, 'register dispatch');
-  ok(await until(() => tg.sent.some((m) => /I don't know you yet/.test(m.text))), 'a stranger cannot register a group');
+  ok(await until(() => (tg.reactions || []).some((r) => r.reaction[0].emoji === '👀')) && !tg.sent.some((m) => /I don't know you yet/.test(m.text)), 'a stranger cannot register a group: 👀, kept waiting on the website, nothing written');
   // Rita connects her Telegram with a code from the website
   const me = await R('/api/tg/me-code', { method: 'POST', body: {} });
   push({ message: { message_id: mid++, from: RITA, chat: { id: 11, type: 'private', first_name: 'Rita' }, date: Math.floor(Date.now() / 1000), text: '/me ' + me.code } });
   ok(await until(() => tg.sent.some((m) => /Connected: you are <b>Rita Recruiter<\/b>/.test(m.text))), 'Rita connects her Telegram (/me code)');
   // register the dispatch group: the driver is found from the group's name
   let n = tg.sent.length; say(RITA, 'register dispatch');
-  ok(await until(() => sentSince(n).some((m) => /now the <b>Dispatch<\/b> group for <b>Hank Hired<\/b>/.test(m.text))), 'register dispatch: the group name says Hank Hired: linked as Hank\'s dispatch group');
-  ok(await until(() => sentSince(n).some((m) => /I keep track of this group for the team/.test(m.text))), 'an active driver\'s group: the bot just says it keeps track');
+  ok(await until(async () => ((await R('/api/tg/chats')).chats.find((c) => c.chatId == DCHAT.id) || {}).kind === 'dispatch'), 'register dispatch: the group name says Hank Hired: linked as Hank\'s dispatch group');
+  await sleep(800); ok(!sentSince(n).some((m) => String(m.chat_id) === String(DCHAT.id)), 'an active driver\'s group: silent, nothing written');
   // a fleet driver who is not on the website yet: added from Telegram
   n = tg.sent.length; say(RITA, 'register eld', {}, ECHAT);
   const pick2 = await until(() => sentSince(n).find((m) => /Which driver is this <b>ELD<\/b> group for\?/.test(m.text)));
   const add = pick2 && pick2.reply_markup.inline_keyboard.flat().find((b) => /Add "Zed Newman" as an active driver/.test(b.text));
   ok(!!add, 'no such driver: "Add Zed Newman as an active driver"');
   tap(RITA, add.callback_data, 1, ECHAT);
-  ok(await until(() => tg.sent.some((m) => /now the <b>ELD<\/b> group for <b>Zed Newman<\/b>/.test(m.text))), 'added and linked');
+  ok(await until(async () => ((await R('/api/tg/chats')).chats.find((c) => c.chatId == ECHAT.id) || {}).kind === 'eld'), 'added and linked');
   const zed = (await pg.query(`SELECT id, status FROM drivers WHERE name = 'Zed Newman'`)).rows[0];
   ok(zed && zed.status === 'Hired', 'Zed Newman is on the website as an active driver');
   // accounting group, with the name in the command

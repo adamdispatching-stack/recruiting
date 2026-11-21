@@ -25,6 +25,7 @@ http.createServer((req, res) => {
     }
     if (method === 'sendMessage') { const m = { message_id: ++tg.nextMsg, date: Math.floor(Date.now() / 1000), chat: { id: p.chat_id }, text: p.text, reply_markup: p.reply_markup }; tg.sent.push({ ...p, message_id: m.message_id }); return out(m); }
     if (method === 'editMessageText' || method === 'editMessageReplyMarkup') { tg.edits.push({ method, ...p }); return out(true); }
+    if (method === 'setMessageReaction') { (tg.reactions = tg.reactions || []).push(p); return out(true); }
     if (method === 'answerCallbackQuery') { tg.answers.push(p); return out(true); }
     if (method === 'getChatMember') return out({ status: 'administrator', user: BOT });
     if (method === 'getFile') return out({ file_id: p.file_id, file_path: 'f/' + p.file_id, file_size: 10 });
@@ -91,21 +92,19 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
 
   // Rita adds the bot to "Paul Penn +1 (267) 555-0177": matched by the phone, connected, watch and learn
   let n = tg.sent.length; added(PCHAT, RITA);
-  ok(await until(() => inChat(n, PCHAT).some((m) => /now the <b>Dispatch<\/b> group for <b>Paul Penn<\/b>/.test(m.text))), 'bot added by the team: the title\'s phone finds Paul, the group is connected, no command');
-  ok(await until(() => inChat(n, PCHAT).some((m) => /^👀 Watch and learn/.test(m.text))), 'it starts in Watch and learn');
+  ok(await until(async () => ((await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [PCHAT.id])).rows[0] || {}).driver_id === paul), 'bot added by the team: the title\'s phone finds Paul, the group is connected, no command');
+  ok((await pg.query(`SELECT mode FROM onb_cases WHERE driver_id = $1`, [paul])).rows[0].mode === 'watch', 'it starts in Watch and learn');
+  await sleep(500); ok(!inChat(n, PCHAT).length, 'silent: nothing written in the group');
   ok((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [PCHAT.id])).rows[0].driver_id === paul, 'linked to Paul on the website');
   // an ELD group: the title says ELD
   n = tg.sent.length; added(ECHAT, RITA);
-  ok(await until(() => inChat(n, ECHAT).some((m) => /now the <b>ELD<\/b> group for <b>Paul Penn<\/b>/.test(m.text))), '"ELD - Paul Penn": connected as Paul\'s ELD group');
+  ok(await until(async () => ((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [ECHAT.id])).rows[0] || {}).kind === 'eld'), '"ELD - Paul Penn": connected as Paul\'s ELD group');
   // someone outside the team adds the bot: it asks the team to confirm
   n = tg.sent.length; added(SCHAT, STRANGER);
-  const conf = await until(() => inChat(n, SCHAT).find((m) => /looks like the <b>Dispatch<\/b> group for <b>Mark Marshall<\/b>/.test(m.text)));
-  ok(!!conf && !(await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [SCHAT.id])).rows[0].driver_id, 'added by someone unknown: the bot asks, nothing connected yet');
-  n = tg.sent.length; tap(STRANGER, conf.reply_markup.inline_keyboard[0][0].callback_data, SCHAT);
-  await sleep(800); ok(!(await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [SCHAT.id])).rows[0].driver_id, 'a stranger cannot connect it');
-  ok(inChat(n, SCHAT).some((m) => /as soon as you connect your Telegram/.test(m.text)) || conf && /as soon as you connect your Telegram/.test(conf.text), 'the bot tells him it waits for his Telegram connection');
+  await until(async () => (await web('/api/tg/waiting')).waiting.length, 5000);
+  ok(!(await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [SCHAT.id])).rows[0].driver_id && !inChat(n, SCHAT).length, 'added by someone unknown (name only): nothing connected, nothing written in the group');
   let wt = (await web('/api/tg/waiting')).waiting;
-  ok(wt.length === 1 && wt[0].driverId === mark && /Some One added the bot/.test(wt[0].what), 'the website: waiting, "Some One added the bot … looks like Mark Marshall\'s group"');
+  ok(wt.length === 1 && wt[0].driverId === mark && /looks like Mark Marshall's Dispatch group/.test(wt[0].what) && /Some One added the bot but has not connected Telegram/.test(wt[0].what), 'the website: waiting, "looks like Mark Marshall\'s group … Some One has not connected Telegram"');
   ok((await pg.query(`SELECT text FROM notices WHERE text LIKE 'Waiting:%'`)).rows.length >= 1, 'the admins are told');
   // he connects his Telegram: the group is connected by itself
   const sam = (await web('/api/users', { method: 'POST', body: { name: 'Sam Staff', email: 'sam@example.com', password: 'sam-pass-12345' } })).id;
@@ -119,17 +118,16 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const tom = (await web('/api/drivers', { method: 'POST', body: { name: 'Tom Tester', source: 'Indeed', phone: '2155550123' } })).id;
   const TCHAT = { id: -100705, type: 'supergroup', title: 'Tom Tester' }, ZCHAT = { id: -100706, type: 'supergroup', title: 'Zack Zero' };
   const X = { id: 77, is_bot: false, first_name: 'Xavier', last_name: 'X' };
-  added(TCHAT, X); say(X, '/register', ZCHAT);
+  added(TCHAT, X); added(ZCHAT, X);
   wt = await until(async () => { const w = (await web('/api/tg/waiting')).waiting; return w.length === 2 ? w : null; });
   ok(wt && wt.find((w) => w.chatId == TCHAT.id).driverId === tom && !wt.find((w) => w.chatId == ZCHAT.id).driverId, 'two waiting: Tom\'s group (found by name) and Zack Zero (nobody found)');
   ok((await web('/api/tg/waiting/' + wt.find((w) => w.chatId == TCHAT.id).id, { method: 'POST', body: {} })).ok && (await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [TCHAT.id])).rows[0].driver_id === tom, 'the admin taps "Connect to Tom Tester" on the website');
   ok((await web('/api/tg/waiting/' + wt.find((w) => w.chatId == ZCHAT.id).id, { method: 'POST', body: { dismiss: true } })).ok && !(await web('/api/tg/waiting')).waiting.length, 'Dismiss');
   // nobody on the website: a new driver in onboarding, with the phone from the title
   n = tg.sent.length; added(NCHAT, RITA);
-  const pick = await until(() => inChat(n, NCHAT).find((m) => /Which driver is this <b>Dispatch<\/b> group for\?/.test(m.text) && /found nobody/.test(m.text)));
-  const nb = pick && pick.reply_markup.inline_keyboard.flat().find((b) => /New driver in onboarding: Nina Newbie/.test(b.text));
-  ok(!!nb, 'unknown name and phone: buttons to add Nina');
-  tap(RITA, nb.callback_data, NCHAT);
+  const nw = await until(async () => (await web('/api/tg/waiting')).waiting.find((w) => w.chatId == NCHAT.id));
+  ok(nw && nw.newName === 'Nina Newbie' && /nobody on the website/.test(nw.what) && !inChat(n, NCHAT).length, 'unknown name and phone: waiting on the website, "Add Nina Newbie", nothing in the group');
+  await web('/api/tg/waiting/' + nw.id, { method: 'POST', body: { newDriver: 'onboarding' } });
   const nina = await until(async () => (await pg.query(`SELECT d.id, d.status, d.phones FROM drivers d JOIN tg_chats c ON c.driver_id = d.id WHERE c.chat_id = $1`, [NCHAT.id])).rows[0]);
   ok(nina && nina.status === 'Onboarding' && nina.phones.includes('6105550199') && (await pg.query(`SELECT 1 FROM onboarding WHERE driver_id = $1`, [nina.id])).rows.length === 1, 'Nina added in onboarding, with the phone, and her group connected');
 
@@ -223,7 +221,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(lg && /Reacted 👍 to the bot/.test(lg.log.find((x) => x.kind === 'reaction').text) && lg.log.find((x) => x.kind === 'reaction').who === 'Paul Penn', 'history: Paul reacted 👍 to the bot');
   ok(lg && /Replied to the bot .*ok my zip is ••••/.test(lg.log.find((x) => x.kind === 'reply').text), 'history: Paul replied to the bot (numbers hidden)');
   const kinds = new Set(lg.log.map((x) => x.kind));
-  ok(['join', 'title', 'connect', 'wait', 'tap', 'me', 'said', 'fact', 'mode', 'ask'].every((k) => kinds.has(k)), 'history: joined, read the title, connected, waiting, taps, Telegram connected, bot messages, saved facts, mode, asked');
+  ok(['join', 'title', 'connect', 'wait', 'me', 'said', 'fact', 'mode', 'ask'].every((k) => kinds.has(k)), 'history: joined, read the title, connected, waiting, Telegram connected, bot messages, saved facts, mode, asked');
   ok(!lg.log.some((x) => /4321|6789|5555/.test(x.text)), 'history never shows the SSN digits');
   const lp = await web('/api/tg/log?chat=' + PCHAT.id + '&kinds=tap,reaction,reply');
   ok(lp.log.length && lp.log.every((x) => String(x.chatId) === String(PCHAT.id) && ['tap', 'reaction', 'reply'].includes(x.kind)), 'filtered by group and by "reactions"');
@@ -231,7 +229,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
     const { chromium } = require('playwright'); const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
     const p = await (await b.newContext({ viewport: { width: 1300, height: 1000 } })).newPage(); const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await p.goto(BASE + '/#/login'); await p.fill('input[name=email]', 'admin@example.com'); await p.fill('input[name=password]', 'test-password-123'); await p.click('#lf button'); await p.waitForSelector('.rail');
-    added({ id: -100707, type: 'supergroup', title: 'Mark Marshall 484 555 0111 ELD' }, X); await sleep(1500);
+    added({ id: -100707, type: 'supergroup', title: 'Mark Marshall ELD' }, X); added({ id: -100711, type: 'supergroup', title: 'New group' }, X); await sleep(1500);
     await p.goto(BASE + '/#/telegram?tab=groups'); await p.waitForSelector('.tgwait'); await p.locator('.tgwait').screenshot({ path: '/tmp/shot/wait.png' });
     await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist.png', fullPage: false });
     await p.click('[data-act=tgLogF][data-k="tap,reaction,reply"]'); await p.waitForTimeout(500); await p.screenshot({ path: '/tmp/shot/hist2.png' });

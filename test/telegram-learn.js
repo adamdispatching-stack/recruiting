@@ -25,6 +25,7 @@ http.createServer((req, res) => {
     }
     if (method === 'sendMessage') { const m = { message_id: ++tg.nextMsg, date: Math.floor(Date.now() / 1000), chat: { id: p.chat_id }, text: p.text, reply_markup: p.reply_markup }; tg.sent.push({ ...p, message_id: m.message_id }); return out(m); }
     if (method === 'editMessageText' || method === 'editMessageReplyMarkup') { tg.edits.push({ method, ...p }); return out(true); }
+    if (method === 'setMessageReaction') { (tg.reactions = tg.reactions || []).push(p); return out(true); }
     if (method === 'answerCallbackQuery') { tg.answers.push(p); return out(true); }
     if (method === 'getChatMember') return out({ status: 'administrator', user: BOT });
     if (method === 'getFile') return out({ file_id: p.file_id, file_path: 'f/' + p.file_id, file_size: 10 });
@@ -104,8 +105,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   let n = tg.sent.length; say(RITA, '/help');
   ok(await until(() => sentSince(n).some((m) => /\/register: connect this group/.test(m.text))), '/help lists what the bot does');
   n = tg.sent.length; say(RITA, '/register');
-  ok(await until(() => sentSince(n).some((m) => /now the <b>Dispatch<\/b> group for <b>Olga Onb<\/b>/.test(m.text))), '/register alone: the group title says who (Olga Onb): linked right away');
-  ok(await until(() => sentSince(n).some((m) => /^👀 Watch and learn: I read along.*\nTo change: \/mode/s.test(m.text))), 'starts in 👀 Watch and learn (the default); /mode to change');
+  ok(await until(async () => ((await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [DCHAT.id])).rows[0] || {}).driver_id === olga), '/register alone: the group title says who (Olga Onb): linked right away');
+  ok(await until(() => (tg.reactions || []).some((r) => r.chat_id === DCHAT.id && r.reaction[0].emoji === '👍')), 'a 👍 on /register, no message');
   await sleep(1500);
   ok(!tg.sent.some((m) => m.chat_id === DCHAT.id && /Welcome, <b>Olga<\/b>|I am the driver/.test(m.text)), 'watching: no welcome, no card, nothing written');
   ok((await pg.query(`SELECT mode FROM onb_cases WHERE driver_id = $1`, [olga])).rows[0].mode === 'watch', 'mode saved: watch');
