@@ -93,8 +93,27 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(!!conf && !(await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [SCHAT.id])).rows[0].driver_id, 'added by someone unknown: the bot asks, nothing connected yet');
   n = tg.sent.length; tap(STRANGER, conf.reply_markup.inline_keyboard[0][0].callback_data, SCHAT);
   await sleep(800); ok(!(await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [SCHAT.id])).rows[0].driver_id, 'a stranger cannot connect it');
-  tap(RITA, conf.reply_markup.inline_keyboard[0][0].callback_data, SCHAT);
-  ok(await until(async () => (await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [SCHAT.id])).rows[0].driver_id === mark), 'Rita taps Connect: Mark\'s group');
+  ok(inChat(n, SCHAT).some((m) => /as soon as you connect your Telegram/.test(m.text)) || conf && /as soon as you connect your Telegram/.test(conf.text), 'the bot tells him it waits for his Telegram connection');
+  let wt = (await web('/api/tg/waiting')).waiting;
+  ok(wt.length === 1 && wt[0].driverId === mark && /Some One added the bot/.test(wt[0].what), 'the website: waiting, "Some One added the bot … looks like Mark Marshall\'s group"');
+  ok((await pg.query(`SELECT text FROM notices WHERE text LIKE 'Waiting:%'`)).rows.length >= 1, 'the admins are told');
+  // he connects his Telegram: the group is connected by itself
+  const sam = (await web('/api/users', { method: 'POST', body: { name: 'Sam Staff', email: 'sam@example.com', password: 'sam-pass-12345' } })).id;
+  const sl = await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'sam@example.com', password: 'sam-pass-12345' }) });
+  const scode = (await web('/api/tg/me-code', { method: 'POST', body: {}, cookie: sl.headers.get('set-cookie').split(';')[0] })).code;
+  n = tg.sent.length; priv(STRANGER, '/me ' + scode);
+  ok(await until(async () => (await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [SCHAT.id])).rows[0].driver_id === mark), 'he connects Telegram (/me): Mark\'s group is connected right away');
+  ok(await until(() => sentSince(n).some((m) => m.chat_id === STRANGER.id && /Also connected what was waiting for you: <b>Mark Marshall 4845550111<\/b>/.test(m.text))), 'and he is told');
+  ok(!(await web('/api/tg/waiting')).waiting.length, 'nothing waiting any more');
+  // someone unknown again: the admin connects it on the website, or dismisses it
+  const tom = (await web('/api/drivers', { method: 'POST', body: { name: 'Tom Tester', source: 'Indeed', phone: '2155550123' } })).id;
+  const TCHAT = { id: -100705, type: 'supergroup', title: 'Tom Tester 215 555 0123' }, ZCHAT = { id: -100706, type: 'supergroup', title: 'Zack Zero' };
+  const X = { id: 77, is_bot: false, first_name: 'Xavier', last_name: 'X' };
+  added(TCHAT, X); say(X, '/register', ZCHAT);
+  wt = await until(async () => { const w = (await web('/api/tg/waiting')).waiting; return w.length === 2 ? w : null; });
+  ok(wt && wt.find((w) => w.chatId == TCHAT.id).driverId === tom && !wt.find((w) => w.chatId == ZCHAT.id).driverId, 'two waiting: Tom\'s group (found by "215 555 0123") and Zack Zero (nobody found)');
+  ok((await web('/api/tg/waiting/' + wt.find((w) => w.chatId == TCHAT.id).id, { method: 'POST', body: {} })).ok && (await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [TCHAT.id])).rows[0].driver_id === tom, 'the admin taps "Connect to Tom Tester" on the website');
+  ok((await web('/api/tg/waiting/' + wt.find((w) => w.chatId == ZCHAT.id).id, { method: 'POST', body: { dismiss: true } })).ok && !(await web('/api/tg/waiting')).waiting.length, 'Dismiss');
   // nobody on the website: a new driver in onboarding, with the phone from the title
   n = tg.sent.length; added(NCHAT, RITA);
   const pick = await until(() => inChat(n, NCHAT).find((m) => /Which driver is this <b>Dispatch<\/b> group for\?/.test(m.text) && /found nobody/.test(m.text)));
@@ -154,6 +173,30 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(async () => !(await pg.query(`SELECT ssn4 FROM drivers WHERE id = $1`, [paul])).rows[0].ssn4, 5000), 'the last 4 are deleted after 30 days');
   ok((await web(`/api/drivers/${paul}/mvr`, { method: 'PATCH', body: { zip: '123' } })).status === 400, 'a wrong ZIP is refused');
 
+  // the bot's history: reactions and replies to the bot
+  const bm = tg.sent.filter((m) => String(m.chat_id) === String(PCHAT.id)).pop();
+  push({ message_reaction: { chat: PCHAT, message_id: bm.message_id, user: PAUL, date: Math.floor(Date.now() / 1000), old_reaction: [], new_reaction: [{ type: 'emoji', emoji: '👍' }] } });
+  push({ message: { message_id: mid++, from: PAUL, chat: PCHAT, date: Math.floor(Date.now() / 1000), text: 'ok my zip is 19104', reply_to_message: { message_id: bm.message_id, from: BOT, text: bm.text } } });
+  const lg = await until(async () => { const r = await web('/api/tg/log'); return r.log.some((x) => x.kind === 'reaction') && r.log.some((x) => x.kind === 'reply') ? r : null; });
+  ok(lg && /Reacted 👍 to the bot/.test(lg.log.find((x) => x.kind === 'reaction').text) && lg.log.find((x) => x.kind === 'reaction').who === 'Paul Penn', 'history: Paul reacted 👍 to the bot');
+  ok(lg && /Replied to the bot .*ok my zip is ••••/.test(lg.log.find((x) => x.kind === 'reply').text), 'history: Paul replied to the bot (numbers hidden)');
+  const kinds = new Set(lg.log.map((x) => x.kind));
+  ok(['join', 'title', 'connect', 'wait', 'tap', 'me', 'said', 'fact', 'mode', 'ask'].every((k) => kinds.has(k)), 'history: joined, read the title, connected, waiting, taps, Telegram connected, bot messages, saved facts, mode, asked');
+  ok(!lg.log.some((x) => /4321|6789|5555/.test(x.text)), 'history never shows the SSN digits');
+  const lp = await web('/api/tg/log?chat=' + PCHAT.id + '&kinds=tap,reaction,reply');
+  ok(lp.log.length && lp.log.every((x) => String(x.chatId) === String(PCHAT.id) && ['tap', 'reaction', 'reply'].includes(x.kind)), 'filtered by group and by "reactions"');
+  if (process.env.SHOTS) {
+    const { chromium } = require('playwright'); const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+    const p = await (await b.newContext({ viewport: { width: 1300, height: 1000 } })).newPage(); const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(BASE + '/#/login'); await p.fill('input[name=email]', 'admin@example.com'); await p.fill('input[name=password]', 'test-password-123'); await p.click('#lf button'); await p.waitForSelector('.rail');
+    added({ id: -100707, type: 'supergroup', title: 'Mark Marshall 484 555 0111 ELD' }, X); await sleep(1500);
+    await p.goto(BASE + '/#/telegram?tab=groups'); await p.waitForSelector('.tgwait'); await p.locator('.tgwait').screenshot({ path: '/tmp/shot/wait.png' });
+    await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist.png', fullPage: false });
+    await p.click('[data-act=tgLogF][data-k="tap,reaction,reply"]'); await p.waitForTimeout(500); await p.screenshot({ path: '/tmp/shot/hist2.png' });
+    await p.goto(BASE + '/#/telegram/' + PCHAT.id); await p.waitForSelector('#tgLogBox li.tglog'); await p.locator('.tglogc').screenshot({ path: '/tmp/shot/histc.png' });
+    await p.setViewportSize({ width: 390, height: 900 }); await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist-m.png' });
+    ok(!errs.length, 'no page errors ' + errs.join(' | ')); await b.close();
+  }
   await pg.end();
   execSync('pkill -f "node src/serve[r].js" || true');
   process.exit(process.exitCode || 0);

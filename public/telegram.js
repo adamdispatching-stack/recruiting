@@ -1,7 +1,7 @@
 // Telegram manager: the bot's groups, what happened in each (AI summaries, ELD steps and checks, messages),
 // who is who, and the bot's settings. Also the "Telegram groups" part of a lead's page.
 (() => {
-  const { $, esc, view, S, api, toast, fail, on, header, dialog, dateText, when, plural } = App;
+  const { $, esc, view, S, api, toast, fail, on, onChange, header, dialog, dateText, when, plural } = App;
   const KIND = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting' };
   const AKIND = { container_mismatch: 'Container / number', wrong_location: 'Location', late_risk: 'Running late', appointment_change: 'Appointment', load_refused: 'Load refused', driver_upset: 'Driver upset', unprofessional_dispatcher: 'Dispatcher conduct', safety: 'Safety', other: 'Other' };
   const TKIND = { breakdown: 'Breakdown', repair: 'Repair', maintenance: 'Maintenance', oil_change: 'Oil change', tires: 'Tires', inspection: 'Inspection', damage: 'Damage', warning_light: 'Warning light', other: 'Other' };
@@ -34,16 +34,40 @@
       </ol></section>`;
   }
 
-  async function viewList() {
+  // ---------- the bot's history ----------
+  const LOGK = { join: ['🤖', 'Joined'], left: ['👋', 'Removed'], title: ['🔎', 'Read the title'], connect: ['🔗', 'Connected'], wait: ['⏳', 'Waiting'], me: ['🔑', 'Connected Telegram'],
+    tap: ['👆', 'Tapped a button'], reaction: ['😀', 'Reaction'], reply: ['💬', 'Replied to the bot'], cmd: ['⌨️', 'Command'], mode: ['⚙️', 'Mode'], fact: ['📝', 'Saved'], ask: ['❓', 'Asked'], said: ['🗨️', 'Bot said'] };
+  const LOGF = [['', 'Everything'], ['join,left,title,connect,wait,me,mode', 'Groups and setup'], ['tap,reaction,reply', 'People\'s reactions'], ['said,ask,fact,cmd', 'What the bot said and saved']];
+  const logLi = (x, withGroup = true) => `<li class="tglog k-${x.kind}"><span class="lgi" aria-hidden="true">${(LOGK[x.kind] || ['•'])[0]}</span><div class="grow"><div>${x.who && !x.text.startsWith(x.who) ? `<b>${esc(x.who)}</b> ` : ''}${esc(x.text)}</div>
+    ${withGroup && (x.title || x.driver) ? `<div class="small mut">${x.chatId ? `<a href="#/telegram/${x.chatId}">${esc(x.title || 'Group')}</a>` : ''}${x.driver ? ` · <a href="${App.driverHref(x.driverId, x.hired ? 'Hired' : '')}">${esc(x.driver)}</a>` : ''}</div>` : ''}</div><span class="small mut lgt">${esc(when(x.at))}</span></li>`;
+  let logFilter = '';
+  // groups waiting for someone to connect their Telegram to the website
+  const waitCard = (ws) => !ws.length ? '' : `<section class="card tgwait"><h3>Waiting for a Telegram connection <span class="cnt">${ws.length}</span></h3>
+    <p class="hint">Someone who has not connected Telegram to the website tried to set up these groups. They connect by themselves once that person sends <b>/me CODE</b> to the bot, or connect them here now.</p>
+    <ul class="list">${ws.map((w) => `<li data-w="${w.id}"><div class="grow"><b>${esc(w.title || 'Group')}</b> ${kindTag(w.kind)}<div class="small">${esc(w.what)}</div><div class="small mut">${esc(when(w.at))}${w.link ? ` · <a href="${esc(w.link)}" target="_blank" rel="noopener noreferrer">Open group</a>` : ''}</div></div>
+      ${S.me.role === 'dispatcher' ? '' : `<span class="inrow">${w.driverId ? `<button type="button" class="btn primary sm" data-act="tgWaitGo" data-d="${w.driverId}">Connect to ${esc(w.driver)}</button>` : ''}
+        ${w.options.length ? `<select data-ch="tgWaitPick" aria-label="Another driver"><option value="">${w.driverId ? 'Another driver…' : 'Pick the driver…'}</option>${w.options.map((o) => `<option value="${o.id}">${esc(o.name)} (${esc(o.status === 'Hired' ? 'active' : o.status.toLowerCase())})</option>`).join('')}</select>` : ''}
+        <button type="button" class="linkbtn" data-act="tgWaitNo">Dismiss</button></span>`}</li>`).join('')}</ul></section>`;
+  on('tgWaitGo', async (b) => { try { await api('/api/tg/waiting/' + b.closest('[data-w]').dataset.w, { method: 'POST', body: { driverId: +b.dataset.d } }); toast('Connected'); } catch (e) { fail(e); } App.render(); });
+  onChange('tgWaitPick', async (el) => { if (!el.value) return; try { await api('/api/tg/waiting/' + el.closest('[data-w]').dataset.w, { method: 'POST', body: { driverId: +el.value } }); toast('Connected'); } catch (e) { fail(e); } App.render(); });
+  on('tgWaitNo', async (b) => { try { await api('/api/tg/waiting/' + b.closest('[data-w]').dataset.w, { method: 'POST', body: { dismiss: true } }); toast('Dismissed'); } catch (e) { fail(e); } App.render(); });
+  on('tgLogF', (b) => { logFilter = b.dataset.k; App.render(); });
+  on('tgLogMore', async (b) => {
+    b.disabled = true; try { const r = await api(`/api/tg/log?before=${b.dataset.before}${logFilter ? '&kinds=' + logFilter : ''}${b.dataset.chat ? '&chat=' + b.dataset.chat : ''}`);
+      b.closest('section').querySelector('ul').insertAdjacentHTML('beforeend', r.log.map((x) => logLi(x, !b.dataset.chat)).join('')); if (r.more) { b.dataset.before = r.log[r.log.length - 1].id; b.disabled = false; } else b.remove(); } catch (e) { fail(e); b.disabled = false; }
+  });
+
+  async function viewList(qp) {
+    if (qp && qp.get && qp.get('tab')) tab = qp.get('tab');
     const live = App.drawing();
     const [st, r] = await Promise.all([api('/api/tg/status'), api('/api/tg/chats')]); if (!live()) return;
     const admin = S.me.role === 'admin';
     document.title = 'Telegram · FleetHire';
     const status = !st.on ? '' : st.bot ? `<p class="tgstat ${st.lastError ? 'bad' : 'ok'}"><b>@${esc(st.bot.username)}</b> is ${st.lastError ? `having trouble: ${esc(st.lastError)}` : 'on'}${st.ai ? ', AI on' : ', AI off (no ANTHROPIC_API_KEY)'}.</p>` : `<p class="tgstat bad">The bot is starting${st.lastError ? `: ${esc(st.lastError)}` : ''}.</p>`;
-    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Knowledge']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
+    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ['history', 'Bot history'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Knowledge']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
     let body = '';
     if (tab === 'groups') {
-      const [qs, al, act] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts), api('/api/active').then((x) => x.drivers)]); if (!live()) return;
+      const [qs, al, act, ws] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts), api('/api/active').then((x) => x.drivers), api('/api/tg/waiting').then((x) => x.waiting)]); if (!live()) return;
       // active drivers, one table per company, with their three groups; the other groups (onboarding, not linked) below
       const byChat = Object.fromEntries(r.chats.map((c) => [c.chatId, c])); const used = new Set();
       const cell = (d, k) => { const c = d.groups && byChat[d.groups[k]]; if (!c) return `<td><span class="tgdot" title="In the group, type register ${k}">Not registered</span></td>`; used.add(c.chatId);
@@ -56,13 +80,21 @@
         <div class="sheet"><table class="tgt tgco"><thead><tr><th>Driver</th><th>Dispatch</th><th>ELD</th><th>Accounting</th><th style="width:110px">Last 3 days</th></tr></thead><tbody>
         ${list.map((d) => `<tr class="${moody(d) ? 'hot' : ''}"><th scope="row"><a class="nml" href="#/active/${d.id}"><b>${esc(d.name)}</b></a>${d.truck ? `<div class="small mut">truck ${esc(d.truck.unit)}</div>` : ''}</th>${cell(d, 'dispatch')}${cell(d, 'eld')}${cell(d, 'accounting')}<td>${App.moodDots(d.mood)}</td></tr>`).join('')}</tbody></table></div></section>`).join('');
       const g = r.chats.filter((c) => !used.has(c.chatId));
-      body = (al.length ? `<section class="card tgal"><h3>Alerts from the groups <span class="cnt">${al.length}</span></h3><ul class="list">${al.map((a) => alertLi(a)).join('')}</ul></section>` : '') + (qs.length ? `<section class="card tgqs"><h3>Drivers' questions waiting for you <span class="cnt">${qs.length}</span></h3><ul class="list">${qs.map((x) => qBox(x, true)).join('')}</ul></section>` : '') + coHtml + (g.length ? `${coHtml ? '<h3 class="sect">Onboarding and other groups</h3>' : ''}<div class="sheet"><table class="tgt"><thead><tr><th>Driver</th><th>Group</th><th>Now</th><th>Latest summary</th><th class="n">Today</th></tr></thead><tbody>
+      body = waitCard(ws) + (al.length ? `<section class="card tgal"><h3>Alerts from the groups <span class="cnt">${al.length}</span></h3><ul class="list">${al.map((a) => alertLi(a)).join('')}</ul></section>` : '') + (qs.length ? `<section class="card tgqs"><h3>Drivers' questions waiting for you <span class="cnt">${qs.length}</span></h3><ul class="list">${qs.map((x) => qBox(x, true)).join('')}</ul></section>` : '') + coHtml + (g.length ? `${coHtml ? '<h3 class="sect">Onboarding and other groups</h3>' : ''}<div class="sheet"><table class="tgt"><thead><tr><th>Driver</th><th>Group</th><th>Now</th><th>Latest summary</th><th class="n">Today</th></tr></thead><tbody>
         ${g.map((c) => `<tr data-chat="${c.chatId}" class="${c.openChecks || (c.eld && c.eld.waiting && c.eld.waiting.stuck) ? 'hot' : ''}"><th scope="row">${c.driverId ? `<a class="nml" href="${App.driverHref(c.driverId, c.active ? 'Hired' : '')}"><b>${esc(c.driver)}</b></a>` : '<span class="none">Not linked</span>'}</th>
           <td>${kindTag(c.kind)}<div class="small mut clip1"><a href="#/telegram/${c.chatId}">${esc(c.title || 'Group')}</a></div>${c.botAdmin ? '' : '<div class="small latetag">Bot is not an admin</div>'}</td>
           <td>${c.kind === 'eld' ? eldLine(c.eld, c.lastCheck, c.openChecks) : c.onb ? onbLine(c.onb) : c.kind === 'accounting' ? `<span class="small">Answering pay questions</span>${c.openQuestions ? ` <span class="latetag">${c.openQuestions} waiting</span>` : ''}` : c.kind ? '<span class="small">Reading along: truck, notes, alerts</span>' : ''}${c.openAlerts ? ` <span class="latetag">${c.openAlerts} alert${c.openAlerts > 1 ? 's' : ''}</span>` : ''}</td>
           <td class="tgsum">${c.lastSummary ? `<span class="small mut">${esc(dateText(c.lastSummary.day, { month: 'short', day: 'numeric' }))}${MOOD[c.lastSummary.mood] ? ', ' + MOOD[c.lastSummary.mood] : ''}</span><div class="clip2">${esc(c.lastSummary.summary)}</div>${(c.lastSummary.issues || []).length ? `<div class="small latetag">${c.lastSummary.issues.length} open</div>` : ''}` : '<span class="none">None yet</span>'}</td>
           <td class="n">${c.todayMsgs || '<span class="none">0</span>'}</td></tr>`).join('')}</tbody></table></div>`
         : coHtml ? '' : `<div class="emptycard"><div class="emptyart"><h2>No groups yet.</h2><p>Open a driver in onboarding and use <b>Link a group</b> in the Telegram part of the onboarding card. The bot joins in from there.</p></div></div>`);
+    } else if (tab === 'history') {
+      const lg = await api('/api/tg/log' + (logFilter ? '?kinds=' + logFilter : '')); if (!live()) return;
+      const wk = lg.week; const n = (ks) => ks.reduce((a, k) => a + (wk[k] || 0), 0);
+      body = `<dl class="figs tglogfig"><div><dd>${n(['connect'])}</dd><dt>groups connected</dt></div><div><dd>${n(['tap', 'reaction', 'reply'])}</dd><dt>reactions to the bot (taps, emoji, replies)</dt></div>
+          <div><dd>${n(['said'])}</dd><dt>messages the bot wrote</dt></div><div><dd>${n(['wait'])}</dd><dt>times the bot waited for someone to connect Telegram</dt></div></dl><p class="small mut">Last 7 days.</p>
+        <nav class="fbtabs sub" aria-label="Show">${LOGF.map(([k, l]) => `<button type="button" class="${logFilter === k ? 'on' : ''}" data-act="tgLogF" data-k="${k}">${l}</button>`).join('')}</nav>
+        <section class="card"><ul class="list tgloglist">${lg.log.map((x) => logLi(x)).join('') || '<li class="hint">Nothing yet. Everything the bot does, and every button, emoji and reply to it, shows up here.</li>'}</ul>
+        ${lg.more ? `<p><button type="button" class="btn plain sm" data-act="tgLogMore" data-before="${lg.log[lg.log.length - 1].id}">Show older</button></p>` : ''}</section>`;
     } else if (tab === 'knowledge') {
       const [kAll, rd] = await Promise.all([api('/api/tg/knowledge').then((x) => x.knowledge), api('/api/tg/readiness')]); if (!live()) return;
       const review = kAll.filter((x) => x.review && !x.active); const k = kAll.filter((x) => !(x.review && !x.active));
@@ -183,8 +215,12 @@
           ${admin ? '<p class="hint">Change roles under <button type="button" class="linkbtn" data-act="tgPeople">People</button>.</p>' : ''}</section>
         <section class="card"><h3>Messages <span class="small mut">last ${r.messages.length}</span></h3><ol class="tgmsgs">${r.messages.map((m) => `<li class="${m.is_bot ? 'bot' : ''}"><div class="mh"><b>${esc(m.is_bot ? 'Bot' : m.from_name || '')}</b>${m.role ? ` <span class="small mut">${esc(ROLE[m.role] || m.role)}</span>` : ''}<span class="small mut">${esc(when(m.at))}</span></div>
           ${m.media ? `<div class="small tgmedia">📎 ${esc(m.media)}${m.media_note ? `: ${esc(m.media_note)}` : ''}</div>` : ''}${m.text ? `<div class="mt">${esc(m.text)}</div>` : ''}</li>`).join('')}</ol></section>
+        <section class="card tglogc"><h3>Bot history in this group</h3><ul class="list tgloglist" id="tgLogBox"><li class="hint">Loading…</li></ul></section>
         ${admin && c.kind ? `<p><button type="button" class="btn plain sm" data-act="tgUnlink" data-chat="${c.chatId}">Unlink this group</button></p>` : ''}
       </div></div></main>`;
+    api('/api/tg/log?chat=' + encodeURIComponent(c.chatId)).then((lg) => { const bx = $('#tgLogBox'); if (!bx) return;
+      bx.innerHTML = lg.log.map((x) => logLi(x, false)).join('') || '<li class="hint">Nothing yet.</li>';
+      if (lg.more) bx.insertAdjacentHTML('afterend', `<p><button type="button" class="btn plain sm" data-act="tgLogMore" data-chat="${c.chatId}" data-before="${lg.log[lg.log.length - 1].id}">Show older</button></p>`); }).catch(() => {});
     const box = document.querySelector('.tgmsgs'); if (box) box.scrollTop = box.scrollHeight;
   }
 

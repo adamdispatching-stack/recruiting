@@ -189,6 +189,41 @@ module.exports = (app) => {
   app.post('/api/tg/chats/:id/digest', needUser, needAdmin, wrap(async (req, res) => { const c = await loadChat(req, res); if (!c) return; res.json({ ok: true, found: await digest.digestChat(c.chat_id) }); }));
 
   // people the bot has seen, and their role
+  // ---------- the bot's history: what it did and how people reacted ----------
+  app.get('/api/tg/log', needUser, wrap(async (req, res) => {
+    const chat = req.query.chat ? String(req.query.chat) : null; const kinds = req.query.kinds ? String(req.query.kinds).split(',').filter(Boolean) : null;
+    const before = req.query.before ? +req.query.before : null;
+    const r = await q(`SELECT l.id, l.at, l.chat_id, l.driver_id, l.kind, l.text, l.who, ch.title, d.name driver, d.status FROM tg_log l LEFT JOIN tg_chats ch ON ch.chat_id = l.chat_id LEFT JOIN drivers d ON d.id = l.driver_id
+      WHERE ($1::bigint IS NULL OR l.chat_id = $1) AND ($2::text[] IS NULL OR l.kind = ANY($2)) AND ($3::int IS NULL OR l.id < $3) ORDER BY l.id DESC LIMIT 100`, [chat, kinds, before]);
+    const counts = (await q(`SELECT kind, count(*)::int n FROM tg_log WHERE at > now() - interval '7 days' AND ($1::bigint IS NULL OR chat_id = $1) GROUP BY kind`, [chat])).rows;
+    res.json({ log: r.rows.map((x) => ({ id: x.id, at: x.at, chatId: x.chat_id, driverId: x.driver_id, driver: x.driver, hired: x.status === 'Hired', kind: x.kind, text: x.text, who: x.who, title: x.title })),
+      week: Object.fromEntries(counts.map((c) => [c.kind, c.n])), more: r.rows.length === 100 });
+  }));
+  // ---------- waiting for someone to connect their Telegram ----------
+  app.get('/api/tg/waiting', needUser, wrap(async (req, res) => {
+    const r = await q(`SELECT w.*, ch.title, ch.invite_link, d.name driver, d.status FROM tg_waiting w JOIN tg_chats ch ON ch.chat_id = w.chat_id LEFT JOIN drivers d ON d.id = w.driver_id
+      WHERE w.done_at IS NULL AND ch.active ORDER BY w.created_at DESC`);
+    const out = [];
+    for (const w of r.rows) {
+      const f = await bot.findDrivers(bot.titleInfo(w.title));
+      out.push({ id: w.id, chatId: w.chat_id, title: w.title, who: w.who, what: w.what, kind: w.kind || bot.titleInfo(w.title).kind, driverId: w.driver_id, driver: w.driver, at: w.created_at, link: w.invite_link,
+        options: f.list.filter((d) => d.id !== w.driver_id).map((d) => ({ id: d.id, name: d.name, status: d.status })) });
+    }
+    res.json({ waiting: out });
+  }));
+  app.post('/api/tg/waiting/:id', needUser, wrap(async (req, res) => {
+    if (req.user.role === 'dispatcher') return res.status(403).json({ error: 'Not for dispatchers' });
+    const w = (await q(`SELECT * FROM tg_waiting WHERE id = $1 AND done_at IS NULL`, [+req.params.id])).rows[0]; if (!w) return res.status(404).json({ error: 'Already done' });
+    const b = req.body || {};
+    if (b.dismiss) { await q(`UPDATE tg_waiting SET done_at = now(), done_by = $2, done_how = 'dismissed' WHERE id = $1`, [w.id, req.user.name]); await bot.log('wait', `Dismissed on the website: ${w.what}`, { chatId: w.chat_id }); return res.json({ ok: true }); }
+    const driverId = +b.driverId || w.driver_id; const kind = ['dispatch', 'eld', 'accounting'].includes(b.kind) ? b.kind : w.kind || 'dispatch';
+    if (!driverId) return res.status(400).json({ error: 'Pick the driver' });
+    if (!bot.on()) return res.status(409).json({ error: 'The Telegram bot is not running' });
+    await bot.linkChat(w.chat_id, kind, driverId, req.user.id, null, { by: req.user.name });
+    const dn = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0];
+    await lib.act(req.user, 'telegram', dn, `Connected the Telegram group "${w.title || ''}" (waiting for ${w.who || 'someone'})`).catch(() => {});
+    res.json({ ok: true });
+  }));
   app.get('/api/tg/people', needUser, needAdmin, wrap(async (req, res) => {
     const r = (await q(`SELECT p.tg_id::text tg_id, p.name, p.username, p.role, p.driver_id, d.name driver, p.user_id, u.name user_name, p.seen_at,
       (SELECT count(*)::int FROM tg_members m WHERE m.tg_id = p.tg_id) groups FROM tg_people p LEFT JOIN drivers d ON d.id = p.driver_id LEFT JOIN users u ON u.id = p.user_id ORDER BY p.seen_at DESC NULLS LAST LIMIT 500`)).rows;

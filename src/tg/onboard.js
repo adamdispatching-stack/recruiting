@@ -92,11 +92,12 @@ async function welcome(driverId) {
   await guide(c);
 }
 // The team switches how the bot works (in Telegram or on the website). Run sends the welcome if it never went out.
-async function setMode(driverId, mode, by) {
+async function setMode(driverId, mode, by, who = null) {
   if (!MODES[mode]) return false;
   const c0 = await caseOf(driverId); if (!c0) return false;
   await q(`UPDATE onb_cases SET mode = $2 WHERE driver_id = $1`, [driverId, mode]);
   await require('../lib').history(driverId, `Telegram bot: ${MODES[mode]}`, by || 'Website', 'telegram').catch(() => {});
+  await bot.log('mode', `Mode: ${MODES[mode]}${who ? '' : ` (${by || 'website'})`}`, { chatId: c0.chat_id, driverId, who });
   if (mode === 'run' && !c0.card_msg_id) await welcome(driverId);
   else if (mode === 'run') await guide(await caseOf(driverId));
   return true;

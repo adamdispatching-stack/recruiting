@@ -50,6 +50,8 @@ async function setFacts(driverId, f, by, { onlyEmpty = false, quiet = false } = 
     if (!quiet) await tellOwner(d, `${d.name} sent the last 4 of SSN for the MVR. It is on the driver's page.`);
   }
   if (said.length) await history(driverId, said.join(', ') + (by === 'AI' ? ' (from the Telegram group)' : ''), by);
+  const cid = ((await q(`SELECT chat_id FROM onb_cases WHERE driver_id = $1`, [driverId])).rows[0] || {}).chat_id || null;
+  if (said.length || (f.ssn4 && /^\d{4}$/.test(f.ssn4))) await bot.log('fact', `Saved ${[...said, ...(f.ssn4 && /^\d{4}$/.test(f.ssn4) ? ['the last 4 of SSN'] : [])].join(', ')} (${by})`, { chatId: cid, driverId });
   // a Pennsylvania CDL: the MVR needs the last 4 of the SSN
   if (st === 'PA' && d.license_state !== 'PA' && !d.has_ssn4 && !d.mvr_done) {
     if (!quiet) await tellOwner(d, `${d.name}'s CDL is from Pennsylvania: the MVR needs the last 4 of the SSN. Ask the driver, or send the private link from the driver's page.`);
@@ -126,6 +128,7 @@ async function ask(driverId) {
     const url = await privateLink(driverId);
     await send(c.chat_id, `${who}, your CDL is from Pennsylvania, so the MVR needs the <b>last 4 digits of your SSN</b>. Please send them to me privately${url ? ' (tap the button)' : ''}, not in this group.`, url ? { buttons: [[['🔒 Send privately', url]]] } : {});
   }
+  await bot.log('ask', `Asked ${d.name} for: ${todo.map((n) => n.label).join(', ')}`, { chatId: c.chat_id, driverId });
   const now = Object.fromEntries(todo.map((n) => [n.key, new Date().toISOString()]));
   await q(`UPDATE onb_cases SET asked = coalesce(asked, '{}'::jsonb) || $2::jsonb WHERE driver_id = $1`, [driverId, JSON.stringify(now)]);
 }

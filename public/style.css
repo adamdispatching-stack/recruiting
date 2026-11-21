@@ -1648,3 +1648,16 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .autop .figs{margin:10px 0}
 .autof{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin-top:10px}
 .krev{border-left:4px solid var(--yellow)}
+/* the bot's history and groups waiting for a Telegram connection */
+.tgloglist li.tglog{display:flex;gap:10px;align-items:flex-start}
+.tglog .lgi{width:22px;text-align:center;flex:none;font-size:15px;line-height:1.4}
+.tglog .lgt{flex:none;white-space:nowrap}
+.tglog.k-said{color:var(--mut,#5b6470)}
+.tglog.k-wait .lgi,.tglog.k-left .lgi{filter:saturate(1.4)}
+.tglogc .tgloglist{max-height:420px;overflow:auto}
+.fbtabs.sub{margin:10px 0 8px;overflow-x:auto;flex-wrap:nowrap}
+.fbtabs.sub button{white-space:nowrap}
+.tgwait{border-left:4px solid #d9a21b}
+.tgwait li{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.tgwait .inrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+@media (max-width:640px){.tglog .lgt{display:block}.tgloglist li.tglog{flex-wrap:wrap}.tglog .lgt{margin-left:32px}}

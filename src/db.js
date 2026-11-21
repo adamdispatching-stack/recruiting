@@ -434,6 +434,14 @@ async function migrate() {
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS ssn4_at TIMESTAMPTZ;
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS ssn4_code TEXT;
     ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS asked JSONB NOT NULL DEFAULT '{}'::jsonb;
+    -- the bot's history: what it did, and how people reacted (buttons, emoji, replies)
+    CREATE TABLE IF NOT EXISTS tg_log (id SERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), chat_id BIGINT, driver_id INTEGER, kind TEXT NOT NULL, text TEXT NOT NULL, who_tg BIGINT, who TEXT);
+    CREATE INDEX IF NOT EXISTS tg_log_at ON tg_log(at DESC);
+    CREATE INDEX IF NOT EXISTS tg_log_chat ON tg_log(chat_id, at DESC);
+    -- team work waiting for someone who has not connected their Telegram to the website (a group to connect)
+    CREATE TABLE IF NOT EXISTS tg_waiting (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, tg_id BIGINT, who TEXT, driver_id INTEGER, kind TEXT, what TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), done_at TIMESTAMPTZ, done_by TEXT, done_how TEXT);
+    CREATE UNIQUE INDEX IF NOT EXISTS tg_waiting_open ON tg_waiting(chat_id) WHERE done_at IS NULL;
     -- answers the AI picked up from the team's own replies: waiting for an admin to approve before the bot uses them
     ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS review BOOLEAN NOT NULL DEFAULT false;
     -- a truck filled: its driver started (hired) in it; the recruiter whose driver it is gets the credit
