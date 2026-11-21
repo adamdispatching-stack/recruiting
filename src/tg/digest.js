@@ -27,7 +27,7 @@ async function digestChat(chatId) {
   const done = () => q(`UPDATE tg_messages SET digested = true WHERE chat_id = $1 AND id = ANY($2::bigint[])`, [chatId, fresh.map((m) => m.id)]);
   if (!chat || !chat.driver_id || !chat.kind || !ai.on()) { await done(); return null; }
   const before = (await q(`SELECT m.*, p.role, to_char(m.at AT TIME ZONE $3, 'Dy Mon DD HH24:MI') hm FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 AND m.at < $2 ORDER BY m.at DESC LIMIT 20`, [chatId, fresh[0].at, db.settings.tz])).rows.reverse();
-  const line = (m) => `[${m.hm}] ${m.is_bot ? 'Bot' : `${m.from_name || 'Someone'} (${ROLE[m.role] || 'unknown'})`}: ${m.text || ''}${m.media ? ` [${m.media}${m.media_note ? ': ' + m.media_note : ''}]` : ''}`;
+  const line = (m) => `[#${m.msg_id} ${m.hm}] ${m.is_bot ? 'Bot' : `${m.from_name || 'Someone'} (${ROLE[m.role] || 'unknown'})`}: ${m.text || ''}${m.media ? ` [${m.media}${m.media_note ? ': ' + m.media_note : ''}]` : ''}`;
   // the pictures in the new messages (a few), so numbers can be checked
   const images = [];
   for (const m of fresh.filter((x) => x.file_id && !x.is_bot).slice(-4)) {
@@ -51,7 +51,8 @@ async function digestChat(chatId) {
   const quiet = fresh.every((m) => m.imported);
   let r;
   const unknown = [...new Set(fresh.filter((m) => !m.is_bot && !m.role && m.from_id && m.from_name).map((m) => m.from_name))].slice(0, 12);
-  try { r = await ai.digest({ unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
+  const working = chat.kind === 'dispatch' && !onboarding;
+  try { r = await ai.digest({ working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
   catch (e) { console.error('tg digest', e.message); if (/400|invalid/i.test(e.message)) await done(); return null; } // a bad batch is skipped; a network error is tried again
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
@@ -88,6 +89,22 @@ async function digestChat(chatId) {
     else if (a.kind === 'appointment_change' && chat.kind === 'dispatch') await send(chatId, `📌 Noted: ${esc(text)}`).catch(() => {});
     if (a.kind === 'unprofessional_dispatcher') await tellTeam(chat.driver_id, chatId, `Dispatcher conduct in ${chat.driver}'s group: ${text}`, false); // admins only
     else if (a.severity === 'high' || ['driver_upset', 'safety', 'container_mismatch', 'wrong_location'].includes(a.kind)) await tellTeam(chat.driver_id, chatId, `${chat.driver}: ${text}`);
+  }
+  // a working group: the load updates (where the driver is), and how our dispatchers handle things (to learn updating)
+  if (working) {
+    for (const u of (r.load_updates || []).slice(0, 30)) {
+      const m = fresh.find((x) => +x.msg_id === +u.msg_id); if (!m || !['assigned', 'to_pickup', 'at_pickup', 'loaded', 'rolling', 'at_delivery', 'delivered', 'delayed', 'waiting', 'issue'].includes(u.status)) continue;
+      await q(`INSERT INTO tg_updates (chat_id, driver_id, msg_id, at, status, place, eta, load_ref, by_role, text) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING`,
+        [chatId, chat.driver_id, m.msg_id, m.at, u.status, u.place ? String(u.place).slice(0, 120) : null, u.eta ? String(u.eta).slice(0, 60) : null, u.load_ref ? String(u.load_ref).slice(0, 40) : null, u.by || null, bot.redact(String(m.text || '')).slice(0, 300)]);
+      out.updates = (out.updates || 0) + 1;
+    }
+    for (const k of (r.dispatch_lessons || []).slice(0, 4)) {
+      const qn = bot.redact(String(k.situation || '')).trim().slice(0, 300), an = bot.redact(String(k.practice || '')).trim().slice(0, 800);
+      if (qn.length < 8 || an.length < 8 || (await q(`SELECT 1 FROM tg_knowledge WHERE lower(question) = lower($1) LIMIT 1`, [qn])).rows[0]) continue;
+      await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', 'AI, from the dispatchers', $3, 'dispatch', false, true)`, [qn, an, chatId]);
+      await bot.log('fact', `Learned how dispatchers handle: ${qn}`, { chatId, driverId: chat.driver_id });
+      out.lessons = (out.lessons || 0) + 1;
+    }
   }
   // who is who: the AI says which unknown people are the driver, a dispatcher, ELD or accounting (never "our team": that unlocks buttons)
   const ROLEMAP = { driver: 'driver', dispatcher: 'dispatch', eld: 'eld', accounting: 'accounting' };

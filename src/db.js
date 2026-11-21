@@ -438,6 +438,11 @@ async function migrate() {
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS arrival_by TEXT;
     -- a working driver's group: how many people are in it, and how the bot works there (watch = learn quietly; updater = also writes)
     ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS member_count INTEGER;
+    -- a working driver's group: the load updates seen in the chat (where the driver is with a load)
+    CREATE TABLE IF NOT EXISTS tg_updates (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER, msg_id BIGINT, at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      status TEXT NOT NULL, place TEXT, eta TEXT, load_ref TEXT, by_role TEXT, text TEXT);
+    CREATE INDEX IF NOT EXISTS tg_updates_driver ON tg_updates(driver_id, at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS tg_updates_msg ON tg_updates(chat_id, msg_id, status) WHERE msg_id IS NOT NULL;
     ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'watch';
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS note_by TEXT;
     -- the bot's history: what it did, and how people reacted (buttons, emoji, replies)
@@ -890,6 +895,10 @@ async function statusChanged(c, d, to, { userId = null, via = 'web', at = null, 
   if (to === 'Onboarding') await ensureOnboarding(c, d.id, userId);
   if (to === 'Hired') await c.query(`UPDATE onboarding SET completed_at = COALESCE(completed_at, now()) WHERE driver_id = $1`, [d.id]);
   if (to === 'Hired') await require('./fleet').checkFill(c, d.id).catch((e) => console.error('fill', e.message));
+  if (to === 'Hired') { // the onboarding group is now the driver's dispatch group: the bot learns dispatching and updates there (quietly)
+    for (const g of (await c.query(`UPDATE tg_chats SET mode = 'watch' WHERE driver_id = $1 AND kind = 'dispatch' RETURNING chat_id`, [d.id])).rows)
+      await require('./tg/bot').log('mode', `${d.name} is active now: this is the driver's dispatch group. The bot learns dispatching and load updates here (Watch and learn)`, { chatId: g.chat_id, driverId: d.id }).catch(() => {});
+  }
   if (LOST.includes(to)) { const unit = await releaseTruck(c, d.id); if (unit) { notes.push(`Truck ${unit} is free again`); await syncAuto(c, d.id, userId); } }
   return notes;
 }

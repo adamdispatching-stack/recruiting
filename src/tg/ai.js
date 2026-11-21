@@ -86,6 +86,14 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
   odometer: { type: 'integer', description: 'The truck\'s current mileage (odometer), if someone says or shows it in the new messages.' },
   driver_notes: { type: 'array', description: 'Lasting things a new dispatcher must know about the driver, from the NEW messages: routines and requests (for example "wants a wake-up call at 7 AM"), loads he likes or refuses, home time wishes, how reliable he is, how he works, how to talk to him. Facts with evidence, said respectfully. Nothing about health, family, religion, politics or private life. Empty if nothing new.', items: { type: 'object', properties: {
     kind: { type: 'string', enum: ['routine', 'request', 'likes_loads', 'dislikes_loads', 'home_time', 'reliability', 'work_style', 'communication', 'other'] }, text: { type: 'string' } }, required: ['kind', 'text'] } },
+  load_updates: { type: 'array', description: 'ONLY in a WORKING driver\'s dispatch group: each load update in the NEW messages (where the driver is with a load). One per message that says it.', items: { type: 'object', properties: {
+    msg_id: { type: 'integer', description: 'The #number of the message that says it.' },
+    status: { type: 'string', enum: ['assigned', 'to_pickup', 'at_pickup', 'loaded', 'rolling', 'at_delivery', 'delivered', 'delayed', 'waiting', 'issue'] },
+    place: { type: 'string', description: 'City or facility, if said.' }, eta: { type: 'string', description: 'The ETA as said (for example "4 PM" or "Tue 6 AM"), if said.' },
+    load_ref: { type: 'string', description: 'Load, trip or container number, if said.' }, by: { type: 'string', enum: ['driver', 'dispatcher', 'other'] } }, required: ['msg_id', 'status'] } },
+  dispatch_lessons: { type: 'array', description: 'ONLY in a WORKING driver\'s dispatch group: how OUR dispatchers handle things, as general practice a new dispatcher (or a bot doing updates) can follow. Only when the NEW messages clearly show it. No names, numbers, places or dates.', items: { type: 'object', properties: {
+    situation: { type: 'string', description: 'When this happens, for example "The driver says he will be late to the delivery".' },
+    practice: { type: 'string', description: 'What the dispatcher does or says, for example "Asks for the new ETA right away and tells the driver he will update the broker".' } }, required: ['situation', 'practice'] } },
   people: { type: 'array', description: 'ONLY for the people listed as "role not known yet": what each one is, when what they write makes it clear. Leave a person out when unsure.', items: { type: 'object', properties: {
     name: { type: 'string', description: 'Exactly as listed.' }, role: { type: 'string', enum: ['driver', 'dispatcher', 'eld', 'accounting', 'other'], description: 'driver = the driver of this group; dispatcher = gives loads, times, addresses, follows up; eld = logs and ELD; accounting = pay and settlements.' } }, required: ['name', 'role'] } },
   learned: { type: 'array', description: 'When a person from our team (not the bot) answered a question the driver asked in the NEW messages: the general question and the answer, reworded so they help any future driver (no names, dates, phone numbers or personal details). Leave out answers that only fit this driver.', items: { type: 'object', properties: {
@@ -108,14 +116,14 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     severity: { type: 'string', enum: ['low', 'high'] }, text: { type: 'string', description: 'One clear sentence.' },
     ask_driver: { type: 'string', description: 'Only for container_mismatch or wrong_location: a short polite question to the driver to clear it up, for example "The photo shows container ABCU 102634 but the load is ABCU 102643. Is this the right one?"' } }, required: ['kind', 'severity', 'text'] } } },
   required: ['truck_events', 'driver_notes', 'alerts'] } };
-async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images, onb = null, unknown = [] }) {
+async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images, onb = null, unknown = [], working = false }) {
   const system = `You read the ${kind} Telegram group of one truck driver (${driver}${truck ? `, truck ${truck}` : ''}) for a US trucking company, and pull out what the managers must know.
 Only report what the NEW messages say; the earlier ones are context. Compare container, trailer and load numbers in the messages with the ones in the pictures: a different number is a container_mismatch.
 Flag unprofessional_dispatcher only for clear rudeness, insults, or telling the driver to break rules. Appointment or pickup/delivery time changes are appointment_change.
 Never include passwords, SSN, license or account numbers. Be factual and short.
 Oil changes, shop visits and repairs are truck_events. "Oil change done" is an oil_change with status fixed; say paid=true when they say it is paid, and give the cost, shop and mileage when said. Do not repeat an event already listed below: mark it fixed (fixed_issue_ids) or paid (paid_ids) instead.
 Open truck issues (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}
-${unknown.length ? `People whose role is not known yet: ${unknown.join('; ')}.
+${working ? 'This is a WORKING driver\'s dispatch group (the driver hauls loads for us). Also fill load_updates (each message is numbered #id) and dispatch_lessons: the bot is learning how our dispatchers run updates.\n' : ''}${unknown.length ? `People whose role is not known yet: ${unknown.join('; ')}.
 ` : ''}Truck services not marked paid yet (id: title, cost): ${unpaid.length ? unpaid.map((i) => `${i.id}: ${i.title}${i.cost !== null ? ' $' + i.cost : ''}`).join('; ') : 'none'}${onb ? `
 
 This driver is ONBOARDING (not driving for us yet). Fill "onboarding" every time.

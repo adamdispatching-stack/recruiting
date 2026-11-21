@@ -55,7 +55,14 @@ http.createServer((req, res) => {
       const unk = (/People whose role is not known yet: (.*)\./.exec(j.system) || [])[1];
       const people = unk ? unk.split('; ').map((n) => ({ name: n, role: /Dispatch/.test(n) ? 'dispatcher' : /Hank/.test(n) ? 'driver' : 'other' })) : [];
       const alerts = /CONTAINER ABCU9/.test(fresh) ? [{ kind: 'container_mismatch', severity: 'high', text: 'Container number does not match', ask_driver: 'is ABCU9 the right container?' }] : [];
-      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], people } }] }));
+      const working = /WORKING driver/.test(j.system); const load_updates = [], dispatch_lessons = [];
+      if (working) {
+        const at = /\[#(\d+) [^\]]*\] [^:]+: Arrived at the shipper/.exec(fresh); if (at) load_updates.push({ msg_id: +at[1], status: 'at_pickup', place: 'the shipper', by: 'driver' });
+        const rl = /\[#(\d+) [^\]]*\] [^:]+: Rolling, ETA 4 PM/.exec(fresh); if (rl) load_updates.push({ msg_id: +rl[1], status: 'rolling', eta: '4 PM', place: 'Harrisburg', by: 'driver' });
+        if (/send the BOL when loaded/.test(fresh)) dispatch_lessons.push({ situation: 'The driver arrives at the shipper', practice: 'Thanks him and asks for a photo of the BOL once loaded' });
+      }
+      AI.working = (AI.working || 0) + (working ? 1 : 0);
+      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], people, load_updates, dispatch_lessons } }] }));
     }
     const input = tool === 'group_digest' ? { truck_events: [], driver_notes: [], alerts: [], learned: [] } : tool === 'reply_plan' ? { is_question: false, confident: false, answer: '', progress: 'none', mood: 'neutral' } : { summary: 'A day.', issues: [], mood: 'good' };
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input }] }));
@@ -260,9 +267,23 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const ppl = (await web('/api/tg/people')).people;
   const dan = ppl.find((x) => x.tg_id === '62');
   ok(ppl[0].role === 'dispatch' && dan.msgs7 === 1 && dan.reply_min >= 19 && dan.reply_min <= 21, 'People: dispatchers first, Dan answers the driver in about 20 min');
+  // load updates and how the dispatchers work
+  ok(await until(async () => (await pg.query(`SELECT status FROM tg_updates WHERE chat_id = $1`, [HCHAT.id])).rows.some((x) => x.status === 'at_pickup')), 'load update seen: at the shipper');
+  say(HANK, 'Rolling, ETA 4 PM', HCHAT);
+  ok(await until(async () => (await pg.query(`SELECT eta FROM tg_updates WHERE chat_id = $1 AND status = 'rolling'`, [HCHAT.id])).rows[0]), 'and "Rolling, ETA 4 PM"');
+  const lesson = (await web('/api/tg/knowledge')).knowledge.find((x) => x.kind === 'dispatch');
+  ok(lesson && /arrives at the shipper/.test(lesson.question) && lesson.review && !lesson.active, 'a dispatching practice learned, waiting for approval');
+  const ad = await web('/api/active/' + hank);
+  ok(ad.updates && ad.updates[0].status === 'rolling' && ad.updates[0].eta === '4 PM', 'the active driver page: the latest load update');
+  ok(((await web('/api/tg/chats')).chats.find((c) => c.chatId == HCHAT.id).lastUpdate || {}).status === 'rolling', 'the groups list: the latest update');
+  // an onboarding group whose driver is hired: it becomes a dispatch group, the bot learns dispatching there
+  await web('/api/drivers/' + nina.id, { method: 'PATCH', body: { status: 'Hired' } });
+  ok(await until(async () => (await web('/api/tg/log?chat=' + NCHAT.id)).log.some((x) => /is active now: this is the driver's dispatch group/.test(x.text))), 'Nina hired: her group is now a dispatch group (history)');
+  const w0 = AI.working; say(PAUL, 'test message', NCHAT);
+  ok(await until(() => AI.working > w0, 15000), 'and the bot reads it as a working group (learns updates)');
   // the group page; updater mode
   const gp = await web('/api/tg/chats/' + HCHAT.id);
-  ok(gp.chat.working && gp.chat.members === 14 && gp.chat.mode === 'watch' && gp.chat.learning.msgs === 2 && gp.chat.learning.dispatchers === 1, 'the group page: working group, 14 people, 2 messages read, 1 dispatcher known');
+  ok(gp.chat.working && gp.chat.members === 14 && gp.chat.mode === 'watch' && gp.chat.learning.msgs === 3 && gp.chat.learning.dispatchers === 1 && gp.chat.learning.updates === 2 && gp.chat.learning.lessons === 1 && gp.updates.length === 2, 'the group page: working group, 14 people, 3 messages read, 1 dispatcher, 2 load updates, 1 practice');
   n = tg.sent.length; say(HANK, 'loaded CONTAINER ABCU9', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_alerts WHERE chat_id = $1`, [HCHAT.id])).rows.length, 15000), 'watch: the container mix-up is an alert on the website');
   await sleep(500); ok(!inChat(n, HCHAT).length, 'and nothing is written in the group');

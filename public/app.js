@@ -424,6 +424,9 @@ window.App = (() => {
   const cbTime = (cb) => { const t = new Date(cb.at); const same = t.toLocaleDateString('en-CA', { timeZone: tz() }) === new Date().toLocaleDateString('en-CA', { timeZone: tz() });
     return t.toLocaleString('en-US', { timeZone: tz(), ...(same ? {} : { weekday: 'short' }), hour: 'numeric', minute: '2-digit' }); };
   const cbChip = (cb) => (cb && cb.state !== 'done' && cb.state !== 'missed' ? `<span class="cbk${new Date(cb.at) < Date.now() ? ' late' : ''}" title="${esc(cb.said ? 'The driver: "' + cb.said + '"' : 'Call-back time')}">📞 Call back ${esc(cbTime(cb))}</span>` : '');
-  return { cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  // a load update the bot saw in a working driver's group
+  const UPD = { assigned: '📋 Load assigned', to_pickup: '➡️ Heading to pickup', at_pickup: '🏭 At pickup', loaded: '📦 Loaded', rolling: '🚚 Rolling', at_delivery: '🏁 At delivery', delivered: '✅ Delivered', delayed: '⏰ Delayed', waiting: '⏳ Waiting', issue: '⚠️ Issue' };
+  const updText = (u) => `${UPD[u.status] || u.status}${u.place ? ', ' + u.place : ''}${u.eta ? `, ETA ${u.eta}` : ''}${u.load_ref ? ` (${u.load_ref})` : ''}`;
+  return { UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();

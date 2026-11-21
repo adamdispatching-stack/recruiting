@@ -58,6 +58,7 @@ module.exports = (app) => {
     const sums = (await q(`SELECT s.day::text AS day, s.summary, s.mood, s.issues, c.kind FROM tg_summaries s JOIN tg_chats c ON c.chat_id = s.chat_id WHERE c.driver_id = $1 ORDER BY s.day DESC, c.kind LIMIT 30`, [d.id])).rows;
     const alerts = (await q(`SELECT id, chat_id::text chat_id, kind, severity, text, at, resolved_at, resolved_by FROM tg_alerts WHERE driver_id = $1 ${admin ? '' : "AND kind <> 'unprofessional_dispatcher'"} ORDER BY at DESC LIMIT 40`, [d.id])).rows;
     const notes = (await q(`SELECT kind, text, at FROM driver_notes WHERE driver_id = $1 ORDER BY at DESC LIMIT 60`, [d.id])).rows;
+    const updates = (await q(`SELECT u.status, u.place, u.eta, u.load_ref, u.by_role, u.at, u.chat_id::text chat_id FROM tg_updates u WHERE u.driver_id = $1 ORDER BY u.at DESC LIMIT 20`, [d.id])).rows;
     const evs = (await q(`SELECT e.id, e.kind, e.title, e.status, e.cost, e.paid, e.at, e.done_on::text done_on, t.unit FROM truck_events e LEFT JOIN trucks t ON t.id = e.truck_id WHERE e.driver_id = $1 ORDER BY e.at DESC LIMIT 15`, [d.id])).rows;
     res.json({
       driver: { id: d.id, name: d.name, phone: (d.phones || [])[0] || null, mode: d.mode, status: d.status, companyId: d.company_id, ownerId: d.owner_id, location: d.location,
@@ -67,7 +68,7 @@ module.exports = (app) => {
       groups: groups.map((g) => ({ id: g.id, kind: g.kind, title: g.title, lastAt: g.last_at, today: g.today })),
       mood: md, moodIssue: issue(md.slice(-3)), summaries: sums.map((x) => ({ day: x.day, kind: x.kind, summary: x.summary, mood: x.mood, issues: x.issues || [] })),
       alerts: alerts.map((a) => ({ id: a.id, chatId: a.chat_id, kind: a.kind, severity: a.severity, text: a.text, at: a.at, resolved_at: a.resolved_at, resolved_by: a.resolved_by })),
-      notes, truckEvents: evs.map((e) => ({ id: e.id, kind: e.kind, title: e.title, status: e.status, cost: e.cost === null ? null : +e.cost, paid: e.paid, day: e.done_on || null, at: e.at, unit: e.unit })),
+      notes, updates, truckEvents: evs.map((e) => ({ id: e.id, kind: e.kind, title: e.title, status: e.status, cost: e.cost === null ? null : +e.cost, paid: e.paid, day: e.done_on || null, at: e.at, unit: e.unit })),
       canLead: req.user.role !== 'dispatcher'
     });
   }));
