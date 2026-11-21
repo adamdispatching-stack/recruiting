@@ -21,6 +21,7 @@ function toClient(d) {
     outSince: d.out_since || null, leftOn: d.left_on || null, leftReason: d.left_reason || null,
     relayBefore: d.relay_before === undefined ? null : d.relay_before, callPrep: d.call_prep || null, callPrepAt: d.call_prep_at || null, amazonStep: d.amazon_step || null, amazonLog: d.amazon_log || {}, lostNote: d.lost_note || null,
     expYears: d.exp_years === null || d.exp_years === undefined ? null : +d.exp_years, experience: d.experience, truckYear: d.truck_year, truckModel: d.truck_model, companyId: d.company_id,
+    callback: d.callback_at ? { at: d.callback_at, said: d.callback_said, tz: d.callback_tz, by: d.callback_by, state: d.callback_state } : null,
     createdAt: d.created_at, updatedAt: d.updated_at, noteCount: d.note_count !== undefined ? +d.note_count : undefined, lastNote: d.last_note };
 }
 const cleanPhones = (list) => [...new Set((list || []).map(db.digits).filter(Boolean))];
@@ -110,6 +111,21 @@ module.exports = (app) => {
       WHERE a.driver_id = $1 AND a.type = 'open' GROUP BY u.id ORDER BY max(a.at) DESC`, [d.id])).rows;
     const recent = (await q(`SELECT a.at, u.name FROM activity a JOIN users u ON u.id = a.user_id WHERE a.driver_id = $1 AND a.type = 'open' ORDER BY a.at DESC LIMIT 30`, [d.id])).rows;
     res.json({ total: people.reduce((n, p) => n + p.times, 0), ownerId: d.owner_id, assignedAt: d.assigned_at, people, recent });
+  }));
+
+  // The call-back time: set or change it (a person), mark it done, or clear it
+  app.post('/api/drivers/:id/callback', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const b = req.body || {}; const cb = require('./callback');
+    if (b.done || b.clear) {
+      if (!(await cb.done(db.pool, d.id, req.user.name, b.clear ? 'cleared' : 'marked done'))) return res.status(400).json({ error: 'There is no call-back waiting on this lead' });
+      await act(req.user, 'note', d, b.clear ? 'Cleared the call-back' : 'Call-back done'); return res.json({ ok: true });
+    }
+    const t = new Date(b.at);
+    if (isNaN(t) || t < Date.now() - 5 * 60000 || t > Date.now() + 60 * 86400000) return res.status(400).json({ error: 'Pick a time from now on, within two months' });
+    await cb.set(db.pool, d, { at: t, said: b.said || null, tz: b.tz || null, by: req.user.name });
+    await act(req.user, 'note', d, `Call back at ${cb.when(t, b.tz)}`);
+    res.json({ ok: true });
   }));
 
   // ---------- one driver ----------
@@ -342,6 +358,7 @@ module.exports = (app) => {
     if (!kind && !body) return res.status(400).json({ error: 'Write something first' });
     const r = await q(`INSERT INTO notes (driver_id, user_id, body, kind, outcome) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [d.id, req.user.id, body, kind, outcome]);
     await touch(d.id, !!kind);
+    if (kind === 'call') await require('./callback').onCall(db.pool, d.id, req.user.name);
     if (kind) await act(req.user, 'contact', d, `${CONTACT_WORD[kind]}, ${outcome.toLowerCase()}${body ? ': ' + body.slice(0, 140) : ''}`);
     else await act(req.user, 'note', d, body.slice(0, 140));
     if (d.owner_id && d.owner_id !== req.user.id) await db.notify(db.pool, d.owner_id, 'note', `${req.user.name} on ${d.name}: ${kind ? CONTACT_WORD[kind] + ', ' + outcome.toLowerCase() + (body ? ' - ' : '') : ''}${body.slice(0, 160)}`, `#/driver/${d.id}`, { driverId: d.id });

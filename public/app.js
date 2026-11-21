@@ -130,7 +130,7 @@ window.App = (() => {
   // Idle alerts stay in a box at the top right until dismissed. Everything else goes to the bell (unread count)
   // and pops up once in the corner for a few seconds, and on the desktop when allowed.
   const pageStart = Date.now();
-  const NKIND = { needed: 'Needed now', message: 'New message', lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', goal: 'Streak', badge: 'New badge', idle: 'Idle alert' };
+  const NKIND = { needed: 'Needed now', message: 'New message', lead_new: 'New lead', lead_update: 'Lead update', lead_moved: 'Lead moved', callback: 'Call back', note: 'New note', followups: 'Follow-ups', facebook: 'Facebook', goal: 'Streak', badge: 'New badge', idle: 'Idle alert' };
   function setBell(n) { S.unread = n; document.querySelectorAll('.bellcount').forEach((b) => { b.textContent = n > 99 ? '99+' : String(n); b.hidden = !n; }); }
   function showNotices(list, unread) {
     if (unread !== undefined) setBell(unread);
@@ -420,6 +420,10 @@ window.App = (() => {
     `<i class="md ${x.mood || 'none'}${x.high ? ' hi' : ''}" title="${esc(dateText(x.day, { weekday: 'short', month: 'short', day: 'numeric' }))}: ${x.mood ? MOODS[x.mood][1] : 'no summary yet'}${x.alerts ? `, ${x.alerts} alert${x.alerts > 1 ? 's' : ''}` : ''}${x.notes && x.notes[0] ? ' — ' + esc(x.notes[0].slice(0, 160)) : ''}">${x.mood ? MOODS[x.mood][0] : ''}</i>`).join('')}</span>`;
   // a hired driver's name goes to his own page (groups, mood, notes); a lead goes to the lead page
   const driverHref = (id, status) => (status === 'Hired' || (S.me && S.me.role === 'dispatcher') ? `#/active/${id}` : `#/driver/${id}`);
-  return { moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  // A call-back time the driver asked for: "3:00 PM", "Sat 9:00 AM"; late = past and not called yet
+  const cbTime = (cb) => { const t = new Date(cb.at); const same = t.toLocaleDateString('en-CA', { timeZone: tz() }) === new Date().toLocaleDateString('en-CA', { timeZone: tz() });
+    return t.toLocaleString('en-US', { timeZone: tz(), ...(same ? {} : { weekday: 'short' }), hour: 'numeric', minute: '2-digit' }); };
+  const cbChip = (cb) => (cb && cb.state !== 'done' && cb.state !== 'missed' ? `<span class="cbk${new Date(cb.at) < Date.now() ? ' late' : ''}" title="${esc(cb.said ? 'The driver: "' + cb.said + '"' : 'Call-back time')}">📞 Call back ${esc(cbTime(cb))}</span>` : '');
+  return { cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();

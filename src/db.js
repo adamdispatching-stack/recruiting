@@ -416,7 +416,16 @@ async function migrate() {
   `);
   // ----- fleet: each truck's own profile -----
   await q(`
-    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS share_moves INT NOT NULL DEFAULT 0;   -- times a lead was moved from an away recruiter
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS share_moves INT NOT NULL DEFAULT 0;
+    -- a call-back the driver asked for: when, his words, his time zone, who set it (AI or a person), due / done / missed
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_at TIMESTAMPTZ;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_said TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_tz TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_by TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_key TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_state TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_reminded SMALLINT NOT NULL DEFAULT 0;
+    CREATE INDEX IF NOT EXISTS drivers_callback ON drivers(callback_at) WHERE callback_state = 'due';   -- times a lead was moved from an away recruiter
     CREATE INDEX IF NOT EXISTS activity_driver ON activity(driver_id, type) WHERE driver_id IS NOT NULL;
     ALTER TABLE trucks ADD COLUMN IF NOT EXISTS odometer INT;                 -- the latest mileage we know
     ALTER TABLE trucks ADD COLUMN IF NOT EXISTS odometer_at TIMESTAMPTZ;
@@ -719,6 +728,7 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
     const forward = a >= 0 && b >= 0 ? a > b : newer;
     if ((byHand && !d.status_locked) || (!d.status_locked && forward)) { set.status = st; set.status_locked = byHand || LOCKING.includes(st); set.status_at = recAt; }
   }
+  if (rec.callbackAt) await require('./callback').fromExtension(c, d, rec);
   if (d.relay_before === null && rec.answers && typeof rec.answers === 'object' && rec.answers.relay) { const v = relayFrom(rec.answers.relay); if (v !== null) set.relay_before = v; }
   // a lead nobody owns gets a recruiter: the next one in line when leads are shared evenly,
   // otherwise the recruiter this Chrome profile's key is set up for

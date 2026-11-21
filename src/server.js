@@ -102,6 +102,7 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
   // the Telegram bot (only with TELEGRAM_BOT_TOKEN), its ELD reminders and checks, and the evening summaries
   require('./fleet').start();
   require('./share').start();
+  require('./callback').start();
   if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/digest').start(); require('./tg/profile').start(); }
   require('./needed').start(); // verified drivers missing the arrival date, company or truck
   await q(`DELETE FROM sessions WHERE expires_at < now()`);

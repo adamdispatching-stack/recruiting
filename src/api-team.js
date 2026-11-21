@@ -180,15 +180,17 @@ module.exports = (app) => {
     if (u.role !== 'admin') {
       // A recruiter's own day: who to call, what is going cold, and the same numbers the manager sees.
       const [stats] = await teamStats(day, u.id);
-      const calls = await q(`SELECT id, name, status, phones, follow_up, mode, location, (SELECT ${lib.NOTE_TEXT} FROM notes n WHERE n.driver_id = d.id ORDER BY n.updated_at DESC LIMIT 1) last_note
-        FROM drivers d WHERE d.owner_id = $1 AND d.follow_up IS NOT NULL AND d.follow_up <= $2::date ORDER BY d.follow_up, d.updated_at DESC LIMIT 40`, [u.id, day.today]);
+      // call-backs drivers asked for (today, or late) come first, by time; then follow-ups that are due
+      const calls = await q(`SELECT id, name, status, phones, follow_up, mode, location, callback_at, callback_said, callback_tz, callback_state, (SELECT ${lib.NOTE_TEXT} FROM notes n WHERE n.driver_id = d.id ORDER BY n.updated_at DESC LIMIT 1) last_note
+        FROM drivers d WHERE d.owner_id = $1 AND ((d.follow_up IS NOT NULL AND d.follow_up <= $2::date) OR (d.callback_state = 'due' AND (d.callback_at AT TIME ZONE $3)::date <= $2::date))
+        ORDER BY (d.callback_state = 'due') DESC, d.callback_at, d.follow_up, d.updated_at DESC LIMIT 40`, [u.id, day.today, db.settings.tz]);
       const cold = await q(`SELECT id, name, status, phones, updated_at FROM drivers d WHERE d.owner_id = $1 AND d.status = ANY($2::text[]) AND d.follow_up IS NULL AND d.updated_at < now() - make_interval(days => $3::int) ORDER BY d.updated_at LIMIT 15`, [u.id, db.ACTIVE, db.COLD_DAYS]);
       const pipe = await q(`SELECT status, count(*)::int n FROM drivers WHERE owner_id = $1 GROUP BY 1`, [u.id]);
       const pool = await q(`SELECT count(*)::int n FROM drivers d WHERE ${lib.unownedSql()} AND status = ANY($1::text[])`, [db.ACTIVE]);
       const onb = await q(`SELECT d.id, d.name, o.expected_arrival, o.arrived_on, (SELECT count(*) FROM checklist c WHERE c.driver_id = d.id)::int total, (SELECT count(*) FROM checklist c WHERE c.driver_id = d.id AND c.done)::int done
         FROM drivers d JOIN onboarding o ON o.driver_id = d.id WHERE d.owner_id = $1 AND d.status = 'Onboarding' ORDER BY o.expected_arrival NULLS LAST`, [u.id]);
       return res.json({ role: 'member', now, today: day.today, tz, stats,
-        calls: calls.rows.map((d) => ({ id: d.id, name: d.name, status: d.status, phones: d.phones, followUp: d.follow_up, mode: d.mode, location: d.location, lastNote: d.last_note })),
+        calls: calls.rows.map((d) => ({ id: d.id, name: d.name, status: d.status, phones: d.phones, followUp: d.follow_up, mode: d.mode, location: d.location, lastNote: d.last_note, callback: d.callback_state === 'due' ? { at: d.callback_at, said: d.callback_said, tz: d.callback_tz } : null })),
         cold: cold.rows.map((d) => ({ id: d.id, name: d.name, status: d.status, phones: d.phones, updatedAt: d.updated_at })),
         pipeline: pipe.rows, unassigned: pool.rows[0].n,
         onboarding: onb.rows.map((d) => ({ id: d.id, name: d.name, expectedArrival: d.expected_arrival, arrivedOn: d.arrived_on, total: d.total, done: d.done })) });

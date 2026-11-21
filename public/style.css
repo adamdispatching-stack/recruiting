@@ -1572,3 +1572,14 @@ td .opens{display:flex;width:max-content}
 .onl{display:inline-block;padding:0 8px;border-radius:8px;background:var(--green-t);color:var(--green-d);font-weight:700;font-size:12.5px}
 .mvrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 14px;font-size:14px}
 .mvrow input{width:80px;height:34px;padding:0 8px;border:1px solid var(--line);border-radius:8px;font:inherit}
+
+/* ---------- call-backs the driver asked for ---------- */
+.cbk{display:inline-block;margin:0 6px 2px 0;padding:1px 8px;border-radius:8px;background:var(--yellow-t);color:var(--yellow-ink);font-weight:700;font-size:12px;white-space:nowrap}
+.cbk.late{background:var(--red);color:#fff}
+.cbcard{margin:0 0 12px;padding:12px 14px;border:2px solid var(--yellow);border-radius:12px;background:var(--yellow-t)}
+.cbcard.late{border-color:var(--red);background:var(--red-t)}
+.cbcard .cbt{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;font-size:15px}
+.cbcard .cbs{margin:4px 0;font-style:italic}
+.cbcard .drow{margin-top:8px;gap:8px}
+.cbset{margin:0 0 10px}
+.fuline .cbk{white-space:normal}

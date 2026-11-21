@@ -123,7 +123,7 @@
           <section class="card"><h3>Call list</h3>
             ${r.calls.length ? `<div class="scroll"><table class="mini calls"><thead><tr><th>Driver</th><th>Phone</th><th>Follow-up</th><th>Last note</th></tr></thead><tbody>${r.calls.map((d) => `<tr><td><a href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><div>${badge(d.status)}</div></td>
               <td>${(d.phones || []).map((p) => App.phone(p)).join('') || '<span class="none">No phone</span>'}</td>
-              <td><span class="fu${d.followUp <= r.today ? ' due' : ''}">${esc(fuText(d.followUp))}</span></td><td><div class="clamp small">${esc(d.lastNote || '') || '<span class="none">No notes</span>'}</div></td></tr>`).join('')}</tbody></table></div>`
+              <td>${d.callback ? App.cbChip({ ...d.callback, state: 'due' }) : `<span class="fu${d.followUp <= r.today ? ' due' : ''}">${esc(fuText(d.followUp))}</span>`}</td><td><div class="clamp small">${esc(d.lastNote || '') || '<span class="none">No notes</span>'}</div></td></tr>`).join('')}</tbody></table></div>`
               : '<p class="hint">No follow-ups due. Put a follow-up date on every lead you are working, and it shows up here on the right day.</p>'}
           </section>
           ${r.cold.length ? `<section class="card"><h3>Going cold</h3><ul class="list">${r.cold.map((d) => `<li><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> ${badge(d.status)}</span><span class="small mut">quiet for ${plural(daysSince(d.updatedAt), 'day')}</span></li>`).join('')}</ul>

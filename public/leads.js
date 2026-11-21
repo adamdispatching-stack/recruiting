@@ -73,7 +73,7 @@
       const where = [one(d.mode), d.location || (d.answers || {}).home].filter(Boolean).map(esc).join(', ');
       return `<tr data-id="${d.id}">${admin ? `<td class="cb"><input type="checkbox" data-sel="${d.id}" ${list.sel.has(d.id) ? 'checked' : ''} aria-label="Select ${esc(d.name)}"></td>` : ''}
         <td><div class="who1">${App.avatar(d.name)}<div><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div></div></div></td>
-        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}<div class="small fuline">${d.followUp ? `Follow up <span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : ''}</div><div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
+        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}<div class="small fuline">${App.cbChip(d.callback)}${d.followUp ? `Follow up <span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : ''}</div><div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
         <td>${contact || '<span class="none">No contact yet</span>'}</td>
         <td>${relayTag(d.relayBefore)}</td>
@@ -386,6 +386,7 @@
         <div class="ctl">
           <label class="fld">Status<select data-ch="status" data-fk="status" class="stsel">${all.concat(all.includes(d.status) ? [] : [d.status]).map((s) => `<option ${s === d.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
           ${lostish ? `<div class="fld">Why<div class="whyline">${d.lostReason ? `<b>${esc(d.lostReason)}</b>${d.lostNote ? `<span>${esc(d.lostNote)}</span>` : ''}` : '<span class="mut">No reason given</span>'}<button class="linkbtn" data-act="whyEdit">${d.lostReason ? 'Change' : 'Add the reason'}</button></div></div>` : ''}
+          ${cbCard(d)}
           <div class="fld">Follow-up<div class="fuline"><input type="date" data-ch="followUp" data-fk="fu" aria-label="Follow-up date" value="${esc(d.followUp || '')}">
             <button class="chip" data-act="fuQuick" data-days="1">Tomorrow</button><button class="chip" data-act="fuQuick" data-days="3">In 3 days</button><button class="chip" data-act="fuQuick" data-days="7">Next week</button>${d.followUp ? '<button class="chip" data-act="fuQuick" data-days="">Clear</button>' : ''}</div>
             ${d.followUp && d.followUp <= t ? `<span class="fu due">${esc(fuText(d.followUp))}</span>` : ''}</div>
@@ -528,6 +529,34 @@
   onChange('onbTruck', (el) => patchOnb({ truckId: el.value ? +el.value : null }, el.value ? 'Truck assigned' : 'Truck released'));
   onChange('onbField', (el) => patchOnb({ [el.dataset.f]: el.value }, 'Saved'));
   onChange('step', async (el) => { try { await api('/api/checklist/' + el.closest('[data-step]').dataset.step, { method: 'PATCH', body: { done: el.checked } }); } catch (e) { fail(e); } await again(); });
+  // the call-back the driver asked for
+  function cbCard(d) {
+    const cb = d.callback; const live = cb && cb.state === 'due';
+    if (!live) return `<div class="cbset"><button type="button" class="linkbtn" data-act="cbSet">📞 Set a call-back time</button>${cb && cb.state === 'missed' ? ` <span class="small mut">The last one (${esc(App.cbTime(cb))}) was missed.</span>` : ''}</div>`;
+    const late = new Date(cb.at) < Date.now(); const his = cb.tz && cb.tz !== (S.me.tz || 'America/New_York') ? new Date(cb.at).toLocaleString('en-US', { timeZone: cb.tz, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : '';
+    return `<div class="cbcard${late ? ' late' : ''}"><div class="cbt"><b>📞 Call back ${esc(App.cbTime(cb))}</b>${his ? `<span class="small"> · ${esc(his)} his time</span>` : ''}${late ? '<span class="latetag">late</span>' : ''}</div>
+      ${cb.said ? `<div class="cbs">"${esc(cb.said)}"</div>` : ''}<div class="small mut">${cb.by === 'AI' ? 'The AI found it in the chat.' : `Set by ${esc(cb.by || 'the team')}.`} Logging a call marks it done. The recruiter is reminded 10 minutes before.</div>
+      <div class="drow"><button type="button" class="btn plain sm" data-act="cbDone">Called</button><button type="button" class="btn plain sm" data-act="cbSet">Change time</button><button type="button" class="linkbtn" data-act="cbClear">Clear</button></div></div>`;
+  }
+  on('cbSet', () => {
+    const d = cur.driver; const cb = d.callback && d.callback.state === 'due' ? d.callback : null;
+    const local = (t) => { const x = new Date(t); const z = new Date(x.toLocaleString('en-US', { timeZone: S.me.tz || 'America/New_York' })); const p = (n) => String(n).padStart(2, '0'); return `${z.getFullYear()}-${p(z.getMonth() + 1)}-${p(z.getDate())}T${p(z.getHours())}:${p(z.getMinutes())}`; };
+    dialog(`<form id="cbForm" class="dform"><h2>Call back ${esc(d.name)}</h2>
+      <label class="fld">When (${esc(App.tzName())})<input name="at" type="datetime-local" required value="${cb ? local(cb.at) : ''}" min="${local(Date.now())}"></label>
+      <label class="fld">What he said (optional)<input name="said" type="text" maxlength="200" value="${esc(cb ? cb.said || '' : '')}" placeholder="Call me after 3, I'm driving now"></label>
+      <p class="err" id="cbErr" role="alert"></p>
+      <div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (dl) => {
+      $('#cbForm', dl).onsubmit = async (e) => {
+        e.preventDefault(); const v = e.target.at.value; if (!v) return;
+        // the time typed is in the team's time zone: find that moment
+        const guess = new Date(v + ':00Z'); const shown = new Date(guess.toLocaleString('en-US', { timeZone: S.me.tz || 'America/New_York' })); const utc = new Date(guess.toLocaleString('en-US', { timeZone: 'UTC' }));
+        const at = new Date(guess.getTime() - (shown - utc));
+        try { await api(`/api/drivers/${d.id}/callback`, { method: 'POST', body: { at: at.toISOString(), said: e.target.said.value } }); dl.close(); toast('Call-back set'); again(); } catch (er) { $('#cbErr').textContent = er.message; }
+      };
+    });
+  });
+  on('cbDone', async () => { try { await api(`/api/drivers/${cur.driver.id}/callback`, { method: 'POST', body: { done: true } }); toast('Call-back done'); again(); } catch (e) { fail(e); } });
+  on('cbClear', async () => { try { await api(`/api/drivers/${cur.driver.id}/callback`, { method: 'POST', body: { clear: true } }); toast('Call-back cleared'); again(); } catch (e) { fail(e); } });
   on('fuQuick', (b) => patch({ followUp: b.dataset.days ? addDays(today(), +b.dataset.days) : null }, b.dataset.days ? 'Follow-up saved' : 'Follow-up cleared'));
   on('startOnb', () => patch({ status: 'Onboarding' }, 'Onboarding started'));
   on('hire', () => { const left = cur.onboarding.items.filter((i) => !i.done).length; if (!left || confirm(`${plural(left, 'step')} still open. Mark as hired anyway?`)) patch({ status: 'Hired' }, 'Marked as hired'); });
