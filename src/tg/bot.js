@@ -120,7 +120,7 @@ async function register(m, args, who) {
   if (!isStaff(who)) return send(m.chat.id, 'I don\'t know you yet. On the website, open Telegram and use "Connect my Telegram" (or an admin marks you as "Our team" under Telegram → People), then send register again.', { replyTo: m.message_id });
   const [w, ...rest] = String(args || '').trim().split(/\s+/);
   const kind = KIND_WORD[(w || '').toLowerCase()];
-  if (!kind) return send(m.chat.id, 'Which group is this? Send <code>register dispatch</code>, <code>register eld</code> or <code>register accounting</code>, and the driver\'s name if you like: <code>register eld John Smith</code>.', { replyTo: m.message_id });
+  if (!kind) return send(m.chat.id, 'Which group is this?', { replyTo: m.message_id, buttons: [[['🚚 Dispatch (onboarding)', 'regk:dispatch'], ['📋 ELD', 'regk:eld'], ['💵 Accounting', 'regk:accounting']]] });
   let mode = null; if (rest.length && MODE_WORD[rest[rest.length - 1].toLowerCase()]) mode = MODE_WORD[rest.pop().toLowerCase()];
   let name = rest.join(' ').trim();
   if (!name) name = String(m.chat.title || '').replace(/\b(eld|dispatch|accounting|acct|group|chat|updates?|onboarding|fleethire)\b/gi, ' ').replace(/[^\p{L}\p{N}' -]+/gu, ' ').trim();
@@ -208,6 +208,7 @@ async function handle(u) {
     try {
       if (cq.data.startsWith('reg:')) answer = await registerButton(cq, who);
       else if (cq.data.startsWith('regm:')) answer = await modeButton(cq, who);
+      else if (cq.data.startsWith('regk:')) { if (!isStaff(who)) answer = 'Only our team can register a group.'; else { await dropButtons(cq.message.chat.id, cq.message.message_id); await register({ chat: cq.message.chat, message_id: cq.message.message_id }, cq.data.split(':')[1], who); answer = 'OK'; } }
       else { const job = chat && handlers[chat.kind]; if (job && cq.data.startsWith(PREFIX[chat.kind] + ':')) answer = (await job.onButton(chat, cq, who)) || ''; }
     }
     catch (e) { console.error('tg button', e.message); answer = 'Something went wrong. Try again.'; }
@@ -225,6 +226,7 @@ async function handle(u) {
     const pc = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || ''); const me = m.from ? await person(m.from) : null;
     if (pc && pc[1] === 'me') return connectMe(m, pc[2], me);
     if (pc && pc[1] === 'driver') return driverCard(m, pc[2], me);
+    if (pc && pc[1] === 'help') return send(m.chat.id, helpText(false));
     if (/^\/start/.test(m.text || '')) await send(m.chat.id, 'Hi! I work in the driver groups. Add me to a group and send the link code from the website there. Alerts from the Indeed extension also come here.');
     return;
   }
@@ -239,11 +241,47 @@ async function handle(u) {
   if (cmd && cmd[1] === 'me') return connectMe(m, cmd[2], who);
   const reg = /^\/?register(?:@\w+)?\b\s*(.*)$/is.exec((m.text || '').trim());
   if (reg && who) return register(m, reg[1], who);
-  if (cmd && (cmd[1] === 'status' || cmd[1] === 'help')) {
+  if (cmd && cmd[1] === 'help') return send(chat.chat_id, helpText(true), { replyTo: m.message_id });
+  if (cmd && cmd[1] === 'mode') return modeCmd(m, chat, cmd[2], who);
+  if (cmd && cmd[1] === 'sum') return sumCmd(m, chat, who);
+  if (cmd && cmd[1] === 'status') {
     if (handlers[chat.kind]) return handlers[chat.kind].status(chat);
     return send(chat.chat_id, chat.kind ? `This is the ${KINDS[chat.kind]} group.` : 'This group is not linked to a driver yet. Send the link code from the driver\'s page on the website, like /link 482913.');
   }
   if (handlers[chat.kind] && who && !u.edited_message) await handlers[chat.kind].onMessage(chat, m, who);
+}
+
+// ---------- the command list in Telegram's / menu ----------
+const GROUP_CMDS = [['register', 'Connect this group to a driver (dispatch, ELD or accounting)'], ['mode', 'Onboarding: how I work here (watch, answer, run)'], ['status', 'The driver\'s status card'],
+  ['sum', 'Sum up today on the website now'], ['help', 'What I do and the commands']];
+const PRIVATE_CMDS = [['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
+async function setCommands() {
+  const list = (a) => a.map(([command, description]) => ({ command, description }));
+  await call('setMyCommands', { commands: list(GROUP_CMDS), scope: { type: 'all_group_chats' } });
+  await call('setMyCommands', { commands: list(PRIVATE_CMDS), scope: { type: 'all_private_chats' } });
+  await call('setMyCommands', { commands: list(PRIVATE_CMDS) });
+}
+const helpText = (group) => group
+  ? '<b>FleetHire assistant</b>\nI read this group and keep the team informed on the website.\n\n/register: connect this group to a driver\n/mode: onboarding groups: 👀 watch and learn, 💬 answer questions, or 🚀 run the onboarding\n/status: the driver\'s status card\n/sum: sum up today on the website now\n\nThe commands are for our team (connect your account first: in a private chat with me, /me CODE from the website).'
+  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
+// /mode in an onboarding group: buttons, or "/mode watch"
+async function modeCmd(m, chat, arg, who) {
+  if (!isStaff(who)) return send(m.chat.id, 'Only our team can change this.', { replyTo: m.message_id });
+  const d = chat.driver_id ? (await q(`SELECT status, name FROM drivers WHERE id = $1`, [chat.driver_id])).rows[0] : null;
+  if (chat.kind !== 'dispatch' || !d || d.status === 'Hired') return send(m.chat.id, 'Modes are for onboarding groups (a dispatch group of a driver who is not hired yet).', { replyTo: m.message_id });
+  const w = MODE_WORD[String(arg || '').trim().toLowerCase()];
+  if (w && handlers.dispatch.setMode) { await handlers.dispatch.setMode(chat.driver_id, w, who.name); return send(m.chat.id, `${MODES.find(([x]) => x === w)[1]} ✓`, { replyTo: m.message_id }); }
+  const cur = ((await q(`SELECT mode FROM onb_cases WHERE driver_id = $1`, [chat.driver_id])).rows[0] || {}).mode;
+  return send(m.chat.id, `How should I work in <b>${esc(d.name)}</b>'s group?${cur ? ` Now: ${MODES.find(([x]) => x === cur)[1]}.` : ''}`, { replyTo: m.message_id, buttons: MODES.map(([x, l]) => [[(x === cur ? '✓ ' : '') + l, `regm:${chat.driver_id}:${x}`]]) });
+}
+// /sum: today's summary now (on the website)
+async function sumCmd(m, chat, who) {
+  if (!isStaff(who)) return send(m.chat.id, 'Only our team can do this.', { replyTo: m.message_id });
+  if (!chat.driver_id) return send(m.chat.id, 'Connect this group to a driver first: /register', { replyTo: m.message_id });
+  const day = (await q(`SELECT (now() AT TIME ZONE $1)::date::text d`, [db.settings.tz])).rows[0].d;
+  await require('./digest').digestChat(chat.chat_id).catch(() => null);
+  const s = await require('./summary').summarizeChat(chat.chat_id, day).catch(() => null);
+  return send(m.chat.id, s ? '📝 Summed up on the website.' : 'Nothing to sum up yet today.', { replyTo: m.message_id });
 }
 
 // ---------- running ----------
@@ -268,6 +306,7 @@ async function start() {
     try { state.me = await call('getMe'); } catch (e) { state.lastError = e.message; console.error('tg getMe', e.message); await sleep(Math.min(60000, 5000 * (i + 1))); }
   }
   console.log('Telegram bot on as @' + state.me.username);
+  await setCommands().catch((e) => console.error('tg commands', e.message));
   loop();
 }
 module.exports = { start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

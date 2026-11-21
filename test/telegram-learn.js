@@ -28,6 +28,7 @@ http.createServer((req, res) => {
     if (method === 'answerCallbackQuery') { tg.answers.push(p); return out(true); }
     if (method === 'getChatMember') return out({ status: 'administrator', user: BOT });
     if (method === 'getFile') return out({ file_id: p.file_id, file_path: 'f/' + p.file_id, file_size: 10 });
+    if (method === 'setMyCommands') { (tg.commands = tg.commands || []).push(p); return out(true); }
     res.statusCode = 404; res.end(JSON.stringify({ ok: false, description: 'unknown ' + method }));
   });
 }).listen(4999);
@@ -95,9 +96,17 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   push({ message: { message_id: mid++, from: RITA, chat: { id: 11, type: 'private', first_name: 'Rita' }, date: Math.floor(Date.now() / 1000), text: '/me ' + me.code } });
   await until(() => tg.sent.some((m) => /Connected: you are/.test(m.text)));
 
-  // a group already going: register, the bot asks how to work, Rita picks watch
+  // the / menu in Telegram lists the commands
+  const grp = (tg.commands || []).find((c) => c.scope && c.scope.type === 'all_group_chats'), prv = (tg.commands || []).find((c) => c.scope && c.scope.type === 'all_private_chats');
+  ok(grp && ['register', 'mode', 'status', 'sum', 'help'].every((x) => grp.commands.some((c) => c.command === x)) && prv && ['me', 'driver', 'help'].every((x) => prv.commands.some((c) => c.command === x)), 'Telegram\'s / menu: /register /mode /status /sum /help in groups; /me /driver /help in private');
+  // a group already going: /register from the menu, buttons for the kind, the bot asks how to work, Rita picks watch
   CHAT = DCHAT;
-  let n = tg.sent.length; say(RITA, 'register dispatch');
+  let n = tg.sent.length; say(RITA, '/help');
+  ok(await until(() => sentSince(n).some((m) => /\/register: connect this group/.test(m.text))), '/help lists what the bot does');
+  n = tg.sent.length; say(RITA, '/register');
+  const kinds = await until(() => sentSince(n).find((m) => m.text === 'Which group is this?' && m.reply_markup));
+  ok(kinds && kinds.reply_markup.inline_keyboard[0].length === 3, '/register with nothing after it: buttons Dispatch, ELD, Accounting');
+  n = tg.sent.length; tap(RITA, kinds.reply_markup.inline_keyboard[0][0].callback_data);
   const pick = await until(() => sentSince(n).find((m) => /Which driver is this <b>Dispatch<\/b> group for\?/.test(m.text)));
   tap(RITA, pick.reply_markup.inline_keyboard[0][0].callback_data);
   const modes = await until(() => tg.sent.find((m) => /is still onboarding\. How should I work in this group\?/.test(m.text)));
@@ -138,6 +147,14 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await sleep(800);
   ok(!tg.sent.some((m) => /🔎/.test(m.text)) && (await pg.query(`SELECT 1 FROM tg_alerts WHERE driver_id = $1 AND kind = 'container_mismatch'`, [olga])).rows[0], 'old messages: the alert is kept, but nothing is asked in the group');
   ok((await pg.query(`SELECT count(*)::int n FROM tg_messages WHERE chat_id = $1 AND imported AND digested`, [DCHAT.id])).rows[0].n === 3, 'all read');
+  // /mode in the group: buttons, the current one ticked
+  n = tg.sent.length; say(RITA, '/mode');
+  const mb = await until(() => sentSince(n).find((m) => /How should I work in <b>Olga Onb<\/b>'s group\? Now: 👀 Watch and learn/.test(m.text)));
+  ok(mb && /^✓ 👀/.test(mb.reply_markup.inline_keyboard[0][0].text), '/mode shows the modes, the current one ticked');
+  n = tg.sent.length; say(OLGA, '/mode run');
+  ok(await until(() => sentSince(n).some((m) => /Only our team can change this/.test(m.text))), 'the driver cannot change it');
+  n = tg.sent.length; say(RITA, '/sum');
+  ok(await until(() => sentSince(n).some((m) => /Summed up on the website|Nothing to sum up/.test(m.text))), '/sum sums up today on the website');
   // switch to answering: the bot answers the driver now, and it counts
   AI.autoAnswer = true; await pg.query(`UPDATE tg_messages SET at = at - interval '30 minutes' WHERE from_id = $1`, [RITA.id]); // the team was not just talking
   ok((await web(`/api/drivers/${olga}/tg-mode`, { method: 'PATCH', body: { mode: 'assist' } })).ok, 'switched to "Answer questions" on the website');
