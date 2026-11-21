@@ -34,7 +34,7 @@ const driverTag = async (c) => { const p = await driverPerson(c.driver_id); retu
 
 // ---------- the case ----------
 async function caseOf(driverId) {
-  return (await q(`SELECT c.*, d.name, d.mode, d.status, d.owner_id, d.amazon_step, d.amazon_log, d.company_id, u.name owner_name, co.name company, t.unit, t.details,
+  return (await q(`SELECT c.*, c.mode bot_mode, d.name, d.mode, d.status, d.owner_id, d.amazon_step, d.amazon_log, d.company_id, u.name owner_name, co.name company, t.unit, t.details,
       to_char(o.expected_arrival, 'YYYY-MM-DD') arrive, o.arrival_note, o.arrived_on
     FROM onb_cases c JOIN drivers d ON d.id = c.driver_id LEFT JOIN users u ON u.id = d.owner_id LEFT JOIN companies co ON co.id = d.company_id
     LEFT JOIN trucks t ON t.driver_id = d.id LEFT JOIN onboarding o ON o.driver_id = d.id WHERE c.driver_id = $1`, [driverId])).rows[0];
@@ -72,16 +72,34 @@ async function moveAmazon(c, key, by) {
 }
 
 // ---------- start ----------
-async function begin(chatId, driverId) {
+const MODES = { watch: 'Watch and learn', assist: 'Answer questions', run: 'Run the onboarding' };
+async function begin(chatId, driverId, opts = {}) {
   const d = (await q(`SELECT amazon_step, status, name FROM drivers WHERE id = $1`, [driverId])).rows[0];
   if (d.status === 'Hired') return send(chatId, `👋 I am the FleetHire assistant. I keep track of this group for the team: truck issues, appointments and notes, so nothing gets lost.`);
-  await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon) VALUES ($1, $2, $3) ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2, last_amazon = $3, nudge = NULL`, [driverId, chatId, d.amazon_step]);
-  const c = await caseOf(driverId);
+  const mode = MODES[opts.mode] ? opts.mode : MODES[(db.settings.tg || {}).onbMode] ? db.settings.tg.onbMode : 'run';
+  await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon, mode) VALUES ($1, $2, $3, $4) ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2, last_amazon = $3, nudge = NULL, mode = $4`, [driverId, chatId, d.amazon_step, mode]);
+  if (mode === 'watch') return; // reads along silently: summaries, notes and learning on the website
+  if (mode === 'assist') return send(chatId, `👋 Hi <b>${esc(d.name.split(/\s+/)[0])}</b>! I am the FleetHire assistant. Ask me anything about the job, pay, trucks or the next steps; what I don't know, I ask the team.`);
+  return welcome(driverId);
+}
+// the full start: welcome, the status card, the driver's button, the next step
+async function welcome(driverId) {
+  const c = await caseOf(driverId); const chatId = c.chat_id;
   await send(chatId, `👋 Welcome, <b>${esc(c.name.split(/\s+/)[0])}</b>! This is your onboarding group${c.owner_name ? ` with ${esc(c.owner_name)}` : ''}.\nI am the FleetHire assistant: ask me anything about the job, pay, trucks or the next steps, any time. If I don't know, I'll get your recruiter.`);
   const card = await send(chatId, await cardHtml(c));
   await q(`UPDATE onb_cases SET card_msg_id = $2 WHERE driver_id = $1`, [driverId, card.message_id]); c.card_msg_id = card.message_id;
   await send(chatId, 'So I know who is who, the driver please tap:', { buttons: [[['🚚 I am the driver', `onb:${driverId}:iam`]]] });
   await guide(c);
+}
+// The team switches how the bot works (in Telegram or on the website). Run sends the welcome if it never went out.
+async function setMode(driverId, mode, by) {
+  if (!MODES[mode]) return false;
+  const c0 = await caseOf(driverId); if (!c0) return false;
+  await q(`UPDATE onb_cases SET mode = $2 WHERE driver_id = $1`, [driverId, mode]);
+  await require('../lib').history(driverId, `Telegram bot: ${MODES[mode]}`, by || 'Website', 'telegram').catch(() => {});
+  if (mode === 'run' && !c0.card_msg_id) await welcome(driverId);
+  else if (mode === 'run') await guide(await caseOf(driverId));
+  return true;
 }
 async function status(chat) {
   const c = await caseOf(chat.driver_id); if (!c) return;
@@ -149,6 +167,7 @@ async function onMessage(chat, m, who) {
   let c = await caseOf(chat.driver_id);
   if (!c || c.chat_id !== chat.chat_id) { await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon) SELECT id, $2, amazon_step FROM drivers WHERE id = $1 ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2`, [chat.driver_id, chat.chat_id]); c = await caseOf(chat.driver_id); }
   if (who.role && who.role !== 'driver') return; // ELD, accounting, dispatch people: not the driver
+  if (c.bot_mode === 'watch') return; // watch and learn: the digest reads it, the bot says nothing
   // a driver nobody named yet: whoever writes with the driver's first name
   if (!who.role && !(await driverPerson(c.driver_id)) && who.name.split(/\s+/)[0].toLowerCase() === c.name.split(/\s+/)[0].toLowerCase()) {
     await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1`, [who.tg_id, c.driver_id]); who.role = 'driver';
@@ -176,7 +195,11 @@ async function qa(c, chat, m, who, text, opts) {
     return tell(c, `${c.name} seems ${plan.mood} in the ${bot.KINDS[chat.kind] || ''} group: "${bot.redact(text).slice(0, 140)}"`);
   }
   if (plan.is_question) {
-    if (plan.confident && plan.answer) await send(chat.chat_id, esc(plan.answer), { replyTo: m.message_id });
+    if (plan.confident && plan.answer) {
+      await send(chat.chat_id, esc(plan.answer), { replyTo: m.message_id });
+      // counted: how often the bot could answer without the team (autopilot readiness)
+      await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, text, answer, answered_by, answered_at) VALUES ($1, $2, $3, $4, $5, 'Bot', now())`, [chat.chat_id, c.driver_id, m.message_id, bot.redact(text).slice(0, 1000), String(plan.answer).slice(0, 1500)]);
+    }
     else {
       const b = await send(chat.chat_id, `Good question. Let me check with ${await opts.escalate()}.`, { replyTo: m.message_id });
       await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, bot_msg_id, text) VALUES ($1, $2, $3, $4, $5)`, [chat.chat_id, c.driver_id, m.message_id, b.message_id, bot.redact(text).slice(0, 1000)]);
@@ -226,7 +249,7 @@ async function tick() {
   const L = (await q(`SELECT extract(hour FROM now() AT TIME ZONE $1)::int h, (now() AT TIME ZONE $1)::date::text d, ((now() AT TIME ZONE $1)::date + 1)::text tmr`, [tz])).rows[0];
   const day = !!process.env.TG_NO_QUIET || (L.h >= 9 && L.h < 20); // reminders in the daytime only (TG_NO_QUIET: tests only)
   const cases = (await q(`SELECT c.driver_id FROM onb_cases c JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active AND ch.kind = 'dispatch' AND ch.driver_id = c.driver_id
-    JOIN drivers d ON d.id = c.driver_id WHERE d.status NOT IN ('Hired', 'Rejected', 'Not interested', 'No CDL', 'Declined on Indeed') AND d.left_on IS NULL`)).rows;
+    JOIN drivers d ON d.id = c.driver_id WHERE c.mode = 'run' AND d.status NOT IN ('Hired', 'Rejected', 'Not interested', 'No CDL', 'Declined on Indeed') AND d.left_on IS NULL`)).rows;
   for (const { driver_id: id } of cases) {
     const c = await caseOf(id); if (!c) continue;
     // the Amazon step moved (here, on the website or in the extension)
@@ -274,5 +297,5 @@ async function answerFromWebsite(qid, answer, user) {
   return true;
 }
 function start() { setInterval(() => tick().catch((e) => console.error('onb tick', e.message)), +process.env.TG_TICK_MS || 60000); }
-bot.handlers.dispatch = { begin, onButton, onMessage, status };
-module.exports = { start, tick, caseOf, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };
+bot.handlers.dispatch = { begin, onButton, onMessage, status, setMode };
+module.exports = { start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };

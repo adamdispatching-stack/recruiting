@@ -1,7 +1,7 @@
 // Telegram manager: the bot's groups, what happened in each (AI summaries, ELD steps and checks, messages),
 // who is who, and the bot's settings. Also the "Telegram groups" part of a lead's page.
 (() => {
-  const { esc, view, S, api, toast, fail, on, header, dialog, dateText, when, plural } = App;
+  const { $, esc, view, S, api, toast, fail, on, header, dialog, dateText, when, plural } = App;
   const KIND = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting' };
   const AKIND = { container_mismatch: 'Container / number', wrong_location: 'Location', late_risk: 'Running late', appointment_change: 'Appointment', load_refused: 'Load refused', driver_upset: 'Driver upset', unprofessional_dispatcher: 'Dispatcher conduct', safety: 'Safety', other: 'Other' };
   const TKIND = { breakdown: 'Breakdown', repair: 'Repair', maintenance: 'Maintenance', oil_change: 'Oil change', tires: 'Tires', inspection: 'Inspection', damage: 'Damage', warning_light: 'Warning light', other: 'Other' };
@@ -64,11 +64,24 @@
           <td class="n">${c.todayMsgs || '<span class="none">0</span>'}</td></tr>`).join('')}</tbody></table></div>`
         : coHtml ? '' : `<div class="emptycard"><div class="emptyart"><h2>No groups yet.</h2><p>Open a driver in onboarding and use <b>Link a group</b> in the Telegram part of the onboarding card. The bot joins in from there.</p></div></div>`);
     } else if (tab === 'knowledge') {
-      const k = (await api('/api/tg/knowledge')).knowledge; if (!live()) return;
-      body = `<p class="hint">What the bot answers drivers from, besides the company facts in Settings → Call guide. When the bot does not know, it asks the recruiter; the recruiter's answer (in Telegram or here) is added below. Fix or turn off anything that is wrong.</p>
+      const [kAll, rd] = await Promise.all([api('/api/tg/knowledge').then((x) => x.knowledge), api('/api/tg/readiness')]); if (!live()) return;
+      const review = kAll.filter((x) => x.review && !x.active); const k = kAll.filter((x) => !(x.review && !x.active));
+      const pct = (v) => (v === null ? 'not measured yet' : Math.round(v * 100) + '%');
+      body = `<section class="card autop"><h3>Onboarding autopilot<span class="grow"></span>${rd.ready ? '<span class="onl">Ready to run alone</span>' : '<span class="small mut">Still learning</span>'}</h3>
+        <p class="hint">The bot learns from every onboarding group: the answers your team gives, and whether the steps it sees done are right. When it is right often enough, new onboarding groups can start in "Run the onboarding", with no recruiter needed.</p>
+        <dl class="figs"><div><dd>${pct(rd.steps.accuracy)}</dd><dt>steps it saw done that were right (${rd.steps.confirmed} of ${rd.steps.confirmed + rd.steps.rejected})</dt></div>
+          <div><dd>${pct(rd.questions.share)}</dd><dt>driver questions it answered itself, last 30 days (${rd.questions.byBot} of ${rd.questions.total})</dt></div>
+          <div><dd>${rd.knowledge.approved}</dd><dt>answers it knows${rd.knowledge.waiting ? `, ${rd.knowledge.waiting} to approve below` : ''}</dt></div></dl>
+        <p class="small mut">Ready when it was right on at least 90% of 15 or more steps, and answers 70% of 20 or more questions itself.</p>
+        ${admin ? `<form id="autoForm" class="autof"><label class="fld">New onboarding groups start in<select name="onbMode">${[['watch', '👀 Watch and learn'], ['assist', '💬 Answer questions'], ['run', '🚀 Run the onboarding']].map(([m, l]) => `<option value="${m}" ${rd.settings.onbMode === m ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label class="chk"><input type="checkbox" name="autoTick" ${rd.settings.autoTick ? 'checked' : ''}> The AI ticks onboarding steps by itself (you can still undo)</label><button class="btn primary sm">Save</button></form>` : ''}</section>
+        ${review.length ? `<section class="card krev"><h3>Learned from the team's replies <span class="cnt">${review.length}</span></h3><p class="hint">The AI picked these up from what your team answered drivers. Approve the good ones: the bot answers with them from then on.</p>
+          <ul class="tgk-list">${review.map((x) => `<li data-k="${x.id}" class="off"><div class="kq"><b>Q:</b> <span>${esc(x.question)}</span></div><div class="ka"><b>A:</b> <span>${esc(x.answer)}</span></div>
+            <div class="small mut">${x.driver ? `From ${esc(x.driver)}'s group, ` : ''}${esc(dateText(String(x.created_at).slice(0, 10), { month: 'short', day: 'numeric' }))} · <button type="button" class="btn primary sm" data-act="tgkToggle">Approve</button> <button type="button" class="linkbtn" data-act="tgkEdit">Edit</button>${admin ? ' · <button type="button" class="linkbtn danger" data-act="tgkDel">Delete</button>' : ''}</div></li>`).join('')}</ul></section>` : ''}
+        <p class="hint">What the bot answers drivers from, besides the company facts in Settings → Call guide. When the bot does not know, it asks the recruiter; the recruiter's answer (in Telegram or here) is added below. Fix or turn off anything that is wrong.</p>
         <details class="card tgkadd"><summary><b>Add a question and answer</b></summary><form id="tgkForm" class="form tgkf"><label class="fld">Question<input type="text" name="question" required placeholder="Can I bring my dog?"></label><label class="fld">Answer<textarea name="answer" rows="2" required placeholder="Yes, one small pet is fine in our trucks."></textarea></label><div><button class="btn primary">Add</button></div></form></details>
         <ul class="tgk-list">${k.map((x) => `<li data-k="${x.id}" class="${x.active ? '' : 'off'}"><div class="kq"><b>Q:</b> <span>${esc(x.question)}</span></div><div class="ka"><b>A:</b> <span>${esc(x.answer)}</span></div>
-          <div class="small mut">${x.source === 'learned' ? `Learned from ${esc(x.added_by || 'the team')}${x.driver ? ` (${esc(x.driver)}'s group)` : ''}` : `Added by ${esc(x.added_by || '')}`}, ${esc(dateText(String(x.created_at).slice(0, 10), { month: 'short', day: 'numeric' }))}${x.active ? '' : ', turned off'}
+          <div class="small mut">${x.source === 'conversation' ? `Learned from the team's replies${x.driver ? ` (${esc(x.driver)}'s group)` : ''}, approved` : x.source === 'learned' ? `Learned from ${esc(x.added_by || 'the team')}${x.driver ? ` (${esc(x.driver)}'s group)` : ''}` : `Added by ${esc(x.added_by || '')}`}, ${esc(dateText(String(x.created_at).slice(0, 10), { month: 'short', day: 'numeric' }))}${x.active ? '' : ', turned off'}
           · <button type="button" class="linkbtn" data-act="tgkEdit">Edit</button> · <button type="button" class="linkbtn" data-act="tgkToggle">${x.active ? 'Turn off' : 'Turn on'}</button>${admin ? ' · <button type="button" class="linkbtn danger" data-act="tgkDel">Delete</button>' : ''}</div></li>`).join('') || '<li class="hint">Nothing yet. It fills up as the team answers drivers.</li>'}</ul>`;
     } else if (tab === 'people') {
       const p = await api('/api/tg/people'); if (!live()) return;
@@ -107,6 +120,11 @@
       <li><b>The driver</b>: routines and requests ("call me at 7 AM"), loads he likes or refuses, home time, how he works and how to talk to him. These build his <b>profile for dispatchers</b> on his page, rebuilt every day. Your own notes there always win. It is never shown in the driver's groups. Send the bot <code>/driver Name</code> in a private chat to get it in Telegram.</li>
       <li><b>Alerts</b>: a container or trailer number in a photo that does not match the load (the bot asks the driver right away), a changed appointment (the bot confirms it in the group), an upset driver, a safety issue, a dispatcher being rude (admins only). They are listed at the top of Groups.</li>
       <li>Every evening, a summary of each group's day.</li></ol></section>
+      <section class="card"><h2>A group that is already going</h2><ol class="gsteps">
+      <li>Add the bot, make it an admin, and type <code>register dispatch</code>. For a driver still onboarding, the bot asks how to work: <b>Watch and learn</b> (reads, sums up on the website, learns, never writes), <b>Answer questions</b>, or <b>Run the onboarding</b>. You can change it any time on the driver's page.</li>
+      <li>A bot cannot read messages from before it joined. To bring them in: Telegram Desktop → the group → ⋮ → Export chat history → JSON, then <b>Bring in earlier messages</b> on the group's page. The AI reads them for the summary, the steps done, notes, and what the team answered; nothing is sent in the group.</li>
+      <li>On the driver's page the bot shows where the onboarding stands, who it is waiting on, the next step, and the steps it saw done. Confirm or reject them: that is how its accuracy is measured.</li>
+      <li>Knowledge tab: approve the answers it learned from the team, and watch the <b>Onboarding autopilot</b> numbers. When it is ready, start new groups in "Run the onboarding".</li></ol></section>
       <section class="card"><h2>In the dispatch group, while onboarding</h2><ol class="gsteps">
       <li>The bot welcomes the driver, posts a card with the Amazon Relay steps, reports and start date, and keeps it up to date.</li>
       <li>It tells the driver what to do at each Amazon step (account, Relay profile, Accurate background check), with a button to tap when done. A Relay screenshot moves the step too. Steps also follow what you set on the website.</li>
@@ -158,7 +176,7 @@
         ${(r.alerts || []).length ? `<section class="card"><h3>Alerts</h3><ul class="list tgalerts">${r.alerts.map((a) => alertLi({ ...a, chatId: c.chatId }, true)).join('')}</ul></section>` : ''}
         ${(r.truckEvents || []).length ? `<section class="card"><h3>Truck issues from this group</h3><ul class="list">${r.truckEvents.map((e) => `<li><span class="grow"><span class="tst ${e.status}">${esc(e.status === 'fixed' ? 'Fixed' : e.status === 'scheduled' ? 'Scheduled' : 'Open')}</span> <b>${esc(e.title)}</b>${e.unit ? ` <span class="small mut">truck ${esc(e.unit)}</span>` : ''}${e.details ? `<div class="small">${esc(e.details)}</div>` : ''}</span><span class="small mut">${esc(when(e.at))}</span></li>`).join('')}</ul><p class="hint">All of it is on the truck's history, on the Trucks page.</p></section>` : ''}
         ${(r.notes || []).length ? `<section class="card"><h3>Noticed about the driver</h3><ul class="list">${r.notes.map((n) => `<li><span class="grow">${esc(n.text)}</span><span class="small mut">${esc(when(n.at))}</span></li>`).join('')}</ul><p class="hint">These build the driver's profile for dispatchers, on <a href="${App.driverHref(c.driverId, c.driverStatus)}">the driver's page</a>.</p></section>` : ''}
-        <section class="card"><h3>Daily summaries<span class="grow"></span><button type="button" class="btn plain sm" data-act="tgSum" data-chat="${c.chatId}">Sum up today now</button></h3>
+        <section class="card"><h3>Daily summaries<span class="grow"></span><button type="button" class="btn plain sm" data-act="tgImport" data-chat="${c.chatId}">Bring in earlier messages</button> <button type="button" class="btn plain sm" data-act="tgSum" data-chat="${c.chatId}">Sum up today now</button></h3>
           ${r.summaries.length ? r.summaries.map((s) => `<article class="tgday"><h4>${esc(dateText(s.day, { weekday: 'short', month: 'short', day: 'numeric' }))} <span class="small mut">${s.messages} messages${MOOD[s.mood] ? ', driver ' + MOOD[s.mood] : ''}</span></h4><p>${esc(s.summary)}</p>${(s.issues || []).length ? `<ul class="tgissues">${s.issues.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</article>`).join('') : `<p class="hint">The first summary comes this evening${r.ai ? '' : ' (AI is off: only a message count without ANTHROPIC_API_KEY)'}.</p>`}</section>
       </div><div>
         <section class="card"><h3>People</h3><ul class="list">${r.people.map((p) => `<li><span class="grow"><b>${esc(p.name || '')}</b> ${p.username ? `<span class="small mut">@${esc(p.username)}</span>` : ''}</span><span class="tgk ${p.role ? 'k-' + p.role : 'none'}">${p.role ? ROLE[p.role] : 'Unknown'}</span></li>`).join('') || '<li class="hint">Nobody has written yet.</li>'}</ul>
@@ -178,8 +196,58 @@
     host.innerHTML = `<h4>Telegram groups${r.openQuestions ? ` <span class="latetag">${r.openQuestions} question${r.openQuestions > 1 ? 's' : ''} waiting</span>` : ''}</h4><ul class="tglead">${['dispatch', 'eld', 'accounting'].map((k) => {
       const g = has[k];
       return `<li><span class="tgk k-${k}">${KIND[k]}</span>${g ? `<a href="#/telegram/${g.chatId}">${esc(g.title || 'Group')}</a> ${g.eld ? eldLine(g.eld) : ''}` : `<span class="none">Not linked</span> <button type="button" class="linkbtn" data-act="tgLink" data-kind="${k}" data-driver="${driverId}">Link a group</button>`}</li>`;
-    }).join('')}</ul>${r.botOn ? '' : '<p class="hint">The Telegram bot is not turned on yet (see Telegram manager).</p>'}`;
+    }).join('')}</ul>${r.botOn ? '' : '<p class="hint">The Telegram bot is not turned on yet (see Telegram manager).</p>'}${has.dispatch ? onbPanel(driverId, r.onb, has.dispatch) : ''}`;
   }
+  // ---------- the onboarding bot on a lead: how it works, where the AI sees things, steps it saw done ----------
+  const MODE = { watch: ['👀 Watch and learn', 'Reads everything, sums it up here and learns from the team. Never writes in the group.'], assist: ['💬 Answer questions', 'Also answers the driver\'s questions it knows; asks the team the rest.'], run: ['🚀 Run the onboarding', 'Guides the driver through every step and reminds him.'] };
+  const WAIT = { driver: 'the driver', recruiter: 'the recruiter', amazon: 'Amazon', company: 'the company', nobody: 'nobody' };
+  function onbPanel(driverId, o, g) {
+    const s = o && o.status; const mode = o ? o.mode : null;
+    return `<div class="onbbot" data-driver="${driverId}"><div class="obhead"><b>Onboarding bot</b><div class="seg sm" role="group" aria-label="How the bot works">${Object.entries(MODE).map(([k, [l, h]]) => `<button type="button" data-act="tgMode" data-mode="${k}" class="${mode === k ? 'on' : ''}" aria-pressed="${mode === k}" title="${esc(h)}">${l}</button>`).join('')}</div></div>
+      <p class="small mut">${mode ? esc(MODE[mode][1]) : 'Pick how the bot works in this group.'}</p>
+      ${s ? `<div class="aist"><p>${esc(s.summary)}</p><dl>${s.waitingOn ? `<div><dt>Waiting on</dt><dd><b>${esc(WAIT[s.waitingOn] || s.waitingOn)}</b></dd></div>` : ''}${s.nextStep ? `<div><dt>Next</dt><dd>${esc(s.nextStep)}</dd></div>` : ''}${s.mood ? `<div><dt>Mood</dt><dd>${App.MOODS[s.mood] ? App.MOODS[s.mood][0] + ' ' + App.MOODS[s.mood][1] : esc(s.mood)}</dd></div>` : ''}</dl>
+        ${(s.blockers || []).length ? `<p class="small"><b>Holding it up:</b> ${s.blockers.map(esc).join('; ')}</p>` : ''}${(s.openQuestions || []).length ? `<p class="small"><b>Unanswered:</b> ${s.openQuestions.map(esc).join('; ')}</p>` : ''}
+        <p class="small mut">The AI's view of the Telegram group, ${esc(when(o.statusAt))}.</p></div>` : '<p class="hint">The AI sums up the group here after the conversation settles.</p>'}
+      ${o && o.steps.length ? `<div class="aisteps"><p class="small"><b>Steps the AI saw done in the chat</b></p><ul class="list">${o.steps.map((x) => `<li data-ais="${x.id}"><span class="grow"><b>${esc(x.label)}</b><span class="small mut" style="display:block">“${esc(x.evidence || '')}”</span></span>
+        ${x.state === 'auto' ? '<span class="small okt">Ticked by the AI</span><button type="button" class="linkbtn" data-act="aiStep" data-ok="0">Undo</button>' : '<button type="button" class="btn primary sm" data-act="aiStep" data-ok="1">Yes, done</button><button type="button" class="btn plain sm" data-act="aiStep" data-ok="0">Not yet</button>'}</li>`).join('')}</ul><p class="small mut">Your answers teach the AI and measure how right it is.</p></div>` : ''}
+      <button type="button" class="linkbtn small" data-act="tgImport" data-chat="${g.chatId}">Bring in messages from before the bot joined</button></div>`;
+  }
+  on('tgMode', async (b) => { const box = b.closest('.onbbot'); try { await api(`/api/drivers/${box.dataset.driver}/tg-mode`, { method: 'PATCH', body: { mode: b.dataset.mode } }); toast(MODE[b.dataset.mode][0]); App.render(); } catch (e) { fail(e); } });
+  on('aiStep', async (b) => { const li = b.closest('[data-ais]'); try { await api('/api/onb-ai-steps/' + li.dataset.ais, { method: 'POST', body: { ok: b.dataset.ok === '1' } }); toast(b.dataset.ok === '1' ? 'Ticked' : 'Noted: not done'); App.render(); } catch (e) { fail(e); } });
+  // a Telegram Desktop export (JSON): read in the browser, the senders marked, the messages sent to the website
+  const flat = (t) => (Array.isArray(t) ? t.map((x) => (typeof x === 'string' ? x : x.text || '')).join('') : String(t || ''));
+  on('tgImport', (b) => {
+    dialog(`<div class="dform"><h2>Messages from before the bot joined</h2>
+      <ol class="gsteps"><li>On a computer, open the group in <b>Telegram Desktop</b>.</li><li>Click ⋮ (top right), then <b>Export chat history</b>.</li><li>Untick photos and videos, set Format to <b>Machine-readable JSON</b>, and export.</li><li>Pick the <b>result.json</b> file here.</li></ol>
+      <label class="fld">The export file<input type="file" id="tgFile" accept=".json,application/json"></label>
+      <div id="tgWho"></div><p class="err" id="tgErr" role="alert"></p>
+      <div class="drow"><button type="button" class="btn primary" id="tgGo" disabled>Bring them in</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></div>`, (d) => {
+      let msgs = [], people = [];
+      d.querySelector('#tgFile').onchange = async (e) => {
+        const f = e.target.files[0]; $('#tgErr').textContent = ''; if (!f) return;
+        if (f.size > 25 * 1024 * 1024) { $('#tgErr').textContent = 'That file is too big. Export without photos and videos.'; return; }
+        let j; try { j = JSON.parse(await f.text()); } catch (er) { $('#tgErr').textContent = 'That is not the JSON export. Pick result.json, exported as "Machine-readable JSON".'; return; }
+        const list = (j.messages || []).filter((m) => m.type === 'message');
+        msgs = list.map((m) => ({ id: m.id, date: +m.date_unixtime || Math.floor(new Date(m.date) / 1000), fromId: String(m.from_id || '').replace(/\D/g, ''), from: m.from || '', text: flat(m.text), media: m.photo ? 'photo' : m.media_type || (m.file ? 'file' : ''), replyTo: m.reply_to_message_id || null, bot: /bot$/i.test(m.from || '') }));
+        const by = {}; for (const m of msgs) if (m.fromId) by[m.fromId] = by[m.fromId] || { tgId: m.fromId, name: m.from, n: 0 }, by[m.fromId].n++;
+        people = Object.values(by).sort((a, c) => c.n - a.n);
+        // who the bot already knows in this group: preset their role
+        const known = await api('/api/tg/chats/' + b.dataset.chat).then((x) => Object.fromEntries((x.people || []).map((p) => [String(p.tg_id), p.role]))).catch(() => ({}));
+        const preset = (p) => { const r = known[p.tgId]; return r === 'driver' ? 'driver' : r && r !== 'driver' ? 'staff' : 'other'; };
+        if (!msgs.length) { $('#tgErr').textContent = 'No messages in this file.'; return; }
+        $('#tgWho').innerHTML = `<p class="small"><b>${msgs.length.toLocaleString()} messages</b>${j.name ? ` from "${esc(j.name)}"` : ''}. Who is who? (so the bot learns from the team's answers)</p>
+          <table class="opent"><tbody>${people.filter((p) => !/bot$/i.test(p.name)).map((p) => `<tr><td><b>${esc(p.name || 'Someone')}</b> <span class="small mut">${p.n} messages</span></td><td><select data-who="${esc(p.tgId)}" aria-label="Who is ${esc(p.name)}">${[['other', 'Someone else'], ['driver', 'The driver'], ['staff', 'Our team']].map(([v, l]) => `<option value="${v}" ${preset(p) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
+        $('#tgGo').disabled = false;
+      };
+      d.querySelector('#tgGo').onclick = async () => {
+        const roles = Object.fromEntries([...d.querySelectorAll('[data-who]')].map((s) => [s.dataset.who, s.value]));
+        $('#tgGo').disabled = true; $('#tgGo').textContent = 'Sending…';
+        try { const r = await api(`/api/tg/chats/${b.dataset.chat}/import`, { method: 'POST', body: { messages: msgs, people: people.map((p) => ({ ...p, role: roles[p.tgId] || 'other' })) } });
+          d.close(); toast(`${r.imported.toLocaleString()} messages brought in${r.skipped ? ` (${r.skipped} were already here)` : ''}. The AI reads them over the next minutes.`); }
+        catch (er) { $('#tgErr').textContent = er.message; $('#tgGo').disabled = false; $('#tgGo').textContent = 'Bring them in'; }
+      };
+    });
+  });
   // ---------- the driver's profile for dispatchers, on the driver's page ----------
   const LBL = { high: 'High', medium: 'Medium', low: 'Low', unknown: 'Not known yet', self_driven: 'Self-driven', light_check_ins: 'Light check-ins', needs_close_follow_up: 'Needs close follow-up' };
   async function profileCard(driverId, host, always) {
@@ -234,6 +302,7 @@
   document.addEventListener('submit', async (e) => {
     const f = e.target.closest('form.tgqf'); if (f) { e.preventDefault(); const li = f.closest('[data-q]'); const b = f.querySelector('button'); b.disabled = true;
       try { await api(`/api/tg/questions/${li.dataset.q}/answer`, { method: 'POST', body: { answer: f.answer.value } }); toast('Sent in the group, and learned'); App.render(); } catch (er) { fail(er); b.disabled = false; } return; }
+    const af = e.target.closest('#autoForm'); if (af) { e.preventDefault(); try { await api('/api/tg/autopilot', { method: 'PUT', body: { onbMode: af.onbMode.value, autoTick: af.autoTick.checked } }); toast('Saved'); App.render(); } catch (er) { fail(er); } return; }
     const k = e.target.closest('#tgkForm'); if (k) { e.preventDefault(); try { await api('/api/tg/knowledge', { method: 'POST', body: { question: k.question.value, answer: k.answer.value } }); toast('Added'); App.render(); } catch (er) { fail(er); } }
   });
   on('tgkToggle', async (b) => { const li = b.closest('[data-k]'); await api('/api/tg/knowledge/' + li.dataset.k, { method: 'PATCH', body: { active: li.classList.contains('off') } }); App.render(); });

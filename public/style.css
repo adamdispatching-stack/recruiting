@@ -1633,3 +1633,18 @@ ul.plan li.ok a{color:var(--mut);text-decoration:line-through}
 textarea.need{border-color:var(--red)!important;box-shadow:0 0 0 3px var(--red-t)}
 h3.sub{font-size:14px;margin:14px 0 6px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- the onboarding bot: mode, AI status, steps it saw done, autopilot ---------- */
+.onbbot{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#FAFBFA}
+.obhead{display:flex;align-items:center;flex-wrap:wrap;gap:10px;justify-content:space-between}
+.onbbot .seg.sm button{height:30px;font-size:12px;padding:0 9px}
+.aist{margin:8px 0;padding:10px 12px;border-left:3px solid var(--green);background:#fff;border-radius:8px}
+.aist p{margin:0 0 6px;line-height:1.5}
+.aist dl{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 6px}
+.aist dt{font-size:11.5px;color:var(--mut)}.aist dd{margin:0;font-size:13.5px}
+.aisteps{margin:8px 0}
+.aisteps li{display:flex;align-items:center;gap:8px}
+.obai{margin-top:4px;color:var(--ink)}
+.autop .figs{margin:10px 0}
+.autof{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin-top:10px}
+.krev{border-left:4px solid var(--yellow)}

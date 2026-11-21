@@ -89,7 +89,7 @@ async function chatOf(c) {
 const KINDS = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting' };
 const PREFIX = { dispatch: 'onb', eld: 'eld', accounting: 'acc' }; // button data starts with this per kind
 // Make a group the driver's dispatch, ELD or accounting group
-async function linkChat(chatId, kind, driverId, userId, who) {
+async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
   const d = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0];
   await q(`UPDATE tg_chats SET kind = NULL, driver_id = NULL WHERE driver_id = $1 AND kind = $2 AND chat_id <> $3`, [driverId, kind, chatId]); // one group per driver and kind
   await q(`UPDATE tg_chats SET kind = $2, driver_id = $3, linked_by = $4, linked_at = now(), active = true WHERE chat_id = $1`, [chatId, kind, driverId, userId || null]);
@@ -102,8 +102,11 @@ async function linkChat(chatId, kind, driverId, userId, who) {
   await q(`UPDATE drivers SET updated_at = now() WHERE id = $1`, [driverId]);
   await require('../lib').history(driverId, `${KINDS[kind]} Telegram group linked`, who ? who.name : 'Telegram', 'telegram').catch(() => {});
   await send(chatId, `✅ This is now the <b>${KINDS[kind]}</b> group for <b>${esc(d.name)}</b>.${state.me && !(await isAdmin(chatId)) ? '\n\nPlease make me an admin of this group, so I can read every message (Group settings → Administrators → Add admin).' : ''}`);
-  if (handlers[kind]) await handlers[kind].begin(chatId, driverId);
+  if (handlers[kind]) await handlers[kind].begin(chatId, driverId, opts);
 }
+// "register dispatch watch": how the bot works in an onboarding group
+const MODE_WORD = { watch: 'watch', learn: 'watch', quiet: 'watch', silent: 'watch', assist: 'assist', help: 'assist', answer: 'assist', answers: 'assist', run: 'run', auto: 'run', full: 'run' };
+const MODES = [['watch', '👀 Watch and learn'], ['assist', '💬 Answer questions'], ['run', '🚀 Run the onboarding']];
 async function link(m, code, who) {
   const L = (await q(`SELECT * FROM tg_links WHERE code = $1 AND used_at IS NULL AND created_at > now() - interval '7 days'`, [code])).rows[0];
   if (!L) return send(m.chat.id, 'That link code is not valid (or already used). Make a new one on the driver\'s page on the website.', { replyTo: m.message_id });
@@ -118,6 +121,7 @@ async function register(m, args, who) {
   const [w, ...rest] = String(args || '').trim().split(/\s+/);
   const kind = KIND_WORD[(w || '').toLowerCase()];
   if (!kind) return send(m.chat.id, 'Which group is this? Send <code>register dispatch</code>, <code>register eld</code> or <code>register accounting</code>, and the driver\'s name if you like: <code>register eld John Smith</code>.', { replyTo: m.message_id });
+  let mode = null; if (rest.length && MODE_WORD[rest[rest.length - 1].toLowerCase()]) mode = MODE_WORD[rest.pop().toLowerCase()];
   let name = rest.join(' ').trim();
   if (!name) name = String(m.chat.title || '').replace(/\b(eld|dispatch|accounting|acct|group|chat|updates?|onboarding|fleethire)\b/gi, ' ').replace(/[^\p{L}\p{N}' -]+/gu, ' ').trim();
   const words = name.split(/\s+/).filter((x) => x.length > 1);
@@ -125,7 +129,7 @@ async function register(m, args, who) {
       ORDER BY (status = 'Hired') DESC, (status = 'Onboarding') DESC, updated_at DESC LIMIT 6`, words.map((x) => `%${x}%`))).rows : [];
   const rows = cand.map((d) => [[`${d.name} (${d.status === 'Hired' ? 'active' : d.status.toLowerCase()})`, `reg:${kind}:${d.id}`]]);
   if (name) rows.push([[`➕ Add "${name.slice(0, 40)}" as an active driver`, `reg:${kind}:new`]]);
-  await q(`INSERT INTO tg_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`, ['reg:' + m.chat.id, JSON.stringify({ name, kind, by: who.tg_id })]);
+  await q(`INSERT INTO tg_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`, ['reg:' + m.chat.id, JSON.stringify({ name, kind, by: who.tg_id, mode })]);
   if (!rows.length) return send(m.chat.id, 'Whose group is this? Send <code>register ' + kind + ' Driver Name</code>.', { replyTo: m.message_id });
   return send(m.chat.id, `Which driver is this <b>${KINDS[kind]}</b> group for?`, { replyTo: m.message_id, buttons: rows });
 }
@@ -141,8 +145,26 @@ async function registerButton(cq, who) {
     await require('../lib').history(driverId, 'Added as an active driver from Telegram', who.name, 'telegram').catch(() => {});
   }
   await dropButtons(chatId, cq.message.message_id);
-  await linkChat(chatId, kind, driverId, who.user_id || null, who);
+  // a driver still onboarding: the team picks how the bot works here (unless "register dispatch watch" said so)
+  const st = ((await q(`SELECT value FROM tg_state WHERE key = $1`, ['reg:' + chatId])).rows[0] || {}).value || {};
+  const dv = (await q(`SELECT status, name FROM drivers WHERE id = $1`, [driverId])).rows[0];
+  if (kind === 'dispatch' && dv && dv.status !== 'Hired' && !st.mode) {
+    await send(chatId, `<b>${esc(dv.name)}</b> is still onboarding. How should I work in this group?\n👀 <b>Watch and learn</b>: I read everything, sum it up on the website and learn from the team, and never write here.\n💬 <b>Answer questions</b>: I also answer the driver's questions I know; the rest I ask the team.\n🚀 <b>Run the onboarding</b>: I guide the driver through every step and remind him.`,
+      { buttons: MODES.map(([m, l]) => [[l, `regm:${driverId}:${m}`]]) });
+    return 'Pick how I should work';
+  }
+  await linkChat(chatId, kind, driverId, who.user_id || null, who, { mode: st.mode });
   return 'Registered ✓';
+}
+async function modeButton(cq, who) {
+  if (!isStaff(who)) return 'Only our team can choose this.';
+  const [, did, mode] = cq.data.split(':'); const chatId = cq.message.chat.id;
+  if (!MODES.some(([m]) => m === mode)) return 'Unknown';
+  await dropButtons(chatId, cq.message.message_id);
+  const linked = (await q(`SELECT 1 FROM tg_chats WHERE chat_id = $1 AND driver_id = $2 AND kind = 'dispatch'`, [chatId, +did])).rows[0];
+  if (linked && handlers.dispatch && handlers.dispatch.setMode) await handlers.dispatch.setMode(+did, mode, who.name);
+  else await linkChat(chatId, 'dispatch', +did, who.user_id || null, who, { mode });
+  return MODES.find(([m]) => m === mode)[1] + ' ✓';
 }
 // /me 123456: a website user connects their Telegram
 async function connectMe(m, code, who) {
@@ -185,6 +207,7 @@ async function handle(u) {
     let answer = '';
     try {
       if (cq.data.startsWith('reg:')) answer = await registerButton(cq, who);
+      else if (cq.data.startsWith('regm:')) answer = await modeButton(cq, who);
       else { const job = chat && handlers[chat.kind]; if (job && cq.data.startsWith(PREFIX[chat.kind] + ':')) answer = (await job.onButton(chat, cq, who)) || ''; }
     }
     catch (e) { console.error('tg button', e.message); answer = 'Something went wrong. Try again.'; }

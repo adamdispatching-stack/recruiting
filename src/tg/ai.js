@@ -85,19 +85,35 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
   odometer: { type: 'integer', description: 'The truck\'s current mileage (odometer), if someone says or shows it in the new messages.' },
   driver_notes: { type: 'array', description: 'Lasting things a new dispatcher must know about the driver, from the NEW messages: routines and requests (for example "wants a wake-up call at 7 AM"), loads he likes or refuses, home time wishes, how reliable he is, how he works, how to talk to him. Facts with evidence, said respectfully. Nothing about health, family, religion, politics or private life. Empty if nothing new.', items: { type: 'object', properties: {
     kind: { type: 'string', enum: ['routine', 'request', 'likes_loads', 'dislikes_loads', 'home_time', 'reliability', 'work_style', 'communication', 'other'] }, text: { type: 'string' } }, required: ['kind', 'text'] } },
+  learned: { type: 'array', description: 'When a person from our team (not the bot) answered a question the driver asked in the NEW messages: the general question and the answer, reworded so they help any future driver (no names, dates, phone numbers or personal details). Leave out answers that only fit this driver.', items: { type: 'object', properties: {
+    question: { type: 'string' }, answer: { type: 'string' } }, required: ['question', 'answer'] } },
+  onboarding: { type: 'object', description: 'ONLY when ONBOARDING STEPS are listed in the instructions: where this driver\'s onboarding stands after all messages (earlier and new).', properties: {
+    summary: { type: 'string', description: '2 or 3 sentences: where things stand, what was done, what is next.' },
+    waiting_on: { type: 'string', enum: ['driver', 'recruiter', 'amazon', 'company', 'nobody'], description: 'Who has to act next.' },
+    next_step: { type: 'string', description: 'The next concrete step, a few words.' },
+    blockers: { type: 'array', items: { type: 'string' }, description: 'Problems holding it up (a failed check, a missing document, the driver unsure...).' },
+    open_questions: { type: 'array', items: { type: 'string' }, description: 'Questions the driver asked that nobody answered yet.' },
+    driver_mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry', 'unknown'] },
+    done_steps: { type: 'array', description: 'Listed onboarding steps the messages clearly show are DONE (not just planned). Only ids from the list.', items: { type: 'object', properties: {
+      id: { type: 'integer' }, evidence: { type: 'string', description: 'The words or picture that show it, short.' } }, required: ['id', 'evidence'] } } } },
   alerts: { type: 'array', description: 'Things the managers must know now.', items: { type: 'object', properties: {
     kind: { type: 'string', enum: ['container_mismatch', 'wrong_location', 'late_risk', 'appointment_change', 'load_refused', 'driver_upset', 'unprofessional_dispatcher', 'safety', 'other'] },
     severity: { type: 'string', enum: ['low', 'high'] }, text: { type: 'string', description: 'One clear sentence.' },
     ask_driver: { type: 'string', description: 'Only for container_mismatch or wrong_location: a short polite question to the driver to clear it up, for example "The photo shows container ABCU 102634 but the load is ABCU 102643. Is this the right one?"' } }, required: ['kind', 'severity', 'text'] } } },
   required: ['truck_events', 'driver_notes', 'alerts'] } };
-async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images }) {
+async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images, onb = null }) {
   const system = `You read the ${kind} Telegram group of one truck driver (${driver}${truck ? `, truck ${truck}` : ''}) for a US trucking company, and pull out what the managers must know.
 Only report what the NEW messages say; the earlier ones are context. Compare container, trailer and load numbers in the messages with the ones in the pictures: a different number is a container_mismatch.
 Flag unprofessional_dispatcher only for clear rudeness, insults, or telling the driver to break rules. Appointment or pickup/delivery time changes are appointment_change.
 Never include passwords, SSN, license or account numbers. Be factual and short.
 Oil changes, shop visits and repairs are truck_events. "Oil change done" is an oil_change with status fixed; say paid=true when they say it is paid, and give the cost, shop and mileage when said. Do not repeat an event already listed below: mark it fixed (fixed_issue_ids) or paid (paid_ids) instead.
 Open truck issues (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}
-Truck services not marked paid yet (id: title, cost): ${unpaid.length ? unpaid.map((i) => `${i.id}: ${i.title}${i.cost !== null ? ' $' + i.cost : ''}`).join('; ') : 'none'}`;
+Truck services not marked paid yet (id: title, cost): ${unpaid.length ? unpaid.map((i) => `${i.id}: ${i.title}${i.cost !== null ? ' $' + i.cost : ''}`).join('; ') : 'none'}${onb ? `
+
+This driver is ONBOARDING (not driving for us yet). Fill "onboarding" every time.
+Amazon Relay step: ${onb.amazon || 'invite not sent yet'}.${onb.last ? ` Last known status: ${onb.last}` : ''}
+ONBOARDING STEPS still open (id: step): ${onb.steps.length ? onb.steps.map((x) => `${x.id}: ${x.label}`).join('; ') : 'none'}
+Mark a step done only when a message or a picture clearly shows it is done (a result, a confirmation, a ticket, "done", "passed"), never when it is only planned or asked for.` : ''}`;
   const content = [...images.map((im) => (im.mime === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: im.data } } : { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })),
     { type: 'text', text: `EARLIER MESSAGES (context):\n${context.join('\n') || '(none)'}\n\nNEW MESSAGES:\n${fresh.join('\n')}${images.length ? `\n\n(The ${images.length} picture(s) above are the photos in the new messages, in order.)` : ''}` }];
   return ask({ model: process.env.TG_DIGEST_MODEL || SUMMARY_MODEL(), system, content, tool: DIGEST_TOOL, maxTokens: 1500 });

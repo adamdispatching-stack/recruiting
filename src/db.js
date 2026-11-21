@@ -417,6 +417,18 @@ async function migrate() {
   // ----- fleet: each truck's own profile -----
   await q(`
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS share_moves INT NOT NULL DEFAULT 0;
+    -- how the bot works in an onboarding group: watch (reads, sums up, learns; never writes), assist (answers questions), run (the whole onboarding)
+    ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'run';
+    ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS ai_status JSONB;     -- the AI's view of where the onboarding stands
+    ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS ai_status_at TIMESTAMPTZ;
+    -- onboarding steps the AI saw done in the conversation: suggested until a person confirms or rejects (or done by itself when trusted)
+    CREATE TABLE IF NOT EXISTS onb_ai_steps (id SERIAL PRIMARY KEY, driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, checklist_id INT REFERENCES checklist(id) ON DELETE CASCADE,
+      label TEXT NOT NULL, evidence TEXT, state TEXT NOT NULL DEFAULT 'suggested', at TIMESTAMPTZ NOT NULL DEFAULT now(), decided_by TEXT, decided_at TIMESTAMPTZ);
+    CREATE INDEX IF NOT EXISTS onb_ai_steps_driver ON onb_ai_steps(driver_id, state);
+    -- messages brought in from a Telegram export (before the bot joined): read for notes and learning, never acted on
+    ALTER TABLE tg_messages ADD COLUMN IF NOT EXISTS imported BOOLEAN NOT NULL DEFAULT false;
+    -- answers the AI picked up from the team's own replies: waiting for an admin to approve before the bot uses them
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS review BOOLEAN NOT NULL DEFAULT false;
     -- a truck filled: its driver started (hired) in it; the recruiter whose driver it is gets the credit
     CREATE TABLE IF NOT EXISTS truck_fills (id SERIAL PRIMARY KEY, truck_id INT REFERENCES trucks(id) ON DELETE SET NULL, driver_id INT REFERENCES drivers(id) ON DELETE SET NULL,
       user_id INT REFERENCES users(id) ON DELETE SET NULL, unit TEXT, driver_name TEXT, at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (truck_id, driver_id));
@@ -569,7 +581,8 @@ const DEFAULTS = {
   fillGoals: {},
   // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
   // a second tag if nobody answers after remindMin, and the daily AI summary of each group
-  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [] },
+  // onbMode: how the bot starts in a new onboarding group (watch / assist / run); autoTick: the AI ticks onboarding steps itself
+  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], onbMode: 'run', autoTick: false },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },

@@ -27,7 +27,7 @@ async function onbView(driverId) {
   const d = (await q(`SELECT amazon_step, amazon_log FROM drivers WHERE id = $1`, [driverId])).rows[0]; if (!d) return null;
   const at = db.amazonIdx(d.amazon_step);
   const reports = (await q(`SELECT id, kind, result, findings, note, from_name, at, review, reviewed_by FROM tg_reports WHERE driver_id = $1 ORDER BY at DESC LIMIT 30`, [driverId])).rows;
-  const questions = (await q(`SELECT id, text, asked_at, answer, answered_by, answered_at FROM tg_questions WHERE driver_id = $1 ORDER BY asked_at DESC LIMIT 40`, [driverId])).rows;
+  const questions = (await q(`SELECT id, text, asked_at, answer, answered_by, answered_at FROM tg_questions WHERE driver_id = $1 AND answered_by IS DISTINCT FROM 'Bot' ORDER BY asked_at DESC LIMIT 40`, [driverId])).rows;
   return { amazon: db.AMAZON.map((x, i) => ({ key: x.key, label: x.label, done: i <= at, at: d.amazon_log ? d.amazon_log[x.key] || null : null })), amazonStep: d.amazon_step,
     reports: reports.map((r) => ({ ...r, label: onb.REPORT[r.kind] || r.kind, resultText: onb.RESULT[r.result] || r.result })), questions };
 }
@@ -118,7 +118,7 @@ module.exports = (app) => {
     res.json({ ok: true });
   }));
   app.get('/api/tg/knowledge', needUser, wrap(async (req, res) => {
-    const r = (await q(`SELECT k.id, k.question, k.answer, k.source, k.added_by, k.uses, k.active, k.created_at, d.name driver FROM tg_knowledge k LEFT JOIN tg_chats c ON c.chat_id = k.chat_id LEFT JOIN drivers d ON d.id = c.driver_id ORDER BY k.created_at DESC LIMIT 500`)).rows;
+    const r = (await q(`SELECT k.id, k.question, k.answer, k.source, k.added_by, k.uses, k.active, k.review, k.created_at, d.name driver FROM tg_knowledge k LEFT JOIN tg_chats c ON c.chat_id = k.chat_id LEFT JOIN drivers d ON d.id = c.driver_id ORDER BY k.created_at DESC LIMIT 500`)).rows;
     res.json({ knowledge: r });
   }));
   app.post('/api/tg/knowledge', needUser, wrap(async (req, res) => {
@@ -131,7 +131,7 @@ module.exports = (app) => {
     const b = req.body || {}; const set = []; const vals = [+req.params.id || 0];
     if (b.question !== undefined) { const v = String(b.question).trim().slice(0, 600); if (!v) return res.status(400).json({ error: 'Write the question' }); vals.push(v); set.push(`question = $${vals.length}`); }
     if (b.answer !== undefined) { const v = String(b.answer).trim().slice(0, 1500); if (!v) return res.status(400).json({ error: 'Write the answer' }); vals.push(v); set.push(`answer = $${vals.length}`); }
-    if (b.active !== undefined) { vals.push(!!b.active); set.push(`active = $${vals.length}`); }
+    if (b.active !== undefined) { vals.push(!!b.active); set.push(`active = $${vals.length}`); if (b.active) set.push('review = false'); }
     if (!set.length) return res.json({ ok: true });
     const r = await q(`UPDATE tg_knowledge SET ${set.join(', ')} WHERE id = $1 RETURNING id`, vals);
     if (!r.rows[0]) return res.status(404).json({ error: 'Not found' });
@@ -224,7 +224,80 @@ module.exports = (app) => {
     const d = await loadDriver(req, res); if (!d) return;
     const chats = (await q(`SELECT c.chat_id, c.title, c.kind, c.bot_admin, c.last_at, e.steps, e.wait, e.setup_done_at, e.stopped_at FROM tg_chats c LEFT JOIN eld_cases e ON e.chat_id = c.chat_id AND e.driver_id = c.driver_id WHERE c.driver_id = $1 AND c.active`, [d.id])).rows;
     const open = +(await q(`SELECT count(*)::int n FROM tg_questions WHERE driver_id = $1 AND answer IS NULL AND asked_at > now() - interval '7 days'`, [d.id])).rows[0].n;
-    res.json({ botOn: bot.on(), bot: bot.state.me ? bot.state.me.username : null, openQuestions: open, groups: chats.map((c) => ({ chatId: c.chat_id, title: c.title, kind: c.kind, botAdmin: c.bot_admin, lastAt: c.last_at, eld: c.kind === 'eld' && c.steps ? eldView(c) : null })) });
+    const oc = (await q(`SELECT mode, ai_status, ai_status_at FROM onb_cases WHERE driver_id = $1`, [d.id])).rows[0];
+    const sugg = (await q(`SELECT s.id, s.label, s.evidence, s.state, s.at, s.decided_by FROM onb_ai_steps s JOIN checklist c ON c.id = s.checklist_id WHERE s.driver_id = $1 AND (s.state = 'suggested' AND NOT c.done OR (s.state = 'auto' AND s.at > now() - interval '7 days')) ORDER BY s.at DESC`, [d.id])).rows;
+    const onb = oc ? { mode: oc.mode, status: oc.ai_status, statusAt: oc.ai_status_at, steps: sugg } : null;
+    res.json({ onb, botOn: bot.on(), bot: bot.state.me ? bot.state.me.username : null, openQuestions: open, groups: chats.map((c) => ({ chatId: c.chat_id, title: c.title, kind: c.kind, botAdmin: c.bot_admin, lastAt: c.last_at, eld: c.kind === 'eld' && c.steps ? eldView(c) : null })) });
+  }));
+  // ---------- onboarding groups: how the bot works, what the AI saw done, and learning ----------
+  app.patch('/api/drivers/:id/tg-mode', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const onb = require('./tg/onboard'); const mode = (req.body || {}).mode;
+    if (!onb.MODES[mode]) return res.status(400).json({ error: 'Pick watch, assist or run' });
+    if (!(await q(`SELECT 1 FROM tg_chats WHERE driver_id = $1 AND kind = 'dispatch' AND active`, [d.id])).rows[0]) return res.status(400).json({ error: 'This driver has no dispatch (onboarding) group yet' });
+    if (!(await q(`SELECT 1 FROM onb_cases WHERE driver_id = $1`, [d.id])).rows[0]) await q(`INSERT INTO onb_cases (driver_id, chat_id, mode) SELECT $1, chat_id, 'watch' FROM tg_chats WHERE driver_id = $1 AND kind = 'dispatch' AND active LIMIT 1`, [d.id]);
+    if (mode !== 'watch' && !bot.on()) return res.status(400).json({ error: 'The bot is not running (no TELEGRAM_BOT_TOKEN)' });
+    await onb.setMode(d.id, mode, req.user.name);
+    res.json({ ok: true });
+  }));
+  // a step the AI saw done: confirm (ticks it) or reject; this is how its accuracy is measured
+  app.post('/api/onb-ai-steps/:id', needUser, wrap(async (req, res) => {
+    const s = (await q(`SELECT * FROM onb_ai_steps WHERE id = $1`, [+req.params.id || 0])).rows[0];
+    if (!s) return res.status(404).json({ error: 'Not found' });
+    const d = await loadDriver(req, res, s.driver_id); if (!d) return;
+    const okd = !!(req.body || {}).ok;
+    if (s.state === 'auto' && okd) return res.json({ ok: true });
+    await q(`UPDATE onb_ai_steps SET state = $2, decided_by = $3, decided_at = now() WHERE id = $1`, [s.id, s.state === 'auto' ? 'undone' : okd ? 'confirmed' : 'rejected', req.user.name]);
+    if (okd) await q(`UPDATE checklist SET done = true, done_by = $2, done_at = now(), note = coalesce(note, $3) WHERE id = $1 AND NOT done`, [s.checklist_id, req.user.id, ('From Telegram: ' + (s.evidence || '')).slice(0, 500)]);
+    else if (s.state === 'auto') await q(`UPDATE checklist SET done = false, done_by = NULL, done_at = NULL WHERE id = $1`, [s.checklist_id]);
+    await lib.history(d.id, okd ? `Done: ${s.label} (the AI saw it in Telegram, ${req.user.name} confirmed)` : `${s.label}: not done after all (the AI was wrong)`, req.user.name, 'check');
+    await q(`UPDATE onboarding SET progress_at = now() WHERE driver_id = $1`, [d.id]);
+    res.json({ ok: true });
+  }));
+  // earlier messages from a Telegram export (Telegram Desktop: Export chat history, JSON), parsed in the browser
+  app.post('/api/tg/chats/:id/import', needUser, wrap(async (req, res) => {
+    const chatId = String(req.params.id);
+    const chat = (await q(`SELECT * FROM tg_chats WHERE chat_id = $1`, [chatId])).rows[0]; if (!chat) return res.status(404).json({ error: 'Group not found' });
+    if (chat.driver_id) { const d = await loadDriver(req, res, chat.driver_id); if (!d) return; } else if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only an admin can do this' });
+    const b = req.body || {}; const msgs = Array.isArray(b.messages) ? b.messages.slice(0, 3000) : [];
+    if (!msgs.length) return res.status(400).json({ error: 'No messages found in the file' });
+    for (const p of (Array.isArray(b.people) ? b.people : []).slice(0, 50)) {
+      const id = +p.tgId; if (!id || !['driver', 'staff', 'other'].includes(p.role)) continue;
+      await q(`INSERT INTO tg_people (tg_id, name, role, driver_id, seen_at) VALUES ($1, $2, $3, $4, now()) ON CONFLICT (tg_id) DO UPDATE SET name = coalesce(tg_people.name, $2), role = CASE WHEN tg_people.role IS NULL OR $3 <> 'other' THEN $3 ELSE tg_people.role END, driver_id = coalesce($4, tg_people.driver_id)`,
+        [id, String(p.name || '').slice(0, 80), p.role === 'other' ? null : p.role, p.role === 'driver' ? chat.driver_id : null]);
+    }
+    let n = 0;
+    for (const m of msgs) {
+      const at = new Date(+m.date * 1000); if (isNaN(at) || !+m.id) continue;
+      const text = m.text ? bot.redact(String(m.text)).slice(0, 4000) : null; if (!text && !m.media) continue;
+      const r = await q(`INSERT INTO tg_messages (chat_id, msg_id, from_id, from_name, is_bot, text, media, reply_to, at, imported, digested) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, false) ON CONFLICT (chat_id, msg_id) DO NOTHING RETURNING id`,
+        [chatId, +m.id, +m.fromId || null, String(m.from || '').slice(0, 80) || null, !!m.bot, text, m.media ? String(m.media).slice(0, 20) : null, +m.replyTo || null, at]);
+      if (r.rows[0]) n++;
+    }
+    await lib.act(req.user, 'telegram', chat.driver_id ? { id: chat.driver_id } : null, `Imported ${n} earlier Telegram messages`);
+    // read them now, batch after batch, in the background
+    (async () => { const dg = require('./tg/digest'); for (let i = 0; i < 80; i++) { const out = await dg.digestChat(chatId).catch(() => null); if (!out) break; } })().catch(() => {});
+    res.json({ ok: true, imported: n, skipped: msgs.length - n });
+  }));
+  // How close the bot is to running onboarding alone
+  app.get('/api/tg/readiness', needUser, wrap(async (req, res) => {
+    const st = (await q(`SELECT state, count(*)::int n FROM onb_ai_steps WHERE at > now() - interval '60 days' GROUP BY state`)).rows; const c = (k) => (st.find((x) => x.state === k) || {}).n || 0;
+    const judged = c('confirmed') + c('rejected') + c('undone'); const right = c('confirmed');
+    const kn = (await q(`SELECT count(*) FILTER (WHERE active)::int approved, count(*) FILTER (WHERE review AND NOT active)::int waiting FROM tg_knowledge`)).rows[0];
+    const qa = (await q(`SELECT count(*) FILTER (WHERE answered_by = 'Bot')::int bot, count(*)::int total FROM tg_questions WHERE asked_at > now() - interval '30 days'`)).rows[0];
+    const modes = (await q(`SELECT o.mode, count(*)::int n FROM onb_cases o JOIN drivers d ON d.id = o.driver_id WHERE d.status <> 'Hired' AND d.left_on IS NULL GROUP BY 1`)).rows;
+    const stepAcc = judged ? right / judged : null; const botShare = qa.total ? qa.bot / qa.total : null;
+    const ready = judged >= 15 && stepAcc >= 0.9 && qa.total >= 20 && botShare >= 0.7;
+    res.json({ steps: { confirmed: right, rejected: c('rejected') + c('undone'), auto: c('auto'), waiting: c('suggested'), accuracy: stepAcc }, knowledge: kn, questions: { byBot: qa.bot, total: qa.total, share: botShare },
+      modes: Object.fromEntries(modes.map((m) => [m.mode, m.n])), ready, settings: { onbMode: (db.settings.tg || {}).onbMode || 'run', autoTick: !!(db.settings.tg || {}).autoTick } });
+  }));
+  app.put('/api/tg/autopilot', needUser, needAdmin, wrap(async (req, res) => {
+    const b = req.body || {}; const v = { ...(db.settings.tg || {}) };
+    if (b.onbMode !== undefined) { if (!['watch', 'assist', 'run'].includes(b.onbMode)) return res.status(400).json({ error: 'Pick watch, assist or run' }); v.onbMode = b.onbMode; }
+    if (b.autoTick !== undefined) v.autoTick = !!b.autoTick;
+    await db.saveSetting('tg', v);
+    await lib.act(req.user, 'admin', null, `Onboarding bot: new groups start in "${v.onbMode}"${v.autoTick ? ', the AI ticks steps itself' : ''}`);
+    res.json({ ok: true, ...v });
   }));
   app.post('/api/drivers/:id/tg-link', needUser, wrap(async (req, res) => {
     const d = await loadDriver(req, res); if (!d) return;
