@@ -157,14 +157,14 @@ async function findDrivers({ phone, name }) {
   const OUT = `status NOT IN ('Not interested', 'Declined on Indeed', 'No CDL')`;
   if (phone) {
     const r = (await q(`SELECT id, name, status, phones FROM drivers WHERE $1 = ANY(phones) AND ${OUT} ORDER BY (status = 'Hired') DESC, updated_at DESC LIMIT 6`, [phone])).rows;
-    if (r.length === 1) return { sure: r[0], list: r };
+    if (r.length === 1) return { sure: r[0], list: r, by: 'phone' };
     if (r.length) return { sure: null, list: r };
   }
   const words = String(name || '').split(/\s+/).filter((x) => x.length > 1);
   if (!words.length) return { sure: null, list: [] };
   const r = (await q(`SELECT id, name, status, phones FROM drivers WHERE ${words.map((_, i) => `name ILIKE $${i + 1}`).join(' AND ')} AND ${OUT}
       ORDER BY (status = 'Hired') DESC, (status = 'Onboarding') DESC, updated_at DESC LIMIT 6`, words.map((x) => `%${x}%`))).rows;
-  return { sure: r.length === 1 && words.length >= 2 ? r[0] : null, list: r };
+  return { sure: r.length === 1 && words.length >= 2 ? r[0] : null, list: r, by: 'name' };
 }
 const addPhone = (driverId, phone) => phone && q(`UPDATE drivers SET phones = array_append(phones, $2) WHERE id = $1 AND NOT ($2 = ANY(phones))`, [driverId, phone]);
 // Buttons to pick the driver (or add a new one)
@@ -190,6 +190,11 @@ async function autoRegister(chat, who) {
   const f = await findDrivers(info);
   await log('title', `Title "${clip(chat.title, 60)}": ${f.sure ? `${f.sure.name} (${info.phone && f.sure.phones && f.sure.phones.includes(info.phone) ? 'phone' : 'name'} match)` : f.list.length ? `${f.list.length} possible drivers` : 'no driver found'}, ${KINDS[info.kind]} group`, { chatId: chat.id, driverId: f.sure ? f.sure.id : null, who });
   if (f.sure && isStaff(who)) { await addPhone(f.sure.id, info.phone); return linkChat(chat.id, info.kind, f.sure.id, who.user_id || null, who); }
+  // the phone in the title is a driver's phone: connected right away, whoever added the bot (Settings can turn this off)
+  if (f.sure && f.by === 'phone' && (db.settings.tg || {}).autoPhone !== false) {
+    await log('connect', `The phone in the title matches ${f.sure.name}: connected by itself${who ? ` (${who.name} is not connected to the website yet)` : ''}`, { chatId: chat.id, driverId: f.sure.id, who });
+    return linkChat(chat.id, info.kind, f.sure.id, null, null, { by: 'the phone in the title' });
+  }
   if (who && !isStaff(who)) await wait(chat.id, who, { driverId: f.sure ? f.sure.id : null, kind: info.kind, what: `${who.name} added the bot to "${clip(chat.title, 60)}" but has not connected Telegram to the website${f.sure ? `. It looks like ${f.sure.name}'s ${KINDS[info.kind]} group` : ''}.` });
   const later = who && !isStaff(who) ? `\n\n${esc(who.name)}, I connect it as soon as you connect your Telegram to the website (in a private chat with me: /me CODE, the code is under Telegram → Connect my Telegram). An admin can also connect it on the website.` : '';
   if (f.sure) {
@@ -263,14 +268,27 @@ async function connectMe(m, code, who) {
   const u = (await q(`SELECT name FROM users WHERE id = $1`, [c.user_id])).rows[0];
   await log('me', `${who.name} connected Telegram to the website (${u.name})`, { who });
   await send(m.chat.id, `✅ Connected: you are <b>${esc(u.name)}</b> on the website. You can now register groups and tap the team's buttons.`, { replyTo: m.message_id });
-  // what was waiting for this person: the groups they added are connected now
-  const me = { ...who, user_id: c.user_id, role: 'staff' }; const did = [];
-  for (const w of (await q(`SELECT w.*, ch.title, ch.driver_id linked FROM tg_waiting w JOIN tg_chats ch ON ch.chat_id = w.chat_id WHERE w.tg_id = $1 AND w.done_at IS NULL AND ch.active`, [who.tg_id])).rows) {
-    if (w.linked) { await doneWaiting(w.chat_id, me.name, 'connected'); continue; }
-    if (w.driver_id && w.kind) { await linkChat(w.chat_id, w.kind, w.driver_id, c.user_id, me); did.push(w.title || 'a group'); }
-    else { await doneWaiting(w.chat_id, me.name, 'asked again'); await autoRegister({ id: w.chat_id, title: w.title }, me); }
-  }
+  const did = await resolveWaiting(who.tg_id);
   if (did.length) await send(m.chat.id, `Also connected what was waiting for you: ${did.map((x) => `<b>${esc(x)}</b>`).join(', ')}.`);
+}
+// What was waiting for this person (now connected or marked as our team): the groups they set up are connected
+async function resolveWaiting(tgId) {
+  const p = (await q(`SELECT * FROM tg_people WHERE tg_id = $1`, [tgId])).rows[0]; if (!isStaff(p)) return [];
+  const did = [];
+  for (const w of (await q(`SELECT w.*, ch.title, ch.driver_id linked FROM tg_waiting w JOIN tg_chats ch ON ch.chat_id = w.chat_id WHERE w.tg_id = $1 AND w.done_at IS NULL AND ch.active`, [tgId])).rows) {
+    if (w.linked) { await doneWaiting(w.chat_id, p.name, 'connected'); continue; }
+    if (w.driver_id && w.kind) { await linkChat(w.chat_id, w.kind, w.driver_id, p.user_id || null, p); did.push(w.title || 'a group'); }
+    else { await doneWaiting(w.chat_id, p.name, 'asked again'); await autoRegister({ id: w.chat_id, title: w.title }, p); }
+  }
+  return did;
+}
+// After an update: groups still waiting whose title phone matches a driver are connected
+async function retryWaiting() {
+  if ((db.settings.tg || {}).autoPhone === false) return;
+  for (const w of (await q(`SELECT w.chat_id, ch.title FROM tg_waiting w JOIN tg_chats ch ON ch.chat_id = w.chat_id WHERE w.done_at IS NULL AND ch.active AND ch.driver_id IS NULL`)).rows) {
+    const info = titleInfo(w.title); const f = await findDrivers(info);
+    if (f.sure && f.by === 'phone') { await log('connect', `The phone in the title matches ${f.sure.name}: connected by itself`, { chatId: w.chat_id, driverId: f.sure.id }); await linkChat(w.chat_id, info.kind, f.sure.id, null, null, { by: 'the phone in the title' }); }
+  }
 }
 // /driver Name, in a private chat with the bot: the driver's profile, only for the team
 async function driverCard(m, name, who) {
@@ -424,6 +442,7 @@ async function start() {
   }
   console.log('Telegram bot on as @' + state.me.username);
   await setCommands().catch((e) => console.error('tg commands', e.message));
+  await retryWaiting().catch((e) => console.error('tg waiting', e.message));
   loop();
 }
-module.exports = { log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+module.exports = { resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

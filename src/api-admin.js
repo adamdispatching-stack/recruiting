@@ -105,7 +105,7 @@ module.exports = (app) => {
       if (times.some((x) => !hm(x))) return res.status(400).json({ error: 'Write the check times like 11:00, 18:00' });
       if (times.length > 6) return res.status(400).json({ error: 'At most 6 checks a day' });
       const num = (v, def, lo, hi) => (v === undefined ? def : Math.round(+v));
-      const v = { eldTimes: times, eldDays: num(t.eldDays, cur.eldDays), remindMin: num(t.remindMin, cur.remindMin), summaryAt: t.summaryAt === undefined ? cur.summaryAt : String(t.summaryAt).trim(),
+      const v = { ...cur, eldTimes: times, eldDays: num(t.eldDays, cur.eldDays), remindMin: num(t.remindMin, cur.remindMin), summaryAt: t.summaryAt === undefined ? cur.summaryAt : String(t.summaryAt).trim(),
         eldTeam: t.eldTeam === undefined ? cur.eldTeam : [...new Set((Array.isArray(t.eldTeam) ? t.eldTeam : String(t.eldTeam).split(/[ ,;]+/)).map((x) => String(x).trim().replace(/^@?/, '@')).filter((x) => /^@[A-Za-z0-9_]{4,32}$/.test(x)))] };
       if (!(v.eldDays >= 0 && v.eldDays <= 365)) return res.status(400).json({ error: 'Days of checks: 0 to 365 (0 means always)' });
       if (!(v.remindMin >= 15 && v.remindMin <= 720)) return res.status(400).json({ error: 'Remind after 15 to 720 minutes' });

@@ -60,7 +60,7 @@ const STRANGER = { id: 99, is_bot: false, first_name: 'Some', last_name: 'One' }
 const PCHAT = { id: -100701, type: 'supergroup', title: 'Paul Penn +1 (267) 555-0177' };
 const ECHAT = { id: -100702, type: 'supergroup', title: 'ELD - Paul Penn' };
 const NCHAT = { id: -100703, type: 'supergroup', title: 'Nina Newbie 610.555.0199' };
-const SCHAT = { id: -100704, type: 'supergroup', title: 'Mark Marshall 4845550111' };
+const SCHAT = { id: -100704, type: 'supergroup', title: 'Mark Marshall' };
 let mid = 1;
 const say = (from, text, chat) => push({ message: { message_id: mid++, from, chat, date: Math.floor(Date.now() / 1000), text } });
 const priv = (from, text) => push({ message: { message_id: mid++, from, chat: { id: from.id, type: 'private', first_name: from.first_name }, date: Math.floor(Date.now() / 1000), text } });
@@ -113,15 +113,15 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const scode = (await web('/api/tg/me-code', { method: 'POST', body: {}, cookie: sl.headers.get('set-cookie').split(';')[0] })).code;
   n = tg.sent.length; priv(STRANGER, '/me ' + scode);
   ok(await until(async () => (await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [SCHAT.id])).rows[0].driver_id === mark), 'he connects Telegram (/me): Mark\'s group is connected right away');
-  ok(await until(() => sentSince(n).some((m) => m.chat_id === STRANGER.id && /Also connected what was waiting for you: <b>Mark Marshall 4845550111<\/b>/.test(m.text))), 'and he is told');
+  ok(await until(() => sentSince(n).some((m) => m.chat_id === STRANGER.id && /Also connected what was waiting for you: <b>Mark Marshall<\/b>/.test(m.text))), 'and he is told');
   ok(!(await web('/api/tg/waiting')).waiting.length, 'nothing waiting any more');
   // someone unknown again: the admin connects it on the website, or dismisses it
   const tom = (await web('/api/drivers', { method: 'POST', body: { name: 'Tom Tester', source: 'Indeed', phone: '2155550123' } })).id;
-  const TCHAT = { id: -100705, type: 'supergroup', title: 'Tom Tester 215 555 0123' }, ZCHAT = { id: -100706, type: 'supergroup', title: 'Zack Zero' };
+  const TCHAT = { id: -100705, type: 'supergroup', title: 'Tom Tester' }, ZCHAT = { id: -100706, type: 'supergroup', title: 'Zack Zero' };
   const X = { id: 77, is_bot: false, first_name: 'Xavier', last_name: 'X' };
   added(TCHAT, X); say(X, '/register', ZCHAT);
   wt = await until(async () => { const w = (await web('/api/tg/waiting')).waiting; return w.length === 2 ? w : null; });
-  ok(wt && wt.find((w) => w.chatId == TCHAT.id).driverId === tom && !wt.find((w) => w.chatId == ZCHAT.id).driverId, 'two waiting: Tom\'s group (found by "215 555 0123") and Zack Zero (nobody found)');
+  ok(wt && wt.find((w) => w.chatId == TCHAT.id).driverId === tom && !wt.find((w) => w.chatId == ZCHAT.id).driverId, 'two waiting: Tom\'s group (found by name) and Zack Zero (nobody found)');
   ok((await web('/api/tg/waiting/' + wt.find((w) => w.chatId == TCHAT.id).id, { method: 'POST', body: {} })).ok && (await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [TCHAT.id])).rows[0].driver_id === tom, 'the admin taps "Connect to Tom Tester" on the website');
   ok((await web('/api/tg/waiting/' + wt.find((w) => w.chatId == ZCHAT.id).id, { method: 'POST', body: { dismiss: true } })).ok && !(await web('/api/tg/waiting')).waiting.length, 'Dismiss');
   // nobody on the website: a new driver in onboarding, with the phone from the title
@@ -132,6 +132,24 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   tap(RITA, nb.callback_data, NCHAT);
   const nina = await until(async () => (await pg.query(`SELECT d.id, d.status, d.phones FROM drivers d JOIN tg_chats c ON c.driver_id = d.id WHERE c.chat_id = $1`, [NCHAT.id])).rows[0]);
   ok(nina && nina.status === 'Onboarding' && nina.phones.includes('6105550199') && (await pg.query(`SELECT 1 FROM onboarding WHERE driver_id = $1`, [nina.id])).rows.length === 1, 'Nina added in onboarding, with the phone, and her group connected');
+
+  // someone not connected adds the bot, but the title has a driver's phone: connected by itself
+  const yon = (await web('/api/drivers', { method: 'POST', body: { name: 'Yonis Santa', source: 'Indeed', phone: '4844541057', ownerId: rita } })).id;
+  const UPD = { id: 55, is_bot: false, first_name: 'Update', last_name: 'Department' };
+  const YCHAT = { id: -100708, type: 'supergroup', title: 'Yonis Santa +1 (484) 454-1057' };
+  n = tg.sent.length; added(YCHAT, UPD);
+  ok(await until(async () => ((await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [YCHAT.id])).rows[0] || {}).driver_id === yon), 'added by "Update Department" (not connected): the phone in the title matches Yonis Santa, connected by itself');
+  ok(!(await web('/api/tg/waiting')).waiting.some((w) => w.chatId == YCHAT.id), 'nothing left waiting for it');
+  // "is our team" on the waiting card: marked, and their groups connect
+  const KCHAT = { id: -100709, type: 'supergroup', title: 'Kim Kane' };
+  const kim = (await web('/api/drivers', { method: 'POST', body: { name: 'Kim Kane', source: 'Indeed', phone: '6105550100' } })).id;
+  added(KCHAT, UPD);
+  const kw = await until(async () => (await web('/api/tg/waiting')).waiting.find((w) => w.chatId == KCHAT.id));
+  const tr = await web('/api/tg/waiting/' + kw.id, { method: 'POST', body: { team: true } });
+  ok(tr.ok && tr.connected === 1 && (await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [KCHAT.id])).rows[0].driver_id === kim && (await pg.query(`SELECT role FROM tg_people WHERE tg_id = 55`)).rows[0].role === 'staff', '"Update Department is our team": marked, Kim\'s group connected');
+  const K2 = { id: -100710, type: 'supergroup', title: 'Kim Kane ELD' };
+  added(K2, UPD);
+  ok(await until(async () => ((await pg.query(`SELECT driver_id, kind FROM tg_chats WHERE chat_id = $1`, [K2.id])).rows[0] || {}).kind === 'eld'), 'from then on, groups they add connect by themselves (by name too)');
 
   // the MVR and the drug test, in Paul's group, the bot watching
   n = tg.sent.length;

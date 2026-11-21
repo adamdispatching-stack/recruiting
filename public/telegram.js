@@ -47,9 +47,11 @@
     <ul class="list">${ws.map((w) => `<li data-w="${w.id}"><div class="grow"><b>${esc(w.title || 'Group')}</b> ${kindTag(w.kind)}<div class="small">${esc(w.what)}</div><div class="small mut">${esc(when(w.at))}${w.link ? ` · <a href="${esc(w.link)}" target="_blank" rel="noopener noreferrer">Open group</a>` : ''}</div></div>
       ${S.me.role === 'dispatcher' ? '' : `<span class="inrow">${w.driverId ? `<button type="button" class="btn primary sm" data-act="tgWaitGo" data-d="${w.driverId}">Connect to ${esc(w.driver)}</button>` : ''}
         ${w.options.length ? `<select data-ch="tgWaitPick" aria-label="Another driver"><option value="">${w.driverId ? 'Another driver…' : 'Pick the driver…'}</option>${w.options.map((o) => `<option value="${o.id}">${esc(o.name)} (${esc(o.status === 'Hired' ? 'active' : o.status.toLowerCase())})</option>`).join('')}</select>` : ''}
+        ${S.me.role === 'admin' && w.who ? `<button type="button" class="btn plain sm" data-act="tgWaitTeam" title="They are on our team: connect this and every group they add">${esc(w.who)} is our team</button>` : ''}
         <button type="button" class="linkbtn" data-act="tgWaitNo">Dismiss</button></span>`}</li>`).join('')}</ul></section>`;
   on('tgWaitGo', async (b) => { try { await api('/api/tg/waiting/' + b.closest('[data-w]').dataset.w, { method: 'POST', body: { driverId: +b.dataset.d } }); toast('Connected'); } catch (e) { fail(e); } App.render(); });
   onChange('tgWaitPick', async (el) => { if (!el.value) return; try { await api('/api/tg/waiting/' + el.closest('[data-w]').dataset.w, { method: 'POST', body: { driverId: +el.value } }); toast('Connected'); } catch (e) { fail(e); } App.render(); });
+  on('tgWaitTeam', async (b) => { try { const r = await api('/api/tg/waiting/' + b.closest('[data-w]').dataset.w, { method: 'POST', body: { team: true } }); toast(`Marked as our team${r.connected ? `, ${plural(r.connected, 'group')} connected` : ''}`); } catch (e) { fail(e); } App.render(); });
   on('tgWaitNo', async (b) => { try { await api('/api/tg/waiting/' + b.closest('[data-w]').dataset.w, { method: 'POST', body: { dismiss: true } }); toast('Dismissed'); } catch (e) { fail(e); } App.render(); });
   on('tgLogF', (b) => { logFilter = b.dataset.k; App.render(); });
   on('tgLogMore', async (b) => {

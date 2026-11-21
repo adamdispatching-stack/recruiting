@@ -215,6 +215,14 @@ module.exports = (app) => {
     if (req.user.role === 'dispatcher') return res.status(403).json({ error: 'Not for dispatchers' });
     const w = (await q(`SELECT * FROM tg_waiting WHERE id = $1 AND done_at IS NULL`, [+req.params.id])).rows[0]; if (!w) return res.status(404).json({ error: 'Already done' });
     const b = req.body || {};
+    if (b.team) { // the person who added the bot is on our team: marked, and everything waiting for them is connected
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only an admin' });
+      if (!w.tg_id) return res.status(400).json({ error: 'Nobody to mark' });
+      await q(`UPDATE tg_people SET role = 'staff', driver_id = NULL WHERE tg_id = $1`, [w.tg_id]);
+      await bot.log('me', `${w.who || 'Someone'} marked as our team on the website (${req.user.name})`, {});
+      const did = await bot.resolveWaiting(w.tg_id);
+      return res.json({ ok: true, connected: did.length });
+    }
     if (b.dismiss) { await q(`UPDATE tg_waiting SET done_at = now(), done_by = $2, done_how = 'dismissed' WHERE id = $1`, [w.id, req.user.name]); await bot.log('wait', `Dismissed on the website: ${w.what}`, { chatId: w.chat_id }); return res.json({ ok: true }); }
     const driverId = +b.driverId || w.driver_id; const kind = ['dispatch', 'eld', 'accounting'].includes(b.kind) ? b.kind : w.kind || 'dispatch';
     if (!driverId) return res.status(400).json({ error: 'Pick the driver' });
@@ -234,6 +242,7 @@ module.exports = (app) => {
     if (role && !ROLES.includes(role)) return res.status(400).json({ error: 'Unknown role' });
     const r = await q(`UPDATE tg_people SET role = $2, driver_id = CASE WHEN $2 = 'driver' THEN coalesce($3, driver_id) ELSE NULL END WHERE tg_id = $1 RETURNING tg_id`, [req.params.id, role, b.driverId ? +b.driverId : null]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Person not found' });
+    if (role === 'staff') await bot.resolveWaiting(req.params.id).catch((e) => console.error('tg waiting', e.message));
     res.json({ ok: true });
   }));
 
