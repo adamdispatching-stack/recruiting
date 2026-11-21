@@ -91,14 +91,14 @@ const sql = async (text, params) => {
   ok((await post(don, `/api/drivers/${frank}/notes`, { kind: 'text', body: 'Sent him the pay sheet' })).status === 200, 'text logged');
   const fd2 = (await don('/api/drivers/' + frank)).body;
   ok(fd2.notes[0].kind === 'text' && fd2.notes[1].kind === 'call' && fd2.notes[1].outcome === 'No answer' && fd2.driver.lastContactAt, 'contact log saved, last contact updated');
-  ok((await patch(don, '/api/drivers/' + d.id, { status: 'Relay invite sent', followUp: '2026-11-21', tags: ['NJ', 'call back'] })).status === 200, 'status, follow-up, tags saved');
+  ok((await patch(don, '/api/drivers/' + d.id, { status: 'Relay invite sent', followUp: '2030-11-21', tags: ['NJ', 'call back'] })).status === 200, 'status, follow-up, tags saved');
   ok((await patch(don, '/api/drivers/' + d.id, { followUp: 'tomorrow' })).status === 400, 'a bad date is refused');
   await post(anon, '/api/ext/push', { drivers: [{ name: 'Ruddy Grant', phones: ['2405229992'], status: 'Interested' }] }, K);
   ok((await admin('/api/drivers/' + d.id)).body.driver.status === 'Relay invite sent', 'status set by hand is kept');
   const p = (await anon('/api/ext/pull?since=' + encodeURIComponent(new Date(Date.now() - 60000).toISOString()), { headers: K })).body;
   const pr = p.drivers.find((x) => x.name === 'Ruddy Grant'); const pf = p.drivers.find((x) => x.name === 'Frank Facebook');
   ok(pr && /starts Monday at 6am/.test(pr.teamNotes) && !/Call him Friday/.test(pr.teamNotes), 'pull sends team notes (not the profile\'s own)');
-  ok(pr && pr.status === 'Relay invite sent' && pr.statusLocked && pr.followUp === '2026-11-21', 'pull sends status and follow-up');
+  ok(pr && pr.status === 'Relay invite sent' && pr.statusLocked && pr.followUp === '2030-11-21', 'pull sends status and follow-up');
   ok(pf && /Call, no answer/.test(pf.teamNotes) && /Text, sent: Sent him the pay sheet/.test(pf.teamNotes), 'pull words the contact log');
   ok((await admin('/api/drivers?q=6am')).body.total === 1, 'search finds words in notes');
   ok((await admin('/api/drivers?q=522-99')).body.total === 1, 'search finds phone digits');

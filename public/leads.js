@@ -79,7 +79,7 @@
         <td>${relayTag(d.relayBefore)}</td>
         <td>${esc(d.source || '') || '<span class="none">Not set</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}</td>
         <td>${App.coTag(d.companyId) || '<span class="none">Not assigned</span>'}</td>
-        <td>${admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. An admin will give the lead to someone else.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}</td>
+        <td>${admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. An admin will give the lead to someone else.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}${opensBtn(d.id, d.opens)}</td>
         </tr>`;
     }).join('');
     const any = sum('n');
@@ -98,6 +98,22 @@
       <button class="btn primary sm" data-act="bulkAssign">Assign</button><button class="btn plain sm" data-act="bulkClear">Clear selection</button>`;
     const all = $('#selAll'); if (all) all.checked = list.rows.length > 0 && list.rows.every((d) => list.sel.has(d.id));
   }
+  // How many times the lead was opened, and by whom
+  const EYE = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M1 8s2.6-5 7-5 7 5 7 5-2.6 5-7 5-7-5-7-5Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg>';
+  function opensBtn(id, n, big) {
+    n = n || 0;
+    return `<button type="button" class="opens${n ? '' : ' zero'}${big ? ' big' : ''}" data-act="leadOpens" data-lead="${id}" title="${n ? `Opened ${plural(n, 'time')}: see who` : 'Nobody has opened this lead yet'}">${EYE}<span>${n ? (big ? plural(n, 'open') : n) : big ? 'Not opened yet' : 'Not opened'}</span></button>`;
+  }
+  on('leadOpens', async (b) => {
+    const r = await api(`/api/drivers/${b.dataset.lead}/opens`);
+    dialog(`<div class="dform opensdlg"><h2>Opened ${plural(r.total, 'time')}</h2>
+      ${r.people.length ? `<table class="opent"><thead><tr><th>Who</th><th>Times</th><th>First</th><th>Last</th></tr></thead><tbody>${r.people.map((p) => `<tr><td><b>${esc(p.name)}</b>${p.id === r.ownerId ? ' <span class="nextpill">their lead</span>' : p.role === 'admin' ? ' <span class="mut small">admin</span>' : ''}</td><td>${p.times}</td><td>${esc(App.teamWhen(p.first))}</td><td>${esc(App.teamWhen(p.last))}</td></tr>`).join('')}</tbody></table>`
+        : '<p class="hint">Nobody has opened this lead yet.</p>'}
+      ${r.ownerId && !r.people.some((p) => p.id === r.ownerId) ? `<p class="unpaidline">${esc(person(r.ownerId))} has not opened it${r.assignedAt ? ` since it was given to them ${esc(App.teamWhen(r.assignedAt))}` : ''}.</p>` : ''}
+      ${r.recent.length ? `<details><summary>Every open (${r.recent.length}${r.total > r.recent.length ? ' latest' : ''})</summary><ul class="list">${r.recent.map((x) => `<li><span class="grow">${esc(x.name)}</span><span class="small mut">${esc(App.teamWhen(x.at))}</span></li>`).join('')}</ul></details>` : ''}
+      <p class="hint">Opening it again within 10 minutes counts once.</p>
+      <div class="dact"><button type="button" class="btn plain" data-act="closeDialog">Close</button></div></div>`);
+  });
   document.addEventListener('click', (e) => {
     const stop = e.target.closest('.route .stop');
     if (stop) { // one chip at a time: a status, or one of the two work lists
@@ -361,7 +377,7 @@
             <div class="tags" id="tags">${(d.tags || []).map((x) => `<span class="tag">${esc(x)}<button data-tag="${esc(x)}" aria-label="Remove tag ${esc(x)}">×</button></span>`).join('')}<input id="tagIn" type="text" placeholder="Add a tag, press Enter" aria-label="Add a tag" data-fk="tag"></div>
           </div>
           <div class="acts">
-            ${admin ? `<div class="ownbox"><span>Recruiter</span>${App.assignPick(d, 'big')}</div>` : ''}
+            ${admin ? `<div class="ownbox"><span>Recruiter</span>${App.assignPick(d, 'big')}</div>` : ''}${opensBtn(d.id, r.opens, true)}
             ${(d.phones || [])[0] ? `<a class="btn primary" href="tel:${esc(d.phones[0])}">Call</a>` : ''}
             ${/^https:\/\//.test(d.conversationUrl || '') ? `<a class="btn plain" href="${esc(d.conversationUrl)}" target="_blank" rel="noopener noreferrer">Open on Indeed</a>` : ''}
             ${!ob || !['Onboarding', 'Hired'].includes(d.status) ? `<button class="btn plain" data-act="startOnb">${ob ? 'Back to onboarding' : 'Start onboarding'}</button>` : ''}

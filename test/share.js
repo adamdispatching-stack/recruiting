@@ -1,5 +1,6 @@
 // Test of sharing new leads evenly, and that only an admin changes a lead's recruiter.
 //   node test/share.js http://localhost:3999 admin@example.com password
+//   (tests the even split by work schedule, with "only to recruiters working right now" off; test/assign.js tests that mode)
 const [, , base = 'http://localhost:3999', email = 'admin@example.com', pw = 'test-password-123'] = process.argv;
 function session() {
   let cookie = '';
@@ -22,7 +23,7 @@ const u = Date.now().toString().slice(-5);
     await A(`/api/team/${id}/hours`, { method: 'PUT', body: { week: all7 } }); ids.push(id);
   }
   // only these three get leads in this test
-  let r = await A('/api/settings', { method: 'PUT', body: { share: { on: true, people: ids } } });
+  let r = await A('/api/settings', { method: 'PUT', body: { share: { on: true, people: ids, onlyOnline: false } } });
   ok(r.status === 200 && r.body.share.on && r.body.share.people.length === 3, 'sharing saved with three recruiters');
   const key = (await A('/api/keys', { method: 'POST', body: { name: 'Share test ' + u, assignTo: ids[0] } })).body.key;
   const K = { Authorization: 'Bearer ' + key };
@@ -65,7 +66,7 @@ const u = Date.now().toString().slice(-5);
   ok(r.status === 200 && r.body.shared === before.waiting && (await A('/api/share')).body.waiting === 0, 'Share now gives them out');
   ok((await A('/api/drivers/' + unowned)).body.driver.ownerId, 'the unassigned lead has a recruiter now');
   // turned off: the key's recruiter again
-  await A('/api/settings', { method: 'PUT', body: { share: { on: false, people: ids } } });
+  await A('/api/settings', { method: 'PUT', body: { share: { on: false, people: ids, onlyOnline: false } } });
   await push([{ ...lead(20), phones: ['202555' + u.slice(-4)] }]);
   const off = ((await A(`/api/drivers?q=${encodeURIComponent('Share Lead ' + u + ' 20')}`)).body.drivers || []).find((d) => d.name.endsWith(' 20'));
   ok(off && off.ownerId === ids[0], 'sharing off: the key decides again');

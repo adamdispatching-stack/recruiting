@@ -416,6 +416,8 @@ async function migrate() {
   `);
   // ----- fleet: each truck's own profile -----
   await q(`
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS share_moves INT NOT NULL DEFAULT 0;   -- times a lead was moved from an away recruiter
+    CREATE INDEX IF NOT EXISTS activity_driver ON activity(driver_id, type) WHERE driver_id IS NOT NULL;
     ALTER TABLE trucks ADD COLUMN IF NOT EXISTS odometer INT;                 -- the latest mileage we know
     ALTER TABLE trucks ADD COLUMN IF NOT EXISTS odometer_at TIMESTAMPTZ;
     ALTER TABLE trucks ADD COLUMN IF NOT EXISTS oil_miles INT;                -- oil change every N miles (NULL = fleet setting)
@@ -547,7 +549,8 @@ const DEFAULTS = {
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },
   // New leads are shared evenly between recruiters (people: null = every active recruiter who is not an admin)
-  share: { on: true, people: null },
+  // onlyOnline: new leads only to recruiters working right now; moveAfter: minutes before an unopened lead leaves an away recruiter (0 = never)
+  share: { on: true, people: null, onlyOnline: true, moveAfter: 60 },
   // What a recruiter mentions on a call (Settings, Call guide). From the company facts the Chrome extension's AI uses.
   callPoints: {
     company: [
@@ -642,6 +645,7 @@ const OTHER = ['Review', 'Stalled', 'No CDL', 'Not interested', 'Declined on Ind
 const ORDER = ROUTE.concat(OTHER);
 const ACTIVE = ['Replied', 'Interested', 'Email collected', 'Relay invite sent', 'Signed up on Relay', 'Review']; // leads a recruiter should be working
 const LOST = ['No CDL', 'Not interested', 'Declined on Indeed', 'Rejected'];
+const FRESH = ['Invited', 'Replied', 'Interested', 'Email collected', 'Review']; // new leads: before anyone sent the Relay invite
 const COLD_DAYS = 3; // an active lead nobody has touched for this long is "going cold"
 const keyOf = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
 const digits = (p) => { const d = String(p || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? d : null; };
@@ -823,5 +827,5 @@ async function statusChanged(c, d, to, { userId = null, via = 'web', at = null, 
   return notes;
 }
 
-module.exports = { notify, relayFrom, AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, COLD_DAYS,
+module.exports = { notify, relayFrom, AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, FRESH, COLD_DAYS,
   settings, DEFAULTS, saveSetting, ensureOnboarding, syncAuto, releaseTruck, statusChanged };

@@ -120,7 +120,7 @@ module.exports = (app) => {
     }
     if (b.share !== undefined) {
       const sh = b.share || {}; const ids = Array.isArray(sh.people) ? [...new Set(sh.people.map((x) => +x).filter(Boolean))] : null;
-      const v = { on: sh.on !== false, people: ids };
+      const mv = Math.round(+sh.moveAfter); const v = { on: sh.on !== false, people: ids, onlyOnline: sh.onlyOnline !== false, moveAfter: sh.moveAfter === undefined ? share.cfg().moveAfter : mv >= 0 && mv <= 1440 ? mv : 60 };
       if (JSON.stringify(v) !== JSON.stringify(db.settings.share)) { await db.saveSetting('share', v); changed.push(v.on ? 'leads shared evenly' : 'leads not shared automatically'); }
     }
     if (b.callPoints !== undefined) {

@@ -95,12 +95,21 @@ module.exports = (app) => {
     if (working === '1') w.push(workSql);
     if (status) { p2.push(status); w.push(`d.status = $${p2.length}`); }
     const sortSql = { updated: 'd.updated_at DESC', name: 'lower(d.name) ASC', followup: 'd.follow_up ASC NULLS LAST, d.updated_at DESC', created: 'd.created_at DESC' }[sort] || 'd.updated_at DESC';
-    const rows = await q(`SELECT d.*, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count,
+    const rows = await q(`SELECT d.*, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count, (SELECT count(*)::int FROM activity a WHERE a.driver_id = d.id AND a.type = 'open') opens,
         (SELECT ${lib.NOTE_TEXT} FROM notes n WHERE n.driver_id = d.id ORDER BY n.updated_at DESC LIMIT 1) last_note
       FROM drivers d ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY ${sortSql}, d.id LIMIT ${Math.min(500, Math.max(1, +limit || 100))} OFFSET ${Math.max(0, +offset || 0)}`, p2);
     const pv = []; const v2 = visSql(req.user, pv);
     const accounts = await q(`SELECT DISTINCT account FROM drivers d WHERE account IS NOT NULL ${v2 ? 'AND ' + v2 : ''} ORDER BY 1`, pv);
-    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ ...toClient(d), cold: d.is_cold })), counts: counts.rows, accounts: accounts.rows.map((r) => r.account) });
+    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ ...toClient(d), cold: d.is_cold, opens: d.opens })), counts: counts.rows, accounts: accounts.rows.map((r) => r.account) });
+  }));
+
+  // Who opened a lead, how many times (opening it again within 10 minutes counts once), and when
+  app.get('/api/drivers/:id/opens', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const people = (await q(`SELECT u.id, u.name, u.role, count(*)::int times, min(a.at) first, max(a.at) last FROM activity a JOIN users u ON u.id = a.user_id
+      WHERE a.driver_id = $1 AND a.type = 'open' GROUP BY u.id ORDER BY max(a.at) DESC`, [d.id])).rows;
+    const recent = (await q(`SELECT a.at, u.name FROM activity a JOIN users u ON u.id = a.user_id WHERE a.driver_id = $1 AND a.type = 'open' ORDER BY a.at DESC LIMIT 30`, [d.id])).rows;
+    res.json({ total: people.reduce((n, p) => n + p.times, 0), ownerId: d.owner_id, assignedAt: d.assigned_at, people, recent });
   }));
 
   // ---------- one driver ----------
@@ -110,7 +119,8 @@ module.exports = (app) => {
     const notes = await q(`SELECT n.*, u.name author FROM notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.driver_id = $1 ORDER BY n.created_at DESC`, [d.id]);
     const ev = await q(`SELECT t, type, text, who FROM driver_events WHERE driver_id = $1 ORDER BY t DESC LIMIT 200`, [d.id]);
     const ops = require('./api-ops');
-    res.json({ driver: toClient(d),
+    const opens = (await q(`SELECT count(*)::int n FROM activity WHERE driver_id = $1 AND type = 'open'`, [d.id])).rows[0].n;
+    res.json({ opens, driver: toClient(d),
       notes: notes.rows.map((n) => ({ id: n.id, body: n.body, kind: n.kind, outcome: n.outcome, author: n.author || (n.source ? 'Chrome extension (' + n.source.slice(4) + ')' : 'Unknown'), mine: n.user_id === req.user.id, fromExtension: !!n.source, createdAt: n.created_at, updatedAt: n.updated_at })),
       events: ev.rows, onboarding: await ops.onboardingOf(d.id), lostReasons: LOST_REASONS, needed: (await require('./needed').neededFor([d.id]))[d.id] || [], indeedMsgs: await outbox.ofDriver(d.id),
       indeedChat: !!(d.conversation_url && /[?&]conversationId=/.test(d.conversation_url)) });
@@ -136,7 +146,7 @@ module.exports = (app) => {
     }
     const status = db.ORDER.includes(b.status) ? b.status : 'Interested';
     let ownerId = req.user.id; // a recruiter keeps the leads they find themselves
-    if (req.user.role === 'admin' && b.ownerId !== undefined) ownerId = b.ownerId === 'share' ? await share.pick() : b.ownerId ? +b.ownerId : null;
+    if (req.user.role === 'admin' && b.ownerId !== undefined) ownerId = b.ownerId === 'share' ? await share.pick(db.pool, { anyone: true }) : b.ownerId ? +b.ownerId : null;
     if (ownerId && !(await q(`SELECT 1 FROM users WHERE id = $1 AND active`, [ownerId])).rows[0]) return res.status(400).json({ error: 'That person cannot take leads' });
     const mode = MODES.includes(b.mode) ? b.mode : null;
     const pf = profileFields(b); if (pf.error) return res.status(400).json({ error: pf.error });
@@ -162,7 +172,7 @@ module.exports = (app) => {
   app.get('/api/share', needUser, needAdmin, wrap(async (req, res) => {
     const people = (await share.standings()).sort(share.order);
     const waiting = (await q(`SELECT count(*)::int n FROM drivers d WHERE ${lib.unownedSql('d')} AND d.status <> 'Hired' AND NOT (d.status = ANY($1::text[]))`, [db.LOST])).rows[0].n;
-    res.json({ ...db.settings.share, next: await share.pick(), people, waiting });
+    res.json({ ...share.cfg(), next: await share.pick(), people, waiting, onlineMin: share.ONLINE_MIN });
   }));
   app.post('/api/share/now', needUser, needAdmin, wrap(async (req, res) => {
     const c = await db.pool.connect(); const given = {}; const done = [];
@@ -170,7 +180,7 @@ module.exports = (app) => {
       await c.query('BEGIN');
       const rows = (await c.query(`SELECT d.id FROM drivers d WHERE ${lib.unownedSql('d')} AND d.status <> 'Hired' AND NOT (d.status = ANY($1::text[])) ORDER BY d.created_at FOR UPDATE`, [db.LOST])).rows;
       for (const r of rows) {
-        const to = await share.pick(c); if (!to) break;
+        const to = await share.pick(c, { anyone: true }); if (!to) break;
         await c.query(`UPDATE drivers SET owner_id = $2, assigned_at = now() WHERE id = $1`, [r.id, to]);
         given[to] = (given[to] || 0) + 1; done.push([r.id, to]);
       }

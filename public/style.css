@@ -1558,3 +1558,17 @@ table.tgco tr.hot th{box-shadow:inset 3px 0 0 var(--red)}
 .moodcard .mood.big,.moodcard .mdays{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:5px;max-width:600px}
 .moodcard .mood.big .md{width:auto;height:auto;aspect-ratio:1;font-size:clamp(12px,2.6vw,19px)}
 .moodcard .mdays span{width:auto}
+
+/* ---------- lead opens; who is working now ---------- */
+.opens{display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:1px 8px 1px 6px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--mut);font:inherit;font-size:12px;cursor:pointer}
+.opens:hover{border-color:#B9C4BF;color:var(--ink)}
+.opens.zero{border-style:dashed;color:var(--yellow-ink);background:var(--yellow-t);border-color:#E8C770}
+td .opens{display:flex;width:max-content}
+.opens.big{height:36px;margin:0;padding:0 12px;font-size:13px;border-radius:10px}
+.opensdlg{max-width:100%}
+.opent{width:100%;min-width:0;table-layout:auto;border-collapse:collapse;font-size:13.5px;margin:4px 0 10px}
+.opent th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;padding:4px 8px;border-bottom:1px solid var(--line)}
+.opent td{padding:7px 8px;border-bottom:1px solid var(--hair)}
+.onl{display:inline-block;padding:0 8px;border-radius:8px;background:var(--green-t);color:var(--green-d);font-weight:700;font-size:12.5px}
+.mvrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 14px;font-size:14px}
+.mvrow input{width:80px;height:34px;padding:0 8px;border:1px solid var(--line);border-radius:8px;font:inherit}
