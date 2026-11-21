@@ -79,7 +79,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
 
   // the bot is added to a group
   push({ my_chat_member: { chat: CHAT, from: RITA, date: 1, old_chat_member: { status: 'left', user: BOT }, new_chat_member: { status: 'member', user: BOT } } });
-  ok(await until(() => tg.sent.some((m) => m.chat_id === CHAT.id && /link code/.test(m.text)), 5000, 'intro'), 'added to a group: the bot says how to link it');
+  ok(await until(() => tg.sent.some((m) => m.chat_id === CHAT.id && /FleetHire assistant/.test(m.text) && /(looks like the <b>ELD<\/b> group for <b>Ruby Ready|name and phone number in the group title|Which driver)/.test(m.text)), 5000, 'intro'), 'added to a group: the bot reads the title (ELD, Ruby Ready) and asks the team to connect it');
   say(RITA, '/link 000000');
   ok(await until(() => tg.sent.some((m) => /not valid/.test(m.text))), 'a wrong code is refused');
   const code = (await web(`/api/drivers/${id}/tg-link`, { method: 'POST', body: { kind: 'eld' } })).code;

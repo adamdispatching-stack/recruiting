@@ -99,17 +99,12 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   // the / menu in Telegram lists the commands
   const grp = (tg.commands || []).find((c) => c.scope && c.scope.type === 'all_group_chats'), prv = (tg.commands || []).find((c) => c.scope && c.scope.type === 'all_private_chats');
   ok(grp && ['register', 'mode', 'status', 'sum', 'help'].every((x) => grp.commands.some((c) => c.command === x)) && prv && ['me', 'driver', 'help'].every((x) => prv.commands.some((c) => c.command === x)), 'Telegram\'s / menu: /register /mode /status /sum /help in groups; /me /driver /help in private');
-  // a group already going: /register from the menu, buttons for the kind, the driver; the bot starts in Watch and learn
+  // a group already going: /register from the menu; the title names the driver; the bot starts in Watch and learn
   CHAT = DCHAT;
   let n = tg.sent.length; say(RITA, '/help');
   ok(await until(() => sentSince(n).some((m) => /\/register: connect this group/.test(m.text))), '/help lists what the bot does');
   n = tg.sent.length; say(RITA, '/register');
-  const kinds = await until(() => sentSince(n).find((m) => m.text === 'Which group is this?' && m.reply_markup));
-  ok(kinds && kinds.reply_markup.inline_keyboard[0].length === 3, '/register with nothing after it: buttons Dispatch, ELD, Accounting');
-  n = tg.sent.length; tap(RITA, kinds.reply_markup.inline_keyboard[0][0].callback_data);
-  const pick = await until(() => sentSince(n).find((m) => /Which driver is this <b>Dispatch<\/b> group for\?/.test(m.text)));
-  n = tg.sent.length; tap(RITA, pick.reply_markup.inline_keyboard[0][0].callback_data);
-  ok(await until(() => sentSince(n).some((m) => /now the <b>Dispatch<\/b> group for <b>Olga Onb<\/b>/.test(m.text))), 'linked right away, no question');
+  ok(await until(() => sentSince(n).some((m) => /now the <b>Dispatch<\/b> group for <b>Olga Onb<\/b>/.test(m.text))), '/register alone: the group title says who (Olga Onb): linked right away');
   ok(await until(() => sentSince(n).some((m) => /^👀 Watch and learn: I read along.*\nTo change: \/mode/s.test(m.text))), 'starts in 👀 Watch and learn (the default); /mode to change');
   await sleep(1500);
   ok(!tg.sent.some((m) => m.chat_id === DCHAT.id && /Welcome, <b>Olga<\/b>|I am the driver/.test(m.text)), 'watching: no welcome, no card, nothing written');

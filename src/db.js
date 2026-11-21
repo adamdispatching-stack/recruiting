@@ -428,6 +428,12 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS onb_ai_steps_driver ON onb_ai_steps(driver_id, state);
     -- messages brought in from a Telegram export (before the bot joined): read for notes and learning, never acted on
     ALTER TABLE tg_messages ADD COLUMN IF NOT EXISTS imported BOOLEAN NOT NULL DEFAULT false;
+    -- the MVR and the drug test: CDL state, last 4 of the SSN (Pennsylvania MVR; deleted after 30 days), the private link code
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS license_state TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS ssn4 TEXT;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS ssn4_at TIMESTAMPTZ;
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS ssn4_code TEXT;
+    ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS asked JSONB NOT NULL DEFAULT '{}'::jsonb;
     -- answers the AI picked up from the team's own replies: waiting for an admin to approve before the bot uses them
     ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS review BOOLEAN NOT NULL DEFAULT false;
     -- a truck filled: its driver started (hired) in it; the recruiter whose driver it is gets the credit

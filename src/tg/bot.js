@@ -34,7 +34,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<'
 const tag = (p) => (p.username ? '@' + p.username : `<a href="tg://user?id=${p.tg_id}">${esc(p.name || 'there')}</a>`);
 async function send(chatId, html, { buttons, replyTo, forceReply } = {}) {
   const params = { chat_id: chatId, text: html, parse_mode: 'HTML', disable_web_page_preview: true };
-  if (buttons) params.reply_markup = { inline_keyboard: buttons.map((row) => row.map(([text, data]) => ({ text, callback_data: data }))) };
+  if (buttons) params.reply_markup = { inline_keyboard: buttons.map((row) => row.map(([text, data]) => (/^https?:/.test(data) ? { text, url: data } : { text, callback_data: data }))) };
   if (forceReply) params.reply_markup = { force_reply: true, selective: true };
   if (replyTo) params.reply_parameters = { message_id: replyTo, allow_sending_without_reply: true };
   for (let i = 0; i < 3; i++) {
@@ -61,7 +61,8 @@ function redact(t) {
   return String(t)
     .replace(/\b(pass(?:word)?|pwd|pin|passcode)\b(\s*[:=-]?\s*)(\S+)/gi, (m, k, sep) => `${k}${sep}[hidden]`)
     .replace(/\b(routing|account|acct|ssn|social security)(\s*(?:number|no\.?|#)?\s*[:=-]?\s*)([\d -]{4,})/gi, (m, k, sep) => `${k}${sep}[hidden]`)
-    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[hidden]');
+    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[hidden]')
+    .replace(/(?<![\d+(-])\b\d{9}\b(?![\d)-])/g, '[hidden]'); // a bare 9-digit number (an SSN)
 }
 const nameOf = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Someone';
 async function person(u) {
@@ -119,34 +120,86 @@ async function link(m, code, who) {
 // "register dispatch", "register eld John Smith": the team registers a group from Telegram
 const isStaff = (p) => p && (p.role === 'staff' || !!p.user_id);
 const KIND_WORD = { dispatch: 'dispatch', updates: 'dispatch', onboarding: 'dispatch', eld: 'eld', accounting: 'accounting', acct: 'accounting', accounts: 'accounting' };
+// The group's title: "John Smith 215-555-0144", "John Smith ELD", "Accounting - John Smith"
+function titleInfo(title) {
+  const t = String(title || '');
+  const kind = /\beld\b/i.test(t) ? 'eld' : /\b(accounting|accounts|acct)\b/i.test(t) ? 'accounting' : 'dispatch';
+  const pm = t.match(/(?:\+?1[\s.-]*)?\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4}/);
+  const phone = pm ? db.digits(pm[0]) : null;
+  const name = (pm ? t.replace(pm[0], ' ') : t).replace(/\b(eld|dispatch|accounting|accounts|acct|group|chat|updates?|onboarding|fleethire|driver|new)\b/gi, ' ').replace(/[^\p{L}' -]+/gu, ' ').replace(/\s+/g, ' ').replace(/^[ '-]+|[ '-]+$/g, '').trim();
+  return { kind, phone, name };
+}
+// Drivers that fit: the phone number first, then the name. sure = one clear match.
+async function findDrivers({ phone, name }) {
+  const OUT = `status NOT IN ('Not interested', 'Declined on Indeed', 'No CDL')`;
+  if (phone) {
+    const r = (await q(`SELECT id, name, status, phones FROM drivers WHERE $1 = ANY(phones) AND ${OUT} ORDER BY (status = 'Hired') DESC, updated_at DESC LIMIT 6`, [phone])).rows;
+    if (r.length === 1) return { sure: r[0], list: r };
+    if (r.length) return { sure: null, list: r };
+  }
+  const words = String(name || '').split(/\s+/).filter((x) => x.length > 1);
+  if (!words.length) return { sure: null, list: [] };
+  const r = (await q(`SELECT id, name, status, phones FROM drivers WHERE ${words.map((_, i) => `name ILIKE $${i + 1}`).join(' AND ')} AND ${OUT}
+      ORDER BY (status = 'Hired') DESC, (status = 'Onboarding') DESC, updated_at DESC LIMIT 6`, words.map((x) => `%${x}%`))).rows;
+  return { sure: r.length === 1 && words.length >= 2 ? r[0] : null, list: r };
+}
+const addPhone = (driverId, phone) => phone && q(`UPDATE drivers SET phones = array_append(phones, $2) WHERE id = $1 AND NOT ($2 = ANY(phones))`, [driverId, phone]);
+// Buttons to pick the driver (or add a new one)
+async function askWhich(chatId, kind, info, list, who, replyTo) {
+  const rows = list.map((d) => [[`${d.name} (${d.status === 'Hired' ? 'active' : d.status.toLowerCase()})`, `reg:${kind}:${d.id}`]]);
+  if (info.name) {
+    if (kind === 'dispatch') rows.push([[`➕ New driver in onboarding: ${info.name.slice(0, 30)}`, `reg:${kind}:newonb`]]);
+    rows.push([[`➕ Add "${info.name.slice(0, 30)}" as an active driver`, `reg:${kind}:new`]]);
+  }
+  await q(`INSERT INTO tg_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`, ['reg:' + chatId, JSON.stringify({ name: info.name, phone: info.phone, kind, by: who && who.tg_id, mode: info.mode || null })]);
+  if (!rows.length) return send(chatId, 'Whose group is this? Send <code>/register ' + kind + ' Driver Name</code>, or put the driver\'s name and phone number in the group title.', { replyTo });
+  return send(chatId, `Which driver is this <b>${KINDS[kind]}</b> group for?${!list.length && (info.name || info.phone) ? `\nI found nobody on the website with ${[info.name ? `the name "${esc(info.name)}"` : '', info.phone ? `the phone ${info.phone}` : ''].filter(Boolean).join(' or ')}.` : ''}`, { replyTo, buttons: rows });
+}
+// The bot was added to a group (or its title changed): read the title and connect it to the driver
+async function autoRegister(chat, who) {
+  const cur = (await q(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [chat.id])).rows[0];
+  if (cur && cur.kind && cur.driver_id) return;
+  const info = titleInfo(chat.title);
+  if (!info.name && !info.phone) return send(chat.id, '👋 Hi, I am the FleetHire assistant.\n\nPut the driver\'s name and phone number in the group title and I connect it myself, or type /register.\nPlease also make me an admin, so I can read the messages.');
+  const f = await findDrivers(info);
+  if (f.sure && isStaff(who)) { await addPhone(f.sure.id, info.phone); return linkChat(chat.id, info.kind, f.sure.id, who.user_id || null, who); }
+  if (f.sure) {
+    await q(`INSERT INTO tg_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`, ['reg:' + chat.id, JSON.stringify({ name: info.name, phone: info.phone, kind: info.kind })]);
+    return send(chat.id, `👋 Hi, I am the FleetHire assistant. This looks like the <b>${KINDS[info.kind]}</b> group for <b>${esc(f.sure.name)}</b>. Someone from our team, tap to connect it:`, { buttons: [[['✅ Connect', `reg:${info.kind}:${f.sure.id}`]]] });
+  }
+  return askWhich(chat.id, info.kind, info, f.list, who);
+}
+// "/register", "register dispatch", "register eld John Smith": the team registers a group from Telegram.
+// With nothing after it, the group title says who and which kind.
 async function register(m, args, who) {
   if (!isStaff(who)) return send(m.chat.id, 'I don\'t know you yet. On the website, open Telegram and use "Connect my Telegram" (or an admin marks you as "Our team" under Telegram → People), then send register again.', { replyTo: m.message_id });
-  const [w, ...rest] = String(args || '').trim().split(/\s+/);
-  const kind = KIND_WORD[(w || '').toLowerCase()];
-  if (!kind) return send(m.chat.id, 'Which group is this?', { replyTo: m.message_id, buttons: [[['🚚 Dispatch (onboarding)', 'regk:dispatch'], ['📋 ELD', 'regk:eld'], ['💵 Accounting', 'regk:accounting']]] });
+  const [w, ...rest] = String(args || '').trim().split(/\s+/).filter(Boolean);
+  const t = titleInfo(m.chat.title);
+  let kind = KIND_WORD[(w || '').toLowerCase()];
+  if (!kind && w) rest.unshift(w);
   let mode = null; if (rest.length && MODE_WORD[rest[rest.length - 1].toLowerCase()]) mode = MODE_WORD[rest.pop().toLowerCase()];
-  let name = rest.join(' ').trim();
-  if (!name) name = String(m.chat.title || '').replace(/\b(eld|dispatch|accounting|acct|group|chat|updates?|onboarding|fleethire)\b/gi, ' ').replace(/[^\p{L}\p{N}' -]+/gu, ' ').trim();
-  const words = name.split(/\s+/).filter((x) => x.length > 1);
-  const cand = words.length ? (await q(`SELECT id, name, status FROM drivers WHERE ${words.map((_, i) => `name ILIKE $${i + 1}`).join(' AND ')} AND status NOT IN ('Not interested', 'Declined on Indeed', 'No CDL')
-      ORDER BY (status = 'Hired') DESC, (status = 'Onboarding') DESC, updated_at DESC LIMIT 6`, words.map((x) => `%${x}%`))).rows : [];
-  const rows = cand.map((d) => [[`${d.name} (${d.status === 'Hired' ? 'active' : d.status.toLowerCase()})`, `reg:${kind}:${d.id}`]]);
-  if (name) rows.push([[`➕ Add "${name.slice(0, 40)}" as an active driver`, `reg:${kind}:new`]]);
-  await q(`INSERT INTO tg_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`, ['reg:' + m.chat.id, JSON.stringify({ name, kind, by: who.tg_id, mode })]);
-  if (!rows.length) return send(m.chat.id, 'Whose group is this? Send <code>register ' + kind + ' Driver Name</code>.', { replyTo: m.message_id });
-  return send(m.chat.id, `Which driver is this <b>${KINDS[kind]}</b> group for?`, { replyTo: m.message_id, buttons: rows });
+  const typed = rest.join(' ').trim();
+  if (!kind && !typed && !t.name && !t.phone) return send(m.chat.id, 'Which group is this?', { replyTo: m.message_id, buttons: [[['🚚 Dispatch (onboarding)', 'regk:dispatch'], ['📋 ELD', 'regk:eld'], ['💵 Accounting', 'regk:accounting']]] });
+  kind = kind || t.kind;
+  const info = typed ? { ...titleInfo(typed), kind, mode } : { ...t, kind, mode };
+  const f = await findDrivers(info);
+  if (f.sure) { await addPhone(f.sure.id, info.phone); return linkChat(m.chat.id, kind, f.sure.id, who.user_id || null, who, { mode }); }
+  return askWhich(m.chat.id, kind, info, f.list, who, m.message_id);
 }
 async function registerButton(cq, who) {
   if (!isStaff(who)) return 'Only our team can register a group.';
   const [, kind, did] = cq.data.split(':'); const chatId = cq.message.chat.id;
   let driverId = +did;
-  if (did === 'new') {
+  if (did === 'new' || did === 'newonb') {
     const st = ((await q(`SELECT value FROM tg_state WHERE key = $1`, ['reg:' + chatId])).rows[0] || {}).value || {};
     if (!st.name) return 'Send register again with the driver\'s name.';
-    const ins = await q(`INSERT INTO drivers (name, name_key, status, source, owner_id, created_by, status_at, status_locked) VALUES ($1, $2, 'Hired', 'Telegram', NULL, $3, now(), true) RETURNING id`, [st.name, db.keyOf(st.name), who.user_id || null]);
+    const onb = did === 'newonb';
+    const ins = await q(`INSERT INTO drivers (name, name_key, status, source, owner_id, created_by, status_at, status_locked, phones) VALUES ($1, $2, $4, 'Telegram', $5, $3, now(), true, $6) RETURNING id`,
+      [st.name, db.keyOf(st.name), who.user_id || null, onb ? 'Onboarding' : 'Hired', onb ? who.user_id || null : null, st.phone ? [st.phone] : []]);
     driverId = ins.rows[0].id;
-    await require('../lib').history(driverId, 'Added as an active driver from Telegram', who.name, 'telegram').catch(() => {});
-  }
+    if (onb) await db.ensureOnboarding(db.pool, driverId, who.user_id || null);
+    await require('../lib').history(driverId, onb ? 'Added from Telegram, in onboarding' : 'Added as an active driver from Telegram', who.name, 'telegram').catch(() => {});
+  } else { const st = ((await q(`SELECT value FROM tg_state WHERE key = $1`, ['reg:' + chatId])).rows[0] || {}).value || {}; await addPhone(driverId, st.phone); }
   await dropButtons(chatId, cq.message.message_id);
   // a driver still onboarding: the bot starts in the default mode (👀 Watch and learn); the team changes it with /mode
   const st = ((await q(`SELECT value FROM tg_state WHERE key = $1`, ['reg:' + chatId])).rows[0] || {}).value || {};
@@ -192,9 +245,7 @@ async function handle(u) {
     const c = u.my_chat_member; const st = c.new_chat_member.status; await chatOf(c.chat);
     if (st === 'left' || st === 'kicked') { await q(`UPDATE tg_chats SET active = false WHERE chat_id = $1`, [c.chat.id]); return; }
     await q(`UPDATE tg_chats SET active = true, bot_admin = $2 WHERE chat_id = $1`, [c.chat.id, st === 'administrator']);
-    if (c.old_chat_member.status === 'left' || c.old_chat_member.status === 'kicked') {
-      await send(c.chat.id, '👋 Hi, I am the FleetHire assistant.\n\nTo connect this group to a driver, send the link code from the driver\'s page on the website, like <code>/link 482913</code>.\nPlease also make me an admin, so I can read the messages.');
-    }
+    if (c.old_chat_member.status === 'left' || c.old_chat_member.status === 'kicked') await autoRegister(c.chat, c.from ? await person(c.from) : null);
     return;
   }
   if (u.callback_query) {
@@ -218,6 +269,9 @@ async function handle(u) {
     return;
   }
   if (m.chat.type === 'private') {
+    const s4 = /^\/start\s+s4_(\S+)/.exec(m.text || '');
+    if (s4) return require('./mvr').privateStart(m, s4[1]);
+    if (m.text && await require('./mvr').privateMessage(m)) return; // the last 4 of the SSN: never saved as a message
     // kept, so the Chrome extension (same bot) can read your replies to its alerts through the website
     if (m.text) await saveMessage(m);
     const pc = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || ''); const me = m.from ? await person(m.from) : null;
@@ -231,6 +285,7 @@ async function handle(u) {
   if (who) await q(`INSERT INTO tg_members (chat_id, tg_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [chat.chat_id, who.tg_id]);
   for (const nm of m.new_chat_members || []) { if (nm.is_bot) continue; const p = await person(nm); await q(`INSERT INTO tg_members (chat_id, tg_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [chat.chat_id, p.tg_id]); }
   if (m.left_chat_member && !m.left_chat_member.is_bot) await q(`DELETE FROM tg_members WHERE chat_id = $1 AND tg_id = $2`, [chat.chat_id, m.left_chat_member.id]);
+  if (m.new_chat_title) { await q(`UPDATE tg_chats SET title = $2 WHERE chat_id = $1`, [chat.chat_id, m.new_chat_title]); return autoRegister({ ...m.chat, title: m.new_chat_title }, who); }
   if (!m.text && !m.caption && !m.photo && !m.document && !m.location && !m.voice) return;
   await saveMessage(m);
   const cmd = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || '');
@@ -259,7 +314,7 @@ async function setCommands() {
   await call('setMyCommands', { commands: list(PRIVATE_CMDS) });
 }
 const helpText = (group) => group
-  ? '<b>FleetHire assistant</b>\nI read this group and keep the team informed on the website.\n\n/register: connect this group to a driver\n/mode: onboarding groups: 👀 watch and learn, 💬 answer questions, or 🚀 run the onboarding\n/status: the driver\'s status card\n/sum: sum up today on the website now\n\nThe commands are for our team (connect your account first: in a private chat with me, /me CODE from the website).'
+  ? '<b>FleetHire assistant</b>\nI read this group and keep the team informed on the website.\n\n/register: connect this group to a driver (I also do it myself when the title has the driver\'s name and phone)\n/mode: onboarding groups: 👀 watch and learn, 💬 answer questions, or 🚀 run the onboarding\n/status: the driver\'s status card\n/sum: sum up today on the website now\n\nThe commands are for our team (connect your account first: in a private chat with me, /me CODE from the website).'
   : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
 // /mode in an onboarding group: buttons, or "/mode watch"
 async function modeCmd(m, chat, arg, who) {

@@ -167,6 +167,7 @@ async function onMessage(chat, m, who) {
   let c = await caseOf(chat.driver_id);
   if (!c || c.chat_id !== chat.chat_id) { await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon) SELECT id, $2, amazon_step FROM drivers WHERE id = $1 ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2`, [chat.driver_id, chat.chat_id]); c = await caseOf(chat.driver_id); }
   if (who.role && who.role !== 'driver') return; // ELD, accounting, dispatch people: not the driver
+  await require('./mvr').fromGroup(c, m, m.text || m.caption || '').catch((e) => console.error('mvr', e.message)); // the last 4 of the SSN, the ZIP, the CDL state
   if (c.bot_mode === 'watch') return; // watch and learn: the digest reads it, the bot says nothing
   // a driver nobody named yet: whoever writes with the driver's first name
   if (!who.role && !(await driverPerson(c.driver_id)) && who.name.split(/\s+/)[0].toLowerCase() === c.name.split(/\s+/)[0].toLowerCase()) {
@@ -234,6 +235,7 @@ async function readFile(c, m, who, file) {
     await refreshCard(c);
     return tell(c, `${c.name} sent a ${REPORT[r.kind]}: ${RESULT[r.result] || 'could not tell'}${findings.length ? ' (' + findings.slice(0, 2).join('; ') + ')' : ''}`, false);
   }
+  if (r.kind === 'cdl' && r.state) await require('./mvr').setFacts(c.driver_id, { state: r.state }, 'AI', { onlyEmpty: true }).catch(() => {});
   if ((r.kind === 'cdl' || r.kind === 'medical_card') && /^\d{4}-\d{2}-\d{2}$/.test(r.expires || '')) {
     await q(`UPDATE drivers SET ${r.kind === 'cdl' ? 'cdl_expires' : 'med_expires'} = $2, updated_at = now() WHERE id = $1`, [c.driver_id, r.expires]);
     const soon = new Date(r.expires) < new Date(Date.now() + 60 * 864e5);
@@ -250,8 +252,10 @@ async function tick() {
   const day = !!process.env.TG_NO_QUIET || (L.h >= 9 && L.h < 20); // reminders in the daytime only (TG_NO_QUIET: tests only)
   const cases = (await q(`SELECT c.driver_id FROM onb_cases c JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active AND ch.kind = 'dispatch' AND ch.driver_id = c.driver_id
     JOIN drivers d ON d.id = c.driver_id WHERE c.mode = 'run' AND d.status NOT IN ('Hired', 'Rejected', 'Not interested', 'No CDL', 'Declined on Indeed') AND d.left_on IS NULL`)).rows;
+  await require('./mvr').purge().catch(() => {});
   for (const { driver_id: id } of cases) {
     const c = await caseOf(id); if (!c) continue;
+    if (day) await require('./mvr').ask(id).catch((e) => console.error('mvr ask', e.message)); // CDL state, ZIP, the last 4 for a PA MVR
     // the Amazon step moved (here, on the website or in the extension)
     if ((c.amazon_step || null) !== (c.last_amazon || null)) {
       await q(`UPDATE onb_cases SET last_amazon = $2, nudge = NULL WHERE driver_id = $1`, [id, c.amazon_step]);

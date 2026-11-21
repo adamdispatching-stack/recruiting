@@ -340,6 +340,7 @@
         <label class="fld">Expected arrival<input type="date" data-ch="onbField" data-f="expectedArrival" data-fk="ea" value="${esc(ob.expectedArrival || '')}"></label>
         <label class="fld">Arrived on<input type="date" data-ch="onbField" data-f="arrivedOn" data-fk="ao" value="${esc(ob.arrivedOn || '')}"></label>
         <label class="fld wide">Arrival details<input type="text" data-ch="onbField" data-f="arrivalNote" data-fk="an" maxlength="500" placeholder="Flight or bus, pickup, hotel" value="${esc(ob.arrivalNote || '')}"></label>
+        ${mvrFields(d)}
         <label class="fld wide">Telegram onboarding group<span class="inrow"><input type="url" data-ch="onbField" data-f="telegramLink" data-fk="tg" placeholder="Paste the group's invite link, https://t.me/..." value="${esc(ob.telegramLink || '')}">${ob.telegramLink ? `<a class="btn plain" href="${esc(ob.telegramLink)}" target="_blank" rel="noopener noreferrer">Open group</a>` : ''}</span></label>
       </div>
       <ul class="steps">${ob.items.map(stepHtml).join('')}</ul>
@@ -347,6 +348,33 @@
       ${d.status === 'Onboarding' ? `<div class="orow"><button class="btn ${left ? 'plain' : 'primary'}" data-act="hire">Mark as hired</button><span class="hint">${left ? `${plural(left, 'step')} still open.` : 'Every step is done.'}</span></div>` : ''}
     </section>`;
   }
+  // The MVR and the drug test: the CDL state, the ZIP (a drug test facility nearby), the last 4 of the SSN for a Pennsylvania MVR
+  const US = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'];
+  function mvrFields(d) {
+    const need = (cur && cur.mvrNeeds) || [];
+    const pa = d.licenseState === 'PA' || d.hasSsn4;
+    return `${need.length ? `<p class="hint wide mvrneed"><b>Still needed from the driver:</b> ${esc(need.map((n) => n.label).join(', '))}.</p>` : ''}
+      <label class="fld">CDL state<select data-ch="mvrField" data-f="licenseState" data-fk="ls"><option value="">Not known</option>${US.map((x) => `<option ${d.licenseState === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label class="fld">ZIP code (drug test)<input type="text" inputmode="numeric" maxlength="5" pattern="[0-9]{5}" data-ch="mvrField" data-f="zip" data-fk="zip" placeholder="12345" value="${esc(d.zip || '')}"></label>
+      ${pa ? `<div class="fld wide"><span>Last 4 of SSN (Pennsylvania MVR)</span>${d.hasSsn4
+        ? `<span class="inrow"><code class="ssn4" id="ssn4">••••</code><button type="button" class="btn plain sm" data-act="ssn4Show">Show</button><button type="button" class="btn plain sm" data-act="ssn4Del">Delete</button><span class="hint">Given ${esc(dateText(dayOf(d.ssn4At)))}. Deleted by itself after 30 days.</span></span>`
+        : `<span class="inrow"><input type="text" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="off" data-ch="mvrField" data-f="ssn4" data-fk="s4" placeholder="1234" aria-label="Last 4 of SSN" style="max-width:90px"><button type="button" class="btn plain sm" data-act="ssn4Link">Copy a private link for the driver</button></span>
+          <span class="hint">The driver sends the 4 digits to the bot privately, not in the group. Only you and the admins can see them.</span>`}</div>` : ''}`;
+  }
+  onChange('mvrField', async (el) => {
+    const v = el.value.trim();
+    if (el.dataset.f === 'zip' && v && !/^\d{5}$/.test(v)) return toast('A ZIP code is 5 digits');
+    if (el.dataset.f === 'ssn4' && v && !/^\d{4}$/.test(v)) return toast('Only the last 4 digits');
+    try { await api(`/api/drivers/${cur.driver.id}/mvr`, { method: 'PATCH', body: { [el.dataset.f]: v } }); toast('Saved'); } catch (e) { fail(e); } await again();
+  });
+  on('ssn4Show', async (b) => {
+    const el = $('#ssn4'); if (b.textContent === 'Hide') { el.textContent = '••••'; b.textContent = 'Show'; return; }
+    try { const r = await api(`/api/drivers/${cur.driver.id}/ssn4`); el.textContent = r.ssn4; b.textContent = 'Hide'; setTimeout(() => { if (el.isConnected) { el.textContent = '••••'; b.textContent = 'Show'; } }, 30000); } catch (e) { fail(e); }
+  });
+  on('ssn4Del', async () => { if (!confirm('Delete the last 4 of SSN for this driver?')) return; try { await api(`/api/drivers/${cur.driver.id}/mvr`, { method: 'PATCH', body: { ssn4: '' } }); toast('Deleted'); } catch (e) { fail(e); } await again(); });
+  on('ssn4Link', async (b) => {
+    try { const r = await api(`/api/drivers/${cur.driver.id}/ssn4-link`, { method: 'POST' }); await navigator.clipboard.writeText(r.text).catch(() => {}); b.textContent = 'Copied: paste it to the driver'; toast('Copied. Paste it in the group or a text to the driver.'); } catch (e) { fail(e); }
+  });
   async function viewDriver(id) {
     const live = App.drawing();
     let r; try { r = await api('/api/drivers/' + id); r.tips = (await api('/api/coaching?driver=' + id).catch(() => ({ tips: [] }))).tips; } catch (e) { if (live()) view.innerHTML = header('leads') + `<main><a class="back" href="#/leads">← Leads</a><div class="empty"><p>${esc(e.message)}</p></div></main>`; return; }

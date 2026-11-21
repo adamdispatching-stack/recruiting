@@ -22,6 +22,7 @@ function toClient(d) {
     relayBefore: d.relay_before === undefined ? null : d.relay_before, callPrep: d.call_prep || null, callPrepAt: d.call_prep_at || null, amazonStep: d.amazon_step || null, amazonLog: d.amazon_log || {}, lostNote: d.lost_note || null,
     expYears: d.exp_years === null || d.exp_years === undefined ? null : +d.exp_years, experience: d.experience, truckYear: d.truck_year, truckModel: d.truck_model, companyId: d.company_id,
     callback: d.callback_at ? { at: d.callback_at, said: d.callback_said, tz: d.callback_tz, by: d.callback_by, state: d.callback_state } : null,
+    licenseState: d.license_state || null, hasSsn4: d.ssn4 !== undefined ? !!d.ssn4 : undefined, ssn4At: d.ssn4_at || null,
     createdAt: d.created_at, updatedAt: d.updated_at, noteCount: d.note_count !== undefined ? +d.note_count : undefined, lastNote: d.last_note };
 }
 const cleanPhones = (list) => [...new Set((list || []).map(db.digits).filter(Boolean))];
@@ -139,7 +140,40 @@ module.exports = (app) => {
     res.json({ opens, driver: toClient(d),
       notes: notes.rows.map((n) => ({ id: n.id, body: n.body, kind: n.kind, outcome: n.outcome, author: n.author || (n.source ? 'Chrome extension (' + n.source.slice(4) + ')' : 'Unknown'), mine: n.user_id === req.user.id, fromExtension: !!n.source, createdAt: n.created_at, updatedAt: n.updated_at })),
       events: ev.rows, onboarding: await ops.onboardingOf(d.id), lostReasons: LOST_REASONS, needed: (await require('./needed').neededFor([d.id]))[d.id] || [], indeedMsgs: await outbox.ofDriver(d.id),
-      indeedChat: !!(d.conversation_url && /[?&]conversationId=/.test(d.conversation_url)) });
+      indeedChat: !!(d.conversation_url && /[?&]conversationId=/.test(d.conversation_url)),
+      mvrNeeds: require('./tg/mvr').needs(await require('./tg/mvr').driver(d.id)) });
+  }));
+
+  // ---------- the MVR and the drug test: CDL state, ZIP, the last 4 of the SSN (a Pennsylvania MVR) ----------
+  // Only the driver's recruiter and admins see or set the last 4; every look is in the driver's history.
+  const mayMvr = (u, d) => u.role === 'admin' || (u.role !== 'dispatcher' && (d.owner_id === u.id || !d.owner_id));
+  app.patch('/api/drivers/:id/mvr', needUser, wrap(async (req, res) => {
+    const d = await lib.loadDriver(req, res); if (!d) return;
+    const b = req.body || {}; const mvr = require('./tg/mvr');
+    if (b.licenseState !== undefined && b.licenseState !== '' && !mvr.stateCode(b.licenseState)) return res.status(400).json({ error: 'Pick a US state, like PA' });
+    if (b.zip !== undefined && b.zip !== '' && !/^\d{5}$/.test(String(b.zip).trim())) return res.status(400).json({ error: 'A ZIP code is 5 digits' });
+    if (b.ssn4 !== undefined && b.ssn4 !== '' && !/^\d{4}$/.test(String(b.ssn4))) return res.status(400).json({ error: 'Only the last 4 digits' });
+    if (b.ssn4 !== undefined && !mayMvr(req.user, d)) return res.status(403).json({ error: 'Only the driver\'s recruiter or an admin' });
+    if (b.licenseState === '') await q(`UPDATE drivers SET license_state = NULL WHERE id = $1`, [d.id]);
+    if (b.zip === '') await q(`UPDATE drivers SET zip = NULL WHERE id = $1`, [d.id]);
+    if (b.ssn4 === '') { await q(`UPDATE drivers SET ssn4 = NULL, ssn4_at = NULL WHERE id = $1`, [d.id]); await lib.history(d.id, 'Last 4 of SSN deleted', req.user.name, 'web'); }
+    await mvr.setFacts(d.id, { state: b.licenseState || undefined, zip: b.zip ? String(b.zip).trim() : undefined, ssn4: b.ssn4 || undefined }, req.user.name, { quiet: true });
+    await q(`UPDATE drivers SET updated_at = now() WHERE id = $1`, [d.id]);
+    res.json({ ok: true, needs: mvr.needs(await mvr.driver(d.id)) });
+  }));
+  app.get('/api/drivers/:id/ssn4', needUser, wrap(async (req, res) => {
+    const d = await lib.loadDriver(req, res); if (!d) return;
+    if (!mayMvr(req.user, d)) return res.status(403).json({ error: 'Only the driver\'s recruiter or an admin' });
+    if (!d.ssn4) return res.status(404).json({ error: 'Not given yet' });
+    await lib.history(d.id, `${req.user.name} looked at the last 4 of SSN`, req.user.name, 'web');
+    res.set('Cache-Control', 'no-store').json({ ssn4: d.ssn4 });
+  }));
+  app.post('/api/drivers/:id/ssn4-link', needUser, wrap(async (req, res) => {
+    const d = await lib.loadDriver(req, res); if (!d) return;
+    if (!mayMvr(req.user, d)) return res.status(403).json({ error: 'Only the driver\'s recruiter or an admin' });
+    const url = await require('./tg/mvr').privateLink(d.id);
+    if (!url) return res.status(409).json({ error: 'The Telegram bot is not running' });
+    res.json({ url, text: `For your MVR (Pennsylvania) we need the last 4 digits of your Social Security number. Please send them privately to our bot here: ${url}` });
   }));
 
   // Add a lead by hand. The source is required, and someone already in the list is not added twice.

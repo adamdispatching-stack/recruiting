@@ -112,10 +112,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => tg.sent.some((m) => /Connected: you are <b>Rita Recruiter<\/b>/.test(m.text))), 'Rita connects her Telegram (/me code)');
   // register the dispatch group: the driver is found from the group's name
   let n = tg.sent.length; say(RITA, 'register dispatch');
-  const pick = await until(() => sentSince(n).find((m) => /Which driver is this <b>Dispatch<\/b> group for\?/.test(m.text)));
-  ok(pick && /Hank Hired \(active\)/.test(pick.reply_markup.inline_keyboard[0][0].text), 'register dispatch: the bot offers Hank Hired (from the group name)');
-  n = tg.sent.length; tap(RITA, pick.reply_markup.inline_keyboard[0][0].callback_data);
-  ok(await until(() => sentSince(n).some((m) => /now the <b>Dispatch<\/b> group for <b>Hank Hired<\/b>/.test(m.text))), 'tapped: linked as Hank\'s dispatch group');
+  ok(await until(() => sentSince(n).some((m) => /now the <b>Dispatch<\/b> group for <b>Hank Hired<\/b>/.test(m.text))), 'register dispatch: the group name says Hank Hired: linked as Hank\'s dispatch group');
   ok(await until(() => sentSince(n).some((m) => /I keep track of this group for the team/.test(m.text))), 'an active driver\'s group: the bot just says it keeps track');
   // a fleet driver who is not on the website yet: added from Telegram
   n = tg.sent.length; say(RITA, 'register eld', {}, ECHAT);

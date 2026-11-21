@@ -101,6 +101,8 @@ async function onboardingStatus(chat, o, steps, quiet) {
   const s = { summary: bot.redact(String(o.summary)).slice(0, 800), waitingOn: o.waiting_on || null, nextStep: o.next_step ? String(o.next_step).slice(0, 200) : null,
     blockers: (o.blockers || []).map((x) => bot.redact(String(x)).slice(0, 200)).slice(0, 6), openQuestions: (o.open_questions || []).map((x) => bot.redact(String(x)).slice(0, 200)).slice(0, 6), mood: o.driver_mood || null };
   await q(`INSERT INTO onb_cases (driver_id, chat_id, mode, ai_status, ai_status_at) VALUES ($1, $2, 'watch', $3, now()) ON CONFLICT (driver_id) DO UPDATE SET ai_status = $3, ai_status_at = now()`, [chat.driver_id, chat.chat_id, JSON.stringify(s)]);
+  // the CDL state and the ZIP (for the MVR and the drug test): fills gaps only
+  if (o.license_state || o.zip) await require('./mvr').setFacts(chat.driver_id, { state: o.license_state || undefined, zip: o.zip || undefined }, 'AI', { onlyEmpty: true }).catch((e) => console.error('mvr', e.message));
   const auto = !!(db.settings.tg || {}).autoTick; const found = [];
   for (const st of o.done_steps || []) {
     const step = steps.find((x) => x.id === +st.id); if (!step) continue;

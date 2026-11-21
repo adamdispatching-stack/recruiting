@@ -44,6 +44,7 @@ const ONB_TOOL = { name: 'onboarding_doc', description: 'What this picture or PD
   result: { type: 'string', enum: ['clear', 'issues', 'pending', 'unknown'], description: 'For reports and tests: clear = nothing against the driver; issues = something to review; pending = not finished.' },
   findings: { type: 'array', items: { type: 'string' }, description: 'For reports: what a hiring manager must know (for example "1 speeding ticket, 2024", "no accidents", "license valid"). NO names, numbers, addresses, dates of birth or IDs.' },
   expires: { type: 'string', description: 'Only for cdl or medical_card: the expiry date as YYYY-MM-DD, or empty.' },
+  state: { type: 'string', description: 'Only for cdl: the 2-letter US state that issued it (like PA), or empty.' },
   note: { type: 'string', description: 'A few words on what it is, without personal details.' } }, required: ['kind', 'note'] } };
 async function onbDoc(buf, mime) {
   const block = mime === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } }
@@ -94,6 +95,8 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     blockers: { type: 'array', items: { type: 'string' }, description: 'Problems holding it up (a failed check, a missing document, the driver unsure...).' },
     open_questions: { type: 'array', items: { type: 'string' }, description: 'Questions the driver asked that nobody answered yet.' },
     driver_mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry', 'unknown'] },
+    license_state: { type: 'string', description: 'The 2-letter US state of the driver\'s CDL (like PA), ONLY if a message or a CDL picture shows it. Empty otherwise.' },
+    zip: { type: 'string', description: 'The driver\'s home ZIP code (5 digits) for booking a drug test nearby, ONLY if the driver said it. Empty otherwise.' },
     done_steps: { type: 'array', description: 'Listed onboarding steps the messages clearly show are DONE (not just planned). Only ids from the list.', items: { type: 'object', properties: {
       id: { type: 'integer' }, evidence: { type: 'string', description: 'The words or picture that show it, short.' } }, required: ['id', 'evidence'] } } } },
   alerts: { type: 'array', description: 'Things the managers must know now.', items: { type: 'object', properties: {
