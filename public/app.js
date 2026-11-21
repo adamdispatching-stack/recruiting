@@ -272,7 +272,8 @@ window.App = (() => {
     if (h === '#/login') return viewLogin();
     const [path, qs] = h.split('?');
     // a dispatcher's screens: trucks, active drivers, their Telegram groups, their own activity and password
-    if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
+    if (S.me.role === 'dispatcher' && /^#\/driver\/\d+$/.test(path)) return go(path.replace('#/driver/', '#/active/'));
+    if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active(\/\d+)?|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
     pageOpened(h);
     for (const [re, fn] of routes) { const m = path.match(re); if (m) { try { return await fn(...m.slice(1), new URLSearchParams(qs || '')); } catch (e) { return fail(e); } } }
     go('#/');
@@ -413,6 +414,12 @@ window.App = (() => {
   const readWeek = (root) => { const w = Array(7).fill(null); root.querySelectorAll('.wrow').forEach((r) => { const [on, s, e] = r.querySelectorAll('input'); if (on.checked) w[+r.dataset.dow] = { s: s.value, e: e.value }; }); return w; };
   onChange('weekDay', (el) => { const r = el.closest('.wrow'); r.querySelectorAll('input[type=time]').forEach((t) => { t.disabled = !el.checked; }); r.classList.toggle('offd', !el.checked); r.querySelector('.wnote').textContent = el.checked ? '' : 'Day off'; });
 
-  return { $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  // The driver's mood the last few days, one mark a day: the face says it, the color backs it up
+  const MOODS = { good: ['🙂', 'Good'], neutral: ['😐', 'Neutral'], unhappy: ['🙁', 'Unhappy'], angry: ['😠', 'Angry'], unknown: ['·', 'Not clear'] };
+  const moodDots = (m, big) => `<span class="mood${big ? ' big' : ''}" role="img" aria-label="Mood: ${(m || []).map((x) => `${dateText(x.day, { weekday: 'short' })} ${x.mood ? MOODS[x.mood][1] : 'no summary'}${x.high ? ', alert' : ''}`).join('; ')}">${(m || []).map((x) =>
+    `<i class="md ${x.mood || 'none'}${x.high ? ' hi' : ''}" title="${esc(dateText(x.day, { weekday: 'short', month: 'short', day: 'numeric' }))}: ${x.mood ? MOODS[x.mood][1] : 'no summary yet'}${x.alerts ? `, ${x.alerts} alert${x.alerts > 1 ? 's' : ''}` : ''}${x.notes && x.notes[0] ? ' — ' + esc(x.notes[0].slice(0, 160)) : ''}">${x.mood ? MOODS[x.mood][0] : ''}</i>`).join('')}</span>`;
+  // a hired driver's name goes to his own page (groups, mood, notes); a lead goes to the lead page
+  const driverHref = (id, status) => (status === 'Hired' || (S.me && S.me.role === 'dispatcher') ? `#/active/${id}` : `#/driver/${id}`);
+  return { moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();

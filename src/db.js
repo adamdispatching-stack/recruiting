@@ -468,6 +468,12 @@ async function migrate() {
     INSERT INTO truck_history (truck_id, kind, to_id, to_text, at)
       SELECT t.id, 'company', t.company_id, c.name, t.created_at FROM trucks t JOIN companies c ON c.id = t.company_id
       WHERE NOT EXISTS (SELECT 1 FROM truck_history h WHERE h.truck_id = t.id AND h.kind = 'company');
+    -- a truck with only a driver's name typed in: link it to the active driver with that name (one each, no truck yet)
+    UPDATE trucks t SET driver_id = d.id, driver_name = NULL FROM drivers d
+      WHERE t.driver_id IS NULL AND t.driver_name IS NOT NULL AND d.status = 'Hired' AND d.left_on IS NULL AND lower(trim(d.name)) = lower(trim(t.driver_name))
+        AND NOT EXISTS (SELECT 1 FROM trucks x WHERE x.driver_id = d.id)
+        AND (SELECT count(*) FROM drivers d2 WHERE d2.status = 'Hired' AND d2.left_on IS NULL AND lower(trim(d2.name)) = lower(trim(t.driver_name))) = 1
+        AND (SELECT count(*) FROM trucks t2 WHERE t2.driver_id IS NULL AND lower(trim(t2.driver_name)) = lower(trim(t.driver_name))) = 1;
   `);
   // One-time clean-up of rows from before this version. It must never run again: later, a lead added by hand
   // (say from Facebook) can also pick up an Indeed account, and must keep its own source.

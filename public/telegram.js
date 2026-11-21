@@ -1,7 +1,7 @@
 // Telegram manager: the bot's groups, what happened in each (AI summaries, ELD steps and checks, messages),
 // who is who, and the bot's settings. Also the "Telegram groups" part of a lead's page.
 (() => {
-  const { esc, view, S, api, toast, fail, on, header, dialog, dateText, when } = App;
+  const { esc, view, S, api, toast, fail, on, header, dialog, dateText, when, plural } = App;
   const KIND = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting' };
   const AKIND = { container_mismatch: 'Container / number', wrong_location: 'Location', late_risk: 'Running late', appointment_change: 'Appointment', load_refused: 'Load refused', driver_upset: 'Driver upset', unprofessional_dispatcher: 'Dispatcher conduct', safety: 'Safety', other: 'Other' };
   const TKIND = { breakdown: 'Breakdown', repair: 'Repair', maintenance: 'Maintenance', oil_change: 'Oil change', tires: 'Tires', inspection: 'Inspection', damage: 'Damage', warning_light: 'Warning light', other: 'Other' };
@@ -43,14 +43,26 @@
     const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Knowledge']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
     let body = '';
     if (tab === 'groups') {
-      const g = r.chats; const [qs, al] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts)]); if (!live()) return;
-      body = (al.length ? `<section class="card tgal"><h3>Alerts from the groups <span class="cnt">${al.length}</span></h3><ul class="list">${al.map((a) => alertLi(a)).join('')}</ul></section>` : '') + (qs.length ? `<section class="card tgqs"><h3>Drivers' questions waiting for you <span class="cnt">${qs.length}</span></h3><ul class="list">${qs.map((x) => qBox(x, true)).join('')}</ul></section>` : '') + (g.length ? `<div class="sheet"><table class="tgt"><thead><tr><th>Driver</th><th>Group</th><th>Now</th><th>Latest summary</th><th class="n">Today</th></tr></thead><tbody>
-        ${g.map((c) => `<tr data-chat="${c.chatId}" class="${c.openChecks || (c.eld && c.eld.waiting && c.eld.waiting.stuck) ? 'hot' : ''}"><th scope="row">${c.driverId ? `<a class="nml" href="#/driver/${c.driverId}"><b>${esc(c.driver)}</b></a>` : '<span class="none">Not linked</span>'}</th>
+      const [qs, al, act] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts), api('/api/active').then((x) => x.drivers)]); if (!live()) return;
+      // active drivers, one table per company, with their three groups; the other groups (onboarding, not linked) below
+      const byChat = Object.fromEntries(r.chats.map((c) => [c.chatId, c])); const used = new Set();
+      const cell = (d, k) => { const c = d.groups && byChat[d.groups[k]]; if (!c) return `<td><span class="tgdot" title="In the group, type register ${k}">Not registered</span></td>`; used.add(c.chatId);
+        const now = k === 'eld' ? eldLine(c.eld, c.lastCheck, c.openChecks) : k === 'accounting' ? (c.openQuestions ? `<span class="latetag">${c.openQuestions} waiting</span>` : '') : '';
+        return `<td><a class="gname" href="#/telegram/${c.chatId}">${esc(c.title || KIND[k])}</a><div class="small mut">${c.todayMsgs ? plural(c.todayMsgs, 'message') + ' today' : 'quiet today'}${c.openAlerts ? ` · <span class="latetag">${plural(c.openAlerts, 'alert')}</span>` : ''}</div>${now ? `<div class="small">${now}</div>` : ''}</td>`; };
+      const moody = (d) => d.moodIssue || d.openAlerts > 0;
+      const coGroups = [...(S.me.companies || []).map((co) => [co, act.filter((d) => d.companyId === co.id)]), [null, act.filter((d) => !d.companyId || !(S.me.companies || []).some((co) => co.id === d.companyId))]]
+        .filter(([, l]) => l.length).map(([co, l]) => [co, l.sort((a, b) => (moody(b) - moody(a)) || a.name.localeCompare(b.name))]);
+      const coHtml = coGroups.map(([co, list]) => `<section class="cotable"><h3 class="cohead">${co ? App.coTag(co.id, true) : '<span class="co none">No company</span>'}<span class="small mut">${plural(list.length, 'active driver')}</span></h3>
+        <div class="sheet"><table class="tgt tgco"><thead><tr><th>Driver</th><th>Dispatch</th><th>ELD</th><th>Accounting</th><th style="width:110px">Last 3 days</th></tr></thead><tbody>
+        ${list.map((d) => `<tr class="${moody(d) ? 'hot' : ''}"><th scope="row"><a class="nml" href="#/active/${d.id}"><b>${esc(d.name)}</b></a>${d.truck ? `<div class="small mut">truck ${esc(d.truck.unit)}</div>` : ''}</th>${cell(d, 'dispatch')}${cell(d, 'eld')}${cell(d, 'accounting')}<td>${App.moodDots(d.mood)}</td></tr>`).join('')}</tbody></table></div></section>`).join('');
+      const g = r.chats.filter((c) => !used.has(c.chatId));
+      body = (al.length ? `<section class="card tgal"><h3>Alerts from the groups <span class="cnt">${al.length}</span></h3><ul class="list">${al.map((a) => alertLi(a)).join('')}</ul></section>` : '') + (qs.length ? `<section class="card tgqs"><h3>Drivers' questions waiting for you <span class="cnt">${qs.length}</span></h3><ul class="list">${qs.map((x) => qBox(x, true)).join('')}</ul></section>` : '') + coHtml + (g.length ? `${coHtml ? '<h3 class="sect">Onboarding and other groups</h3>' : ''}<div class="sheet"><table class="tgt"><thead><tr><th>Driver</th><th>Group</th><th>Now</th><th>Latest summary</th><th class="n">Today</th></tr></thead><tbody>
+        ${g.map((c) => `<tr data-chat="${c.chatId}" class="${c.openChecks || (c.eld && c.eld.waiting && c.eld.waiting.stuck) ? 'hot' : ''}"><th scope="row">${c.driverId ? `<a class="nml" href="${App.driverHref(c.driverId, c.active ? 'Hired' : '')}"><b>${esc(c.driver)}</b></a>` : '<span class="none">Not linked</span>'}</th>
           <td>${kindTag(c.kind)}<div class="small mut clip1"><a href="#/telegram/${c.chatId}">${esc(c.title || 'Group')}</a></div>${c.botAdmin ? '' : '<div class="small latetag">Bot is not an admin</div>'}</td>
           <td>${c.kind === 'eld' ? eldLine(c.eld, c.lastCheck, c.openChecks) : c.onb ? onbLine(c.onb) : c.kind === 'accounting' ? `<span class="small">Answering pay questions</span>${c.openQuestions ? ` <span class="latetag">${c.openQuestions} waiting</span>` : ''}` : c.kind ? '<span class="small">Reading along: truck, notes, alerts</span>' : ''}${c.openAlerts ? ` <span class="latetag">${c.openAlerts} alert${c.openAlerts > 1 ? 's' : ''}</span>` : ''}</td>
           <td class="tgsum">${c.lastSummary ? `<span class="small mut">${esc(dateText(c.lastSummary.day, { month: 'short', day: 'numeric' }))}${MOOD[c.lastSummary.mood] ? ', ' + MOOD[c.lastSummary.mood] : ''}</span><div class="clip2">${esc(c.lastSummary.summary)}</div>${(c.lastSummary.issues || []).length ? `<div class="small latetag">${c.lastSummary.issues.length} open</div>` : ''}` : '<span class="none">None yet</span>'}</td>
           <td class="n">${c.todayMsgs || '<span class="none">0</span>'}</td></tr>`).join('')}</tbody></table></div>`
-        : `<div class="emptycard"><div class="emptyart"><h2>No groups yet.</h2><p>Open a driver in onboarding and use <b>Link a group</b> in the Telegram part of the onboarding card. The bot joins in from there.</p></div></div>`);
+        : coHtml ? '' : `<div class="emptycard"><div class="emptyart"><h2>No groups yet.</h2><p>Open a driver in onboarding and use <b>Link a group</b> in the Telegram part of the onboarding card. The bot joins in from there.</p></div></div>`);
     } else if (tab === 'knowledge') {
       const k = (await api('/api/tg/knowledge')).knowledge; if (!live()) return;
       body = `<p class="hint">What the bot answers drivers from, besides the company facts in Settings → Call guide. When the bot does not know, it asks the recruiter; the recruiter's answer (in Telegram or here) is added below. Fix or turn off anything that is wrong.</p>
@@ -127,7 +139,7 @@
     document.title = `${c.title || 'Group'} · Telegram · FleetHire`;
     const e = r.eld;
     view.innerHTML = header('telegram') + `<main><a class="back" href="#/telegram">← Telegram manager</a>
-      ${App.pageHead(c.title || 'Telegram group', `${c.kind ? KIND[c.kind] + ' group' : 'Not linked'}${c.driverId ? ` for <a href="#/driver/${c.driverId}">${esc(c.driver)}</a>` : ''}${c.linkedAt ? `, linked ${esc(dateText(String(c.linkedAt).slice(0, 10)))}` : ''}`)}
+      ${App.pageHead(c.title || 'Telegram group', `${c.kind ? KIND[c.kind] + ' group' : 'Not linked'}${c.driverId ? ` for <a href="${App.driverHref(c.driverId, c.driverStatus)}">${esc(c.driver)}</a>` : ''}${c.linkedAt ? `, linked ${esc(dateText(String(c.linkedAt).slice(0, 10)))}` : ''}`)}
       ${c.botAdmin ? '' : '<div class="needbox">The bot is not an admin in this group, so it may miss messages. In Telegram: Group settings, Administrators, Add admin.</div>'}
       <div class="tgcols"><div>
         ${e ? `<section class="card"><h3>ELD setup${e.setupDoneAt ? ' <span class="okt">complete</span>' : ''}</h3>
@@ -145,7 +157,7 @@
         ${r.onb.questions.some((x) => x.answer) ? `<section class="card"><h3>Questions answered</h3><ul class="list">${r.onb.questions.filter((x) => x.answer).map((x) => `<li><div><b>Q:</b> ${esc(x.text)}</div><div><b>A:</b> ${esc(x.answer)} <span class="small mut">${esc(x.answered_by || '')}</span></div></li>`).join('')}</ul></section>` : ''}` : ''}
         ${(r.alerts || []).length ? `<section class="card"><h3>Alerts</h3><ul class="list tgalerts">${r.alerts.map((a) => alertLi({ ...a, chatId: c.chatId }, true)).join('')}</ul></section>` : ''}
         ${(r.truckEvents || []).length ? `<section class="card"><h3>Truck issues from this group</h3><ul class="list">${r.truckEvents.map((e) => `<li><span class="grow"><span class="tst ${e.status}">${esc(e.status === 'fixed' ? 'Fixed' : e.status === 'scheduled' ? 'Scheduled' : 'Open')}</span> <b>${esc(e.title)}</b>${e.unit ? ` <span class="small mut">truck ${esc(e.unit)}</span>` : ''}${e.details ? `<div class="small">${esc(e.details)}</div>` : ''}</span><span class="small mut">${esc(when(e.at))}</span></li>`).join('')}</ul><p class="hint">All of it is on the truck's history, on the Trucks page.</p></section>` : ''}
-        ${(r.notes || []).length ? `<section class="card"><h3>Noticed about the driver</h3><ul class="list">${r.notes.map((n) => `<li><span class="grow">${esc(n.text)}</span><span class="small mut">${esc(when(n.at))}</span></li>`).join('')}</ul><p class="hint">These build the driver's profile for dispatchers, on <a href="#/driver/${c.driverId}">the driver's page</a>.</p></section>` : ''}
+        ${(r.notes || []).length ? `<section class="card"><h3>Noticed about the driver</h3><ul class="list">${r.notes.map((n) => `<li><span class="grow">${esc(n.text)}</span><span class="small mut">${esc(when(n.at))}</span></li>`).join('')}</ul><p class="hint">These build the driver's profile for dispatchers, on <a href="${App.driverHref(c.driverId, c.driverStatus)}">the driver's page</a>.</p></section>` : ''}
         <section class="card"><h3>Daily summaries<span class="grow"></span><button type="button" class="btn plain sm" data-act="tgSum" data-chat="${c.chatId}">Sum up today now</button></h3>
           ${r.summaries.length ? r.summaries.map((s) => `<article class="tgday"><h4>${esc(dateText(s.day, { weekday: 'short', month: 'short', day: 'numeric' }))} <span class="small mut">${s.messages} messages${MOOD[s.mood] ? ', driver ' + MOOD[s.mood] : ''}</span></h4><p>${esc(s.summary)}</p>${(s.issues || []).length ? `<ul class="tgissues">${s.issues.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</article>`).join('') : `<p class="hint">The first summary comes this evening${r.ai ? '' : ' (AI is off: only a message count without ANTHROPIC_API_KEY)'}.</p>`}</section>
       </div><div>
@@ -196,11 +208,7 @@
   App.profileCard = profileCard;
   // a dispatcher has no driver pages: a driver's name opens his profile for dispatchers instead
   App.profileDialog = (id) => { App.dialog(`<div class="dform pdlg"><section class="dprof" id="dprof"><p class="hint">Loading…</p></section><div class="dact"><button type="button" class="btn plain" data-act="closeDialog">Close</button></div></div>`, (d) => profileCard(+id, d.querySelector('#dprof'), true)); };
-  document.addEventListener('click', (e) => {
-    if (!S.me || S.me.role !== 'dispatcher') return;
-    const a = e.target.closest('a[href^="#/driver/"]'); if (!a) return;
-    e.preventDefault(); App.profileDialog(a.getAttribute('href').split('/')[2]);
-  });
+
   on('tgLink', async (b) => {
     try {
       const r = await api(`/api/drivers/${b.dataset.driver}/tg-link`, { method: 'POST', body: { kind: b.dataset.kind } });

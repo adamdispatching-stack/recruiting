@@ -130,6 +130,12 @@ module.exports = (app) => {
   }));
 
   // ---------- trucks ----------
+  // a driver from the list can drive one truck
+  async function driverCheck(driverId, truckId) {
+    const d = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0]; if (!d) return 'That driver is not in the list';
+    const other = (await q(`SELECT unit FROM trucks WHERE driver_id = $1 AND id <> $2`, [driverId, truckId])).rows[0];
+    return other ? `${d.name} already drives truck ${other.unit}. Free that truck first.` : null;
+  }
   app.get('/api/trucks', needUser, wrap(async (req, res) => {
     const tz = db.settings.tz;
     const r = await q(`SELECT t.*, d.name d_name, d.status d_status, d.owner_id d_owner, u.name dispatcher,
@@ -155,6 +161,7 @@ module.exports = (app) => {
     if (b.outOfService !== undefined) set.out_of_service = !!b.outOfService;
     if (b.companyId !== undefined) set.company_id = b.companyId ? +b.companyId : null;
     if (b.dispatcherId !== undefined) set.dispatcher_id = b.dispatcherId ? +b.dispatcherId : null;
+    if (b.driverId) { set.driver_id = +b.driverId; set.driver_name = null; }
     for (const [k, col] of [['vin', 'vin'], ['plate', 'plate']]) if (b[k] !== undefined) set[col] = String(b[k] || '').trim().toUpperCase().slice(0, 30) || null;
     for (const [k, col, lo, hi] of [['oilMiles', 'oil_miles', 1000, 200000], ['oilDays', 'oil_days', 7, 730]]) if (b[k] !== undefined) { const n = Math.round(+b[k]); set[col] = b[k] === '' || b[k] === null ? null : n >= lo && n <= hi ? n : undefined; if (set[col] === undefined) { set.bad = `${k === 'oilMiles' ? 'Miles' : 'Days'} between oil changes: ${lo} to ${hi.toLocaleString('en-US')}`; delete set[col]; } }
     return set;
@@ -164,6 +171,7 @@ module.exports = (app) => {
     if (set.bad) return res.status(400).json({ error: set.bad });
     if (!set.unit) return res.status(400).json({ error: 'The unit number is required' });
     if (set.dispatcher_id && !(await q(`SELECT 1 FROM users WHERE id = $1 AND active`, [set.dispatcher_id])).rows[0]) return res.status(400).json({ error: 'That person is not on the team' });
+    if (set.driver_id) { const e = await driverCheck(set.driver_id, req.params.id ? +req.params.id : 0); if (e) return res.status(400).json({ error: e }); }
     if (set.company_id && !(await q(`SELECT 1 FROM companies WHERE id = $1`, [set.company_id])).rows[0]) return res.status(400).json({ error: 'That company is not in the list' });
     try {
       const cols = Object.keys(set);
@@ -179,8 +187,10 @@ module.exports = (app) => {
     if (set.bad) return res.status(400).json({ error: set.bad });
     if (set.unit === '') return res.status(400).json({ error: 'The unit number is required' });
     if (set.dispatcher_id && !(await q(`SELECT 1 FROM users WHERE id = $1 AND active`, [set.dispatcher_id])).rows[0]) return res.status(400).json({ error: 'That person is not on the team' });
+    if (set.driver_id) { const e = await driverCheck(set.driver_id, req.params.id ? +req.params.id : 0); if (e) return res.status(400).json({ error: e }); }
     if (b.release) { set.driver_id = null; set.driver_name = null; }
     if (set.driver_name && t.driver_id && !b.release) return res.status(400).json({ error: 'This truck has a driver from the list. Release it first.' });
+    if (set.driver_id && t.driver_id && t.driver_id !== set.driver_id) return res.status(400).json({ error: 'This truck has a driver from the list. Free it first.' });
     if (set.company_id && !(await q(`SELECT 1 FROM companies WHERE id = $1`, [set.company_id])).rows[0]) return res.status(400).json({ error: 'That company is not in the list' });
     const cols = Object.keys(set); if (!cols.length) return res.json({ ok: true });
     try { await q(`UPDATE trucks SET ${cols.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_at = now() WHERE id = $1`, [t.id, ...cols.map((k) => set[k])]); }
@@ -190,6 +200,7 @@ module.exports = (app) => {
       const d = (await q(`UPDATE drivers SET company_id = $2 WHERE id = $1 RETURNING id, name, (SELECT name FROM companies WHERE id = $2) co`, [t.driver_id, set.company_id])).rows[0];
       if (d) await record(req, 'edit', d, `Company: ${d.co} (truck ${t.unit} moved there)`);
     }
+    if (set.driver_id && set.driver_id !== t.driver_id) await db.syncAuto(db.pool, set.driver_id, req.user.id);
     if (b.release && t.driver_id) {
       await db.syncAuto(db.pool, t.driver_id, req.user.id);
       const d = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [t.driver_id])).rows[0];

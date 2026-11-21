@@ -70,7 +70,7 @@ module.exports = (app) => {
     const sums = (await q(`SELECT day::text, summary, issues, mood, messages, created_at FROM tg_summaries WHERE chat_id = $1 ORDER BY day DESC LIMIT 30`, [c.chat_id])).rows;
     const msgs = (await q(`SELECT m.msg_id, m.from_name, m.is_bot, m.text, m.media, m.media_note, m.at, p.role FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 ORDER BY m.at DESC LIMIT 300`, [c.chat_id])).rows.reverse();
     const people = (await q(`SELECT p.tg_id::text tg_id, p.name, p.username, p.role, p.driver_id, d.name driver FROM tg_members m JOIN tg_people p ON p.tg_id = m.tg_id LEFT JOIN drivers d ON d.id = p.driver_id WHERE m.chat_id = $1 ORDER BY p.name`, [c.chat_id])).rows;
-    res.json({ chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, botAdmin: c.bot_admin, linkedAt: c.linked_at }, eld: c.kind === 'eld' ? eldView(e) : null,
+    res.json({ chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, driverStatus: c.driver_status, botAdmin: c.bot_admin, linkedAt: c.linked_at }, eld: c.kind === 'eld' ? eldView(e) : null,
       onb: c.kind === 'dispatch' && c.driver_id && c.driver_status !== 'Hired' ? await onbView(c.driver_id) : null,
       alerts: (await q(`SELECT id, kind, severity, text, at, resolved_at, resolved_by FROM tg_alerts WHERE chat_id = $1 ${req.user.role === 'admin' ? '' : "AND kind <> 'unprofessional_dispatcher'"} ORDER BY at DESC LIMIT 40`, [c.chat_id])).rows,
       truckEvents: (await q(`SELECT e.id, e.kind, e.title, e.details, e.status, e.at, t.unit FROM truck_events e LEFT JOIN trucks t ON t.id = e.truck_id WHERE e.chat_id = $1 ORDER BY e.at DESC LIMIT 30`, [c.chat_id])).rows,

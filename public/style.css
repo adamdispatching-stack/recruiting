@@ -1523,3 +1523,38 @@ a.tiss{text-decoration:none;display:inline-block}
 .kbars i{display:block;height:8px;border-radius:4px;background:var(--viz-1)}
 .kbars b{font-weight:700}
 @media (max-width:900px){.tcols{grid-template-columns:minmax(0,1fr)}.ev time{flex-basis:76px}.truckpage .dhead .acts{width:100%}}
+
+/* ---------- one table per company; mood; the active driver's page ---------- */
+.cotable{margin:0 0 18px}
+.cohead{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;font-size:15px}
+.cohead .co.big{margin:0;vertical-align:0}
+.co.none{--k:#9AA6A0;--kt:var(--hair);--ki:var(--mut);font-size:14px;line-height:28px;padding:0 10px 0 9px}
+tr.emptyrow td{background:#F7FBF9}
+tr.emptyrow td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+a.gname{font-weight:700;color:var(--ink)}
+table.tgco td,table.tgco th{vertical-align:top}
+.mood{display:inline-flex;gap:3px;align-items:center}
+.md{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;font-style:normal;font-size:13px;line-height:1;border:1px solid transparent}
+.md.good{background:var(--green-t)}.md.neutral{background:var(--hair)}.md.unhappy{background:var(--yellow-t);border-color:#E8C770}.md.angry{background:var(--red-t);border-color:#E9A79C}.md.unknown{background:var(--hair);color:var(--mut)}
+.md.none{background:transparent;border:1px dashed #C5CEC9}
+.md.hi{box-shadow:inset 0 -3px 0 var(--red)}
+.mood.big{gap:6px}.mood.big .md{width:34px;height:34px;font-size:19px;border-radius:8px}
+.mdays{display:flex;gap:6px;margin:4px 0 6px}.mdays span{width:34px;text-align:center;font-size:11.5px;color:var(--mut)}
+.gtiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.gtile{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border:1px dashed #C5CEC9;border-radius:10px;color:var(--mut);text-decoration:none}
+.gtile b{color:var(--ink);font-size:15px}
+.gtile.on{border:1px solid #9FD3B4;background:var(--green-t);color:var(--ink)}
+a.gtile.on:hover{border-color:var(--green)}
+.gtile code{font-size:12px}
+@media (max-width:760px){.gtiles{grid-template-columns:1fr}}
+.dday{padding:10px 0;border-top:1px solid var(--hair)}.dday:first-of-type{border-top:0}
+.dday h4{margin:0 0 6px;font-size:13px;color:var(--mut)}
+.dday p{margin:0 0 6px;line-height:1.5}
+.nk{display:inline-block;margin-right:4px;padding:0 7px;border-radius:7px;background:var(--hair);color:var(--mut);font-size:11.5px;font-weight:700}
+.drvpage .dhead h2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+table.tgco tbody th{padding:12px 14px;font-weight:400;text-align:left}
+table.tgco tr.hot th{box-shadow:inset 3px 0 0 var(--red)}
+.drvpage .dhead .contact{margin:2px 0}
+.moodcard .mood.big,.moodcard .mdays{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:5px;max-width:600px}
+.moodcard .mood.big .md{width:auto;height:auto;aspect-ratio:1;font-size:clamp(12px,2.6vw,19px)}
+.moodcard .mdays span{width:auto}

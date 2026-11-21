@@ -256,6 +256,11 @@
     const inCo = (t) => !truckCo || (truckCo === 'none' ? !t.companyId : t.companyId === +truckCo);
     const pass = (t) => !truckFilter || (truckFilter === 'oil' ? oilDue(t) : truckFilter === 'mine' ? t.dispatcherId === S.me.id : truckFilter === 'issues' ? t.openIssues > 0 : t.state === truckFilter);
     const shown = trucks.filter((t) => pass(t) && inCo(t));
+    // one table per company, empty trucks on top, then by unit number
+    const order = { empty: 0, assigned: 1, out: 2 };
+    const byUnit = (a, b) => order[a.state] - order[b.state] || a.unit.length - b.unit.length || a.unit.localeCompare(b.unit);
+    const groups = [...(S.me.companies || []).map((c) => [c, shown.filter((t) => t.companyId === c.id)]), [null, shown.filter((t) => !t.companyId || !(S.me.companies || []).some((c) => c.id === t.companyId))]]
+      .filter(([, l]) => l.length).map(([c, l]) => [c, l.sort(byUnit)]);
     const mine = trucks.filter((t) => t.dispatcherId === S.me.id).length;
     const tile = (k, v, l, cls) => `<button type="button" class="ftile ${cls || ''}" data-act="truckFilter" data-k="${k}" aria-pressed="${truckFilter === k}"><b>${v}</b><span>${l}</span></button>`;
     view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck: its company and driver, oil changes, shop visits and what it costs.', `${admin || disp ? '<button class="btn plain" data-act="fleetSettings">Oil change settings</button>' : ''}${canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : ''}`)}
@@ -264,15 +269,16 @@
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${[['', `All ${trucks.length}`], ...(mine || disp ? [['mine', `Mine ${mine}`]] : []), ['oil', `Oil due ${sum.overdue + sum.soon}`], ['assigned', `With a driver ${n('assigned')}`], ['empty', `Empty ${n('empty')}`], ['out', `Out of service ${n('out')}`]].map(([k, l]) => `<button data-act="truckFilter" data-k="${k}" class="${truckFilter === k ? 'on' : ''}" aria-pressed="${truckFilter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="truckCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === truckCo ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${truckCo === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>
-      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:160px">Company</th><th>Truck</th><th style="width:130px">Status</th><th>Driver</th><th style="width:150px">Oil change</th><th style="width:110px">Issues</th><th style="width:110px">This month</th>${canEdit ? '<th style="width:60px"></th>' : ''}</tr></thead><tbody>
-        ${shown.map((t) => `<tr data-truck="${t.id}"><td><a class="unit" href="#/truck/${t.id}">${esc(t.unit)}</a></td><td>${App.coTag(t.companyId) || '<span class="none">None</span>'}</td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}${t.dispatcher ? `<div class="small mut">Dispatcher: ${esc(t.dispatcher)}</div>` : ''}</td>
+      ${trucks.length ? (groups.map(([co, list]) => `<section class="cotable"><h3 class="cohead">${co ? App.coTag(co.id, true) : '<span class="co none">No company</span>'}<span class="small mut">${plural(list.length, 'truck')}${list.filter((t) => t.state === 'empty').length ? `, ${list.filter((t) => t.state === 'empty').length} empty` : ''}</span></h3>
+        <div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th>Truck</th><th style="width:130px">Status</th><th>Driver</th><th style="width:150px">Oil change</th><th style="width:110px">Issues</th><th style="width:110px">This month</th>${canEdit ? '<th style="width:60px"></th>' : ''}</tr></thead><tbody>
+        ${list.map((t) => `<tr data-truck="${t.id}" class="${t.state === 'empty' ? 'emptyrow' : ''}"><td><a class="unit" href="#/truck/${t.id}">${esc(t.unit)}</a></td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}${t.dispatcher ? `<div class="small mut">Dispatcher: ${esc(t.dispatcher)}</div>` : ''}</td>
           <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>
-          <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="#/driver/${t.driver.id}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? esc(t.driverName) : '<span class="none">Nobody</span>'}</td>
+          <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="${App.driverHref(t.driver.id, t.driver.status)}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? `${esc(t.driverName)}${canEdit ? ' <button type="button" class="linkbtn small" data-act="truckEdit">Link to a driver</button>' : ''}` : '<span class="none">Nobody</span>'}</td>
           <td>${oilCell(t.oil, t.outOfService)}</td>
           <td>${t.openIssues ? `<a class="tiss open" href="#/truck/${t.id}">${t.openIssues} open</a>` : '<span class="none">None</span>'}</td>
           <td>${t.monthCost ? money(t.monthCost) : '<span class="none">$0</span>'}${t.unpaid ? `<div class="small bad">${money(t.unpaid)} not paid</div>` : ''}</td>
-          ${canEdit ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${canEdit ? 9 : 8}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
-        </tbody></table></div><p class="hint foot">Click a unit number for the truck's own page: oil changes, shop visits, drivers and costs. A truck gets its driver on the driver's onboarding card.</p>`
+          ${canEdit ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('')}
+        </tbody></table></div></section>`).join('') || '<div class="empty"><p>No trucks in this group.</p></div>') + `<p class="hint foot">Each company has its own table, empty trucks first. Click a unit number for the truck's own page: oil changes, shop visits, drivers and costs.</p>`
         : `<div class="empty"><p>No trucks listed yet.</p>Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.</div>`}
     </main>`;
   }
@@ -282,6 +288,10 @@
   async function truckDialog(t, preset = {}, after = viewTrucks) {
     const has = t && (t.driver || t.driverName);
     if (!dispatchers) dispatchers = (await api('/api/fleet/dispatchers')).people;
+    // active drivers without a truck, to link this one to
+    const act = t && t.driver ? [] : (await api('/api/active')).drivers;
+    const free = act.filter((d) => !d.truck);
+    const match = t && t.driverName ? free.find((d) => d.name.trim().toLowerCase() === t.driverName.trim().toLowerCase()) : null;
     dialog(`<form id="truckForm" class="dform"><h2>${t ? 'Truck ' + esc(t.unit) : 'Add a truck'}</h2><div class="grid2">
         <label class="fld">Unit number<input name="unit" type="text" required maxlength="30" value="${esc(t ? t.unit : '')}"></label>
         <label class="fld">Year, make, model<input name="details" type="text" maxlength="120" placeholder="2021 Freightliner Cascadia" value="${esc(t ? t.details || '' : '')}"></label>
@@ -291,7 +301,8 @@
         <label class="fld">Plate<input name="plate" type="text" maxlength="30" autocomplete="off" value="${esc(t ? t.plate || '' : '')}"></label>
         <label class="fld">Where it is<input name="location" type="text" maxlength="120" placeholder="Newark yard" value="${esc(t ? t.location || '' : '')}"></label>
         ${t && t.driver ? `<div class="fld">Driver<div class="ownerline"><b>${esc(t.driver.name)}</b> ${badge(t.driver.status)}</div></div>`
-          : `<label class="fld">Current driver, if not in the leads list<input name="driverName" type="text" maxlength="80" placeholder="Leave empty if the truck is free" value="${esc(t ? t.driverName || '' : '')}"></label>`}
+          : `<label class="fld">Driver<select name="driverPick"><option value="">Nobody, the truck is free</option>${free.map((d) => `<option value="${d.id}" ${match && match.id === d.id ? 'selected' : ''}>${esc(d.name)}${d.companyId && App.company(d.companyId) ? ` (${esc(App.company(d.companyId).name)})` : ''}</option>`).join('')}<option value="other" ${t && t.driverName && !match ? 'selected' : ''}>Someone not in the active drivers list…</option></select></label>
+          <label class="fld" id="dnWrap" ${t && t.driverName && !match ? '' : 'hidden'}>Driver's name<input name="driverName" type="text" maxlength="80" value="${esc(t ? t.driverName || '' : '')}"></label>`}
       </div>
       <label class="fld">Notes<textarea name="notes" maxlength="500" placeholder="Anything the next driver should know">${esc(t ? t.notes || '' : '')}</textarea></label>
       <label class="chk"><input type="checkbox" name="outOfService" ${t && t.outOfService ? 'checked' : ''}><span>Out of service (in the shop, not to be assigned)</span></label>
@@ -299,7 +310,9 @@
       <div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button><span class="grow"></span>
         ${has ? '<button type="button" class="btn plain" id="truckRelease">Free this truck</button>' : ''}${t && S.me.role === 'admin' ? '<button type="button" class="btn danger" id="truckDelete">Remove truck</button>' : ''}</div></form>`, (d) => {
       const f = $('#truckForm', d); const fin = async (p, msg) => { try { await p; d.close(); toast(msg); after(); } catch (e) { $('#truckErr').textContent = e.message; } };
-      f.onsubmit = (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(f)); b.outOfService = f.outOfService.checked; b.companyId = b.companyId ? +b.companyId : null; b.dispatcherId = b.dispatcherId ? +b.dispatcherId : null; fin(api(t ? '/api/trucks/' + t.id : '/api/trucks', { method: t ? 'PATCH' : 'POST', body: b }), t ? 'Truck saved' : 'Truck added'); };
+      if (f.driverPick) f.driverPick.onchange = () => { $('#dnWrap', d).hidden = f.driverPick.value !== 'other'; if (f.driverPick.value === 'other') f.driverName.focus(); };
+      f.onsubmit = (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(f)); b.outOfService = f.outOfService.checked;
+        if (f.driverPick) { const v = b.driverPick; delete b.driverPick; if (v === 'other') { /* typed name */ } else if (v) { b.driverId = +v; delete b.driverName; } else b.driverName = ''; } b.companyId = b.companyId ? +b.companyId : null; b.dispatcherId = b.dispatcherId ? +b.dispatcherId : null; fin(api(t ? '/api/trucks/' + t.id : '/api/trucks', { method: t ? 'PATCH' : 'POST', body: b }), t ? 'Truck saved' : 'Truck added'); };
       if ($('#truckRelease')) $('#truckRelease').onclick = () => fin(api('/api/trucks/' + t.id, { method: 'PATCH', body: { release: true } }), 'Truck is free again');
       if ($('#truckDelete')) $('#truckDelete').onclick = () => { if (confirm(`Remove truck ${t.unit} from the list? Its whole history goes with it.`)) fin(api('/api/trucks/' + t.id, { method: 'DELETE' }), 'Truck removed'); };
     });
