@@ -17,15 +17,26 @@ module.exports = (app) => {
   app.put('/api/fleet/settings', needUser, wrap(async (req, res) => {
     if (!['admin', 'dispatcher'].includes(req.user.role)) return res.status(403).json({ error: 'Only an admin or a dispatcher can change this' });
     const b = req.body || {}; const cur = fl.fleet(); const v = { ...cur };
-    for (const [k, lo, hi] of [['oilMiles', 1000, 200000], ['oilDays', 7, 730], ['warnMiles', 0, 50000], ['warnDays', 0, 120]]) {
+    for (const [k, lo, hi] of [['oilMiles', 1000, 200000], ['oilDays', 7, 730], ['warnMiles', 0, 50000], ['warnDays', 0, 120], ['costLease', 0, 100000], ['costInsurance', 0, 100000], ['costOther', 0, 100000]]) {
       if (b[k] === undefined) continue; const n = Math.round(+b[k]);
-      if (!(n >= lo && n <= hi)) return res.status(400).json({ error: `${{ oilMiles: 'Miles between oil changes', oilDays: 'Days between oil changes', warnMiles: 'Warning miles', warnDays: 'Warning days' }[k]}: ${lo.toLocaleString('en-US')} to ${hi.toLocaleString('en-US')}` });
+      if (!(n >= lo && n <= hi)) return res.status(400).json({ error: `${{ oilMiles: 'Miles between oil changes', oilDays: 'Days between oil changes', warnMiles: 'Warning miles', warnDays: 'Warning days', costLease: 'Lease', costInsurance: 'Insurance', costOther: 'Other costs' }[k]}: ${lo.toLocaleString('en-US')} to ${hi.toLocaleString('en-US')}` });
       v[k] = n;
     }
     if (b.askDriver !== undefined) v.askDriver = !!b.askDriver;
     await db.saveSetting('fleet', v);
     await act(req.user, 'truck', null, `Oil changes: every ${v.oilMiles.toLocaleString('en-US')} miles or ${v.oilDays} days`);
     res.json(v);
+  }));
+  // empty trucks and what they cost; the team's monthly goal
+  app.get('/api/fleet/empty', needUser, wrap(async (req, res) => res.json(await fl.emptyBoard())));
+  app.get('/api/fleet/goal', needUser, wrap(async (req, res) => res.json(await fl.goal(/^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : undefined))));
+  app.put('/api/fleet/goal', needUser, needAdmin, wrap(async (req, res) => {
+    const b = req.body || {}; const month = /^\d{4}-\d{2}$/.test(b.month || '') ? b.month : fl.monthOf(); const n = Math.round(+b.target);
+    const goals = { ...(db.settings.fillGoals || {}) };
+    if (b.target === null || b.target === '') delete goals[month]; else if (n >= 1 && n <= 500) goals[month] = n; else return res.status(400).json({ error: 'Trucks to fill: 1 to 500' });
+    await db.saveSetting('fillGoals', goals);
+    await act(req.user, 'admin', null, goals[month] ? `Team goal for ${month}: fill ${n} trucks` : `Team goal for ${month}: the empty trucks`);
+    res.json(await fl.goal(month));
   }));
   app.get('/api/fleet/dispatchers', needUser, wrap(async (req, res) => res.json({ people: (await q(`SELECT id, name, role FROM users WHERE active AND role IN ('dispatcher', 'admin') ORDER BY role = 'admin', lower(name)`)).rows })));
 
@@ -37,6 +48,7 @@ module.exports = (app) => {
     const ev = (await q(`SELECT e.*, e.done_on::text done_on, d.name driver FROM truck_events e LEFT JOIN drivers d ON d.id = e.driver_id WHERE e.truck_id = $1 ORDER BY coalesce(e.done_on, (coalesce(e.fixed_at, e.at) AT TIME ZONE $2)::date) DESC, e.at DESC LIMIT 500`, [t.id, db.settings.tz])).rows;
     const hist = (await q(`SELECT * FROM truck_history WHERE truck_id = $1 ORDER BY at DESC, id DESC LIMIT 300`, [t.id])).rows;
     const last = (await fl.lastOils([t.id]))[t.id];
+    const fills = (await q(`SELECT f.at, f.driver_name driver, f.driver_id, u.name owner FROM truck_fills f LEFT JOIN users u ON u.id = f.user_id WHERE f.truck_id = $1 ORDER BY f.at DESC LIMIT 20`, [t.id])).rows;
     const group = t.driver_id ? (await q(`SELECT chat_id::text id FROM tg_chats WHERE driver_id = $1 AND kind = 'dispatch'`, [t.driver_id])).rows[0] : null;
     res.json({
       truck: { id: t.id, unit: t.unit, details: t.details, location: t.location, notes: t.notes, vin: t.vin, plate: t.plate, outOfService: t.out_of_service, companyId: t.company_id, company: t.company,
@@ -44,6 +56,7 @@ module.exports = (app) => {
         driver: t.driver_id ? { id: canSee(req.user, { owner_id: t.d_owner }) ? t.driver_id : null, name: t.d_name, status: t.d_status, group: group ? group.id : null } : null },
       oil: fl.oilStatus(t, last), costs: await fl.costs(t.id), events: ev.map(evOut),
       history: hist.map((h) => ({ kind: h.kind, from: h.from_text, to: h.to_text, fromId: h.from_id, toId: h.to_id, at: h.at })),
+      fills: fills.map((f) => ({ at: f.at, driver: f.driver, driverId: f.driver_id, owner: f.owner })), perDay: fl.perDay(),
       fleet: fl.fleet(), canEdit: canEdit(req.user)
     });
   }));

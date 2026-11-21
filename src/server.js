@@ -81,6 +81,7 @@ require('./api-tg')(app);
 require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-fleet')(app);
+require('./api-coach')(app);
 require('./api-admin')(app);
 
 // ---------- website ----------
@@ -103,6 +104,7 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
   require('./fleet').start();
   require('./share').start();
   require('./callback').start();
+  require('./api-coach').start();
   if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/digest').start(); require('./tg/profile').start(); }
   require('./needed').start(); // verified drivers missing the arrival date, company or truck
   await q(`DELETE FROM sessions WHERE expires_at < now()`);

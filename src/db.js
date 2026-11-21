@@ -417,6 +417,20 @@ async function migrate() {
   // ----- fleet: each truck's own profile -----
   await q(`
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS share_moves INT NOT NULL DEFAULT 0;
+    -- a truck filled: its driver started (hired) in it; the recruiter whose driver it is gets the credit
+    CREATE TABLE IF NOT EXISTS truck_fills (id SERIAL PRIMARY KEY, truck_id INT REFERENCES trucks(id) ON DELETE SET NULL, driver_id INT REFERENCES drivers(id) ON DELETE SET NULL,
+      user_id INT REFERENCES users(id) ON DELETE SET NULL, unit TEXT, driver_name TEXT, at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (truck_id, driver_id));
+    CREATE INDEX IF NOT EXISTS truck_fills_at ON truck_fills(at);
+    -- a recruiter's plan for the day, written in the morning
+    CREATE TABLE IF NOT EXISTS day_plans (user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE, day DATE NOT NULL, goal TEXT NOT NULL, items JSONB NOT NULL DEFAULT '[]', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, day));
+    -- coaching: one concrete tip from a manager, about a lead or a call
+    CREATE TABLE IF NOT EXISTS coaching (id SERIAL PRIMARY KEY, user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE, by_id INT REFERENCES users(id) ON DELETE SET NULL,
+      driver_id INT REFERENCES drivers(id) ON DELETE SET NULL, tip TEXT NOT NULL, kind TEXT, at TIMESTAMPTZ NOT NULL DEFAULT now(), seen_at TIMESTAMPTZ, reply TEXT);
+    CREATE INDEX IF NOT EXISTS coaching_user ON coaching(user_id, at DESC);
+    -- a call started from the website (the phone link) that still needs its outcome logged
+    CREATE TABLE IF NOT EXISTS call_starts (id SERIAL PRIMARY KEY, user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE, driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+      at TIMESTAMPTZ NOT NULL DEFAULT now(), logged_at TIMESTAMPTZ, nudged_at TIMESTAMPTZ);
+    CREATE INDEX IF NOT EXISTS call_starts_open ON call_starts(user_id) WHERE logged_at IS NULL;
     -- a call-back the driver asked for: when, his words, his time zone, who set it (AI or a person), due / done / missed
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_at TIMESTAMPTZ;
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS callback_said TEXT;
@@ -550,7 +564,9 @@ const DEFAULTS = {
   fbTargets: { picture: 5, post: 5, comment: 15, contact: 20, chat: 2, ppost: 1, pcomment: 5 },
   // Trucks: an oil change every oilMiles or oilDays, whichever comes first; "due soon" warnMiles / warnDays before.
   // askDriver: when it is due, the bot asks for the mileage in the driver's dispatch group.
-  fleet: { oilMiles: 25000, oilDays: 90, warnMiles: 2500, warnDays: 10, askDriver: false },
+  fleet: { oilMiles: 25000, oilDays: 90, warnMiles: 2500, warnDays: 10, askDriver: false, costLease: 5000, costInsurance: 2000, costOther: 1000 },
+  // trucks the team means to fill each month: { '2026-11': 6 }; a month not set aims at the trucks empty when it started
+  fillGoals: {},
   // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
   // a second tag if nobody answers after remindMin, and the daily AI summary of each group
   tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [] },
@@ -833,6 +849,7 @@ async function statusChanged(c, d, to, { userId = null, via = 'web', at = null, 
   if (to === 'Signed up on Relay') await amazonTo(c, d.id, 'profile', userId);
   if (to === 'Onboarding') await ensureOnboarding(c, d.id, userId);
   if (to === 'Hired') await c.query(`UPDATE onboarding SET completed_at = COALESCE(completed_at, now()) WHERE driver_id = $1`, [d.id]);
+  if (to === 'Hired') await require('./fleet').checkFill(c, d.id).catch((e) => console.error('fill', e.message));
   if (LOST.includes(to)) { const unit = await releaseTruck(c, d.id); if (unit) { notes.push(`Truck ${unit} is free again`); await syncAuto(c, d.id, userId); } }
   return notes;
 }

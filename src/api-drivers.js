@@ -356,9 +356,13 @@ module.exports = (app) => {
     const kind = CONTACT[b.kind] ? b.kind : null;
     const outcome = kind ? (CONTACT[kind].includes(b.outcome) ? b.outcome : CONTACT[kind][0]) : null;
     if (!kind && !body) return res.status(400).json({ error: 'Write something first' });
+    // talking to a driver always leaves a note behind: what they said, what was agreed, what comes next
+    const coach = require('./api-coach');
+    if (kind === 'call' && outcome === 'Talked' && body.length < coach.TALK_MIN) return res.status(400).json({ error: 'Write what you talked about first (what he said, what you agreed, what comes next), then log the call', needNote: true });
     const r = await q(`INSERT INTO notes (driver_id, user_id, body, kind, outcome) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [d.id, req.user.id, body, kind, outcome]);
     await touch(d.id, !!kind);
     if (kind === 'call') await require('./callback').onCall(db.pool, d.id, req.user.name);
+    await coach.callLogged(req.user.id, d.id);
     if (kind) await act(req.user, 'contact', d, `${CONTACT_WORD[kind]}, ${outcome.toLowerCase()}${body ? ': ' + body.slice(0, 140) : ''}`);
     else await act(req.user, 'note', d, body.slice(0, 140));
     if (d.owner_id && d.owner_id !== req.user.id) await db.notify(db.pool, d.owner_id, 'note', `${req.user.name} on ${d.name}: ${kind ? CONTACT_WORD[kind] + ', ' + outcome.toLowerCase() + (body ? ' - ' : '') : ''}${body.slice(0, 160)}`, `#/driver/${d.id}`, { driverId: d.id });

@@ -1583,3 +1583,53 @@ td .opens{display:flex;width:max-content}
 .cbcard .drow{margin-top:8px;gap:8px}
 .cbset{margin:0 0 10px}
 .fuline .cbk{white-space:normal}
+
+/* ---------- filling the trucks: goal ring, empty trucks, plan, coaching, call log ---------- */
+.fring{width:84px;height:84px;flex:none}
+.fring circle{fill:none;stroke-width:9}.fring .bg{stroke:var(--hair)}.fring .fg{stroke:var(--green);stroke-linecap:round;transition:stroke-dashoffset .6s}
+.fring .n{font-size:16px;font-weight:800;fill:var(--ink)}.fring .l{font-size:10px;fill:var(--mut)}
+.fhead,.ebhead{display:flex;gap:16px;align-items:center;margin-bottom:10px}
+.fbig{margin:0 0 4px;font-size:16px}.fme{margin:6px 0 0;font-size:13.5px}
+.elist{list-style:none;margin:0;padding:0}
+.elist li{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--hair)}
+.elist li:first-child{border-top:0}
+.elist .grow{display:flex;flex-direction:column;gap:2px;min-width:0}
+.eunit{flex:none;min-width:54px;padding:3px 8px;border-radius:8px;background:var(--red-t);color:var(--red);font-weight:800;text-align:center;text-decoration:none}
+.elist li.coming .eunit{background:var(--yellow-t);color:var(--yellow-ink)}
+.eloss{display:flex;flex-direction:column;align-items:flex-end;font-size:12.5px;white-space:nowrap}
+.eloss b{font-size:13.5px}.eloss span{color:var(--red);font-weight:700}
+.fpeople{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 4px}
+.fpeople span{padding:2px 9px;border-radius:9px;background:var(--hair);font-size:12.5px}
+.fpeople span.got{background:var(--green-t);color:var(--green-d)}.fpeople span.me{box-shadow:inset 0 0 0 1.5px var(--green)}
+.fcredit{margin:8px 0 4px}
+.fillwide{margin:0 0 18px}
+.eboard{margin-bottom:16px;border-left:4px solid var(--red)}
+.eboard h3{margin:0 0 4px}
+.plancard{border:2px solid var(--green);margin-bottom:16px}
+.plancard.done{border-width:1px;border-color:var(--line)}
+.plist{border:1px solid var(--line);border-radius:10px;padding:6px 12px;margin:10px 0}
+.plist legend{font-size:13px;font-weight:700;padding:0 4px}
+.pitem{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--hair)}
+.pitem:first-of-type{border-top:0}
+.pitem input[type=time]{width:110px;height:32px;border:1px solid var(--line);border-radius:7px;padding:0 6px;font:inherit}
+.pgoal{font-size:16px;font-weight:700;margin:0 0 8px}
+ul.plan{list-style:none;margin:0 0 6px;padding:0}
+ul.plan li{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--hair)}
+ul.plan li:first-child{border-top:0}
+ul.plan .tick{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:12px;flex:none}
+ul.plan li.ok .tick{background:var(--green);border-color:var(--green);color:#fff}
+ul.plan li.ok a{color:var(--mut);text-decoration:line-through}
+.tipcard .tip{padding:10px 0;border-top:1px solid var(--hair)}.tipcard .tip:first-of-type{border-top:0}
+.tipcard .tip p{margin:0 0 4px;line-height:1.5}
+.tipcard .tip.new p{font-weight:600}
+.tipcard .drow{margin-top:8px;gap:8px}.tipcard .drow input{flex:1;min-width:0;height:32px;border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit}
+.unlog{display:flex;flex-direction:column;gap:8px;margin:0 0 16px;padding:12px 16px;border-radius:12px;background:var(--yellow-t);border:1px solid #E8C770}
+.unlog span{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.outs{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 12px}
+.out{display:flex}.out input{position:absolute;opacity:0}
+.out span{padding:7px 12px;border:1px solid var(--line);border-radius:9px;cursor:pointer;font-weight:600;font-size:13.5px}
+.out input:checked+span{background:var(--green);border-color:var(--green);color:#fff}
+.out input:focus-visible+span{outline:2px solid var(--green);outline-offset:2px}
+textarea.need{border-color:var(--red)!important;box-shadow:0 0 0 3px var(--red-t)}
+h3.sub{font-size:14px;margin:14px 0 6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}

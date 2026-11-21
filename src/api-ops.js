@@ -71,6 +71,7 @@ module.exports = (app) => {
           if (t.driver_id || t.driver_name) return res.status(409).json({ error: `Truck ${t.unit} already has a driver. Pick another one.` });
           if (cur) await q(`UPDATE trucks SET driver_id = NULL, updated_at = now() WHERE id = $1`, [cur.id]);
           const r = await q(`UPDATE trucks SET driver_id = $2, updated_at = now() WHERE id = $1 AND driver_id IS NULL AND driver_name IS NULL`, [to, d.id]);
+          if (r.rowCount) await require('./fleet').checkFill(db.pool, d.id).catch(() => {});
           if (!r.rowCount) return res.status(409).json({ error: `Truck ${t.unit} was just taken. Pick another one.` });
           log.push(['truck', `Truck ${t.unit} assigned${cur ? ` (was ${cur.unit})` : ''}`]);
           if (t.company_id && t.company_id !== d.company_id) { // the driver now works for the truck's company
@@ -142,14 +143,15 @@ module.exports = (app) => {
         (SELECT count(*)::int FROM truck_events e WHERE e.truck_id = t.id AND e.status <> 'fixed' AND e.kind <> 'oil_change') open_issues,
         (SELECT row_to_json(x) FROM (SELECT title, status, at FROM truck_events e WHERE e.truck_id = t.id ORDER BY at DESC LIMIT 1) x) last_event,
         (SELECT coalesce(sum(cost), 0) FROM truck_events e WHERE e.truck_id = t.id AND to_char(coalesce(e.done_on, (e.at AT TIME ZONE $1)::date), 'YYYY-MM') = to_char(now() AT TIME ZONE $1, 'YYYY-MM')) month_cost,
-        (SELECT coalesce(sum(cost), 0) FROM truck_events e WHERE e.truck_id = t.id AND e.paid = false) unpaid
+        (SELECT coalesce(sum(cost), 0) FROM truck_events e WHERE e.truck_id = t.id AND e.paid = false) unpaid,
+        (SELECT row_to_json(x) FROM (SELECT f.at, f.driver_name driver, u.name owner FROM truck_fills f LEFT JOIN users u ON u.id = f.user_id WHERE f.truck_id = t.id ORDER BY f.at DESC LIMIT 1) x) last_fill
       FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id LEFT JOIN users u ON u.id = t.dispatcher_id ORDER BY length(t.unit), t.unit`, [tz]);
     const fl = require('./fleet'); const last = await fl.lastOils(r.rows.map((t) => t.id));
     const trucks = r.rows.map((t) => ({ id: t.id, unit: t.unit, details: t.details, location: t.location, notes: t.notes, outOfService: t.out_of_service, driverName: t.driver_name, companyId: t.company_id,
       driver: t.driver_id ? { id: canSee(req.user, { owner_id: t.d_owner }) ? t.driver_id : null, name: t.d_name, status: t.d_status } : null,
       state: t.out_of_service ? 'out' : t.driver_id || t.driver_name ? 'assigned' : 'empty', updatedAt: t.updated_at, openIssues: t.open_issues, lastEvent: t.last_event,
       dispatcherId: t.dispatcher_id, dispatcher: t.dispatcher, vin: t.vin, plate: t.plate, oilMiles: t.oil_miles, oilDays: t.oil_days,
-      oil: fl.oilStatus(t, last[t.id]), monthCost: +t.month_cost, unpaid: +t.unpaid }));
+      oil: fl.oilStatus(t, last[t.id]), monthCost: +t.month_cost, unpaid: +t.unpaid, lastFill: t.last_fill }));
     const live = trucks.filter((t) => !t.outOfService);
     res.json({ trucks, summary: { overdue: live.filter((t) => t.oil.state === 'overdue').length, soon: live.filter((t) => t.oil.state === 'soon').length, unknown: live.filter((t) => t.oil.state === 'unknown').length,
       issues: trucks.reduce((n, t) => n + t.openIssues, 0), monthCost: Math.round(trucks.reduce((n, t) => n + t.monthCost, 0) * 100) / 100, unpaid: Math.round(trucks.reduce((n, t) => n + t.unpaid, 0) * 100) / 100 } });
@@ -200,7 +202,7 @@ module.exports = (app) => {
       const d = (await q(`UPDATE drivers SET company_id = $2 WHERE id = $1 RETURNING id, name, (SELECT name FROM companies WHERE id = $2) co`, [t.driver_id, set.company_id])).rows[0];
       if (d) await record(req, 'edit', d, `Company: ${d.co} (truck ${t.unit} moved there)`);
     }
-    if (set.driver_id && set.driver_id !== t.driver_id) await db.syncAuto(db.pool, set.driver_id, req.user.id);
+    if (set.driver_id && set.driver_id !== t.driver_id) { await db.syncAuto(db.pool, set.driver_id, req.user.id); await require('./fleet').checkFill(db.pool, set.driver_id); }
     if (b.release && t.driver_id) {
       await db.syncAuto(db.pool, t.driver_id, req.user.id);
       const d = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [t.driver_id])).rows[0];

@@ -349,7 +349,7 @@
   }
   async function viewDriver(id) {
     const live = App.drawing();
-    let r; try { r = await api('/api/drivers/' + id); } catch (e) { if (live()) view.innerHTML = header('leads') + `<main><a class="back" href="#/leads">← Leads</a><div class="empty"><p>${esc(e.message)}</p></div></main>`; return; }
+    let r; try { r = await api('/api/drivers/' + id); r.tips = (await api('/api/coaching?driver=' + id).catch(() => ({ tips: [] }))).tips; } catch (e) { if (live()) view.innerHTML = header('leads') + `<main><a class="back" href="#/leads">← Leads</a><div class="empty"><p>${esc(e.message)}</p></div></main>`; return; }
     if (!live()) return;
     const draft = cur && cur.driver.id === id && $('#newNote') ? $('#newNote').value : ''; // a half-written note survives a redraw
     cur = r; const d = r.driver, a = d.answers || {}, ob = r.onboarding, admin = S.me.role === 'admin', t = today();
@@ -418,7 +418,8 @@
           <section class="card dprof" id="dprof" hidden></section>
           ${amazonCard(d)}
           ${callGuide(d, ob, r.notes)}
-          <section class="card"><h3>Notes and contact log</h3>
+          ${r.tips && r.tips.length ? `<section class="card tipcard"><h3>Coaching on this lead</h3>${r.tips.map((t) => `<div class="tip${t.seenAt ? '' : ' new'}"><p>${esc(t.tip)}</p><div class="small mut">${esc(t.by || '')} to ${esc(t.user)} · ${esc(App.teamWhen(t.at))}${t.reply ? ` · reply: ${esc(t.reply)}` : t.seenAt ? ' · seen' : ''}</div></div>`).join('')}</section>` : ''}
+          <section class="card"><h3>Notes and contact log${admin && d.ownerId && d.ownerId !== S.me.id ? `<span class="grow"></span><button type="button" class="btn plain sm" data-act="coachLead" data-user="${d.ownerId}" data-name="${esc(person(d.ownerId))}" data-driver="${d.id}" data-dname="${esc(d.name)}">Give ${esc(person(d.ownerId).split(' ')[0])} a tip</button>` : ''}</h3>
             ${d.redFlags ? `<div class="flagbox"><span>${esc(d.redFlags)}</span></div>` : ''}
             <form class="compose" id="noteForm"><textarea id="newNote" data-fk="note" placeholder="What they said, what you agreed, what to do next"></textarea>
               <div class="row"><button class="btn primary">Add note</button><span class="hint">Ctrl+Enter adds it</span></div>
@@ -465,6 +466,7 @@
   async function patchOnb(body, okText) { try { await api(`/api/drivers/${cur.driver.id}/onboarding`, { method: 'PATCH', body }); if (okText) toast(okText); } catch (e) { fail(e); } await again(); }
   async function addNote(extra = {}) {
     const box = $('#newNote'); const body = box.value.trim(); if (!body && !extra.kind) { box.focus(); return; }
+    if (extra.kind === 'call' && extra.outcome === 'Talked' && body.length < 20) { toast('Write what you talked about first, then click "Called, talked"', true); box.classList.add('need'); box.focus(); return; }
     try {
       const r = await api(`/api/drivers/${cur.driver.id}/notes`, { method: 'POST', body: { body, ...extra } }); box.value = '';
       const ix = r.indeed;

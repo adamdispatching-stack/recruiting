@@ -51,7 +51,7 @@ async function until(f, ms = 8000) { for (let i = 0; i < ms / 100; i++) { const 
   await pg.query(`UPDATE drivers SET callback_at = now() - interval '65 minutes' WHERE id = $1`, [d.id]);
   ok(await until(async () => (await notes(A)).some((t) => /Carl Callback asked for a call at .* and nobody has called yet \(Rita Recruiter's lead\)/.test(t))), 'an hour late: the admin is told');
   // a logged call ends it
-  await R(`/api/drivers/${d.id}/notes`, { method: 'POST', body: { kind: 'call', outcome: 'Talked', body: 'Spoke, he is in', indeed: false } });
+  await R(`/api/drivers/${d.id}/notes`, { method: 'POST', body: { kind: 'call', outcome: 'Talked', body: 'Spoke, he is in, sending the Relay invite today', indeed: false } });
   ok((await row()).callback_state === 'done', 'logging a call marks the call-back done');
   // a recruiter sets one by hand, then marks it done
   const t2 = new Date(Date.now() + 26 * 3600000);

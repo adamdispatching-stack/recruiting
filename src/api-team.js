@@ -162,6 +162,11 @@ module.exports = (app) => {
           ORDER BY g`, [id, r.from, r.to, r.tz]);
     const logins = await q(`SELECT at, kind, ip, ua FROM logins WHERE user_id = $1 AND at >= $2 AND at < $3 ORDER BY at DESC LIMIT 100`, [id, r.from, r.to]);
     const feed = await q(`SELECT a.*, u.name user_name FROM activity a JOIN users u ON u.id = a.user_id WHERE a.user_id = $1 AND a.at >= $2 AND a.at < $3 ORDER BY a.at DESC LIMIT 300`, [id, r.from, r.to]);
+    const coach = require('./api-coach');
+    const plan = await coach.planOf(id, r.today);
+    const tips = (await q(`SELECT c.id, c.tip, c.at, c.seen_at, c.reply, b.name by_name, d.name driver_name, c.driver_id FROM coaching c LEFT JOIN users b ON b.id = c.by_id LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.user_id = $1 ORDER BY c.at DESC LIMIT 10`, [id])).rows
+      .map((t) => ({ id: t.id, tip: t.tip, at: t.at, seenAt: t.seen_at, reply: t.reply, by: t.by_name, driver: t.driver_name, driverId: t.driver_id }));
+    const unlogged = (await q(`SELECT count(DISTINCT driver_id)::int n FROM call_starts WHERE user_id = $1 AND logged_at IS NULL AND at < now() - interval '20 minutes' AND at > now() - interval '7 days'`, [id])).rows[0].n;
     let fleetWork = null;
     if ((await q(`SELECT role FROM users WHERE id = $1`, [id])).rows[0].role === 'dispatcher') {
       const fl = require('./fleet');
@@ -170,7 +175,7 @@ module.exports = (app) => {
       const done = (await q(`SELECT count(*)::int n FROM activity WHERE user_id = $1 AND type = 'truck' AND at >= $2 AND at < $3`, [id, r.from, r.to])).rows[0].n;
       fleetWork = { trucks: mine.map((t) => ({ id: t.id, unit: t.unit })), overdue: st.filter((x) => x === 'overdue').length, soon: st.filter((x) => x === 'soon').length, unknown: st.filter((x) => x === 'unknown').length, entries: done };
     }
-    res.json({ now: new Date().toISOString(), period: r.period, days: r.days, tz: r.tz, today: r.today, person, unit: byHour ? 'hour' : 'day', series: series.rows, fleetWork,
+    res.json({ now: new Date().toISOString(), period: r.period, days: r.days, tz: r.tz, today: r.today, person, unit: byHour ? 'hour' : 'day', series: series.rows, fleetWork, plan, tips, unlogged,
       logins: logins.rows.map((l) => ({ at: l.at, kind: l.kind, ip: req.user.role === 'admin' ? l.ip : undefined, browser: browserOf(l.ua) })), feed: feed.rows.map(feedRow) });
   }));
 

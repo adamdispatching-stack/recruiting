@@ -49,6 +49,7 @@
         <div class="greet"><h2>${greet()}, ${firstName()}</h2>${urgent ? `<span class="ok warn">${pl(urgent, 'thing needs', 'things need')} attention</span>` : '<span class="ok">Your team is on track</span>'}</div></div>
       <div class="tiles">${App.tile('lead', r.trend.leads[0], 'new leads, last 30 days', { href: '#/leads', trend: trendHtml(r.trend.leads) })}${App.tile('clip', r.trend.onboarded[0], 'started onboarding, 30 days', { href: '#/onboarding', trend: trendHtml(r.trend.onboarded) })}
         ${App.tile('award', r.trend.hired[0], 'hired, last 30 days', { trend: trendHtml(r.trend.hired) })}${App.tile('wheel', a.activeDrivers, 'active drivers', { href: '#/active' })}</div>
+      ${r.fill ? `<div class="fillwide">${r.fill}</div>` : ''}
       <div class="dgrid">
         <section class="card"><h3>Recruiting pipeline</h3><p class="hint lead">Driver leads from first reply to hire</p>
           <div class="pipe">${stages.map((s) => `<a href="#/leads?status=${q(s)}"><span class="pn">${esc(s)}</span><span class="pc">${c[s] || 0}</span><span class="pb"><i style="width:${(c[s] || 0) ? Math.max(1.5, ((c[s] || 0) / max) * 100) : 0}%"></i></span><span class="pp">${inRoute ? Math.round(((c[s] || 0) / inRoute) * 100) : 0}%</span></a>`).join('')}</div>
@@ -117,9 +118,10 @@
         <div class="greet"><h2>${greet()}, ${firstName()}</h2>${s.due ? `<span class="ok warn">${plural(s.due, 'follow-up')} due</span>` : '<span class="ok">No follow-ups waiting</span>'}</div></div>
       <div class="tiles">${App.tile('cal', s.due, 'follow-ups due', { tone: s.due ? 'r' : '', href: '#/leads?owner=me&due=1' })}${App.tile('warn', s.cold, 'leads going cold', { tone: s.cold ? 'y' : '', href: '#/leads?owner=me&cold=1' })}
         ${App.tile('lead', s.owned, 'your leads in progress', { href: '#/leads?owner=me&working=1' })}${App.tile('clip', r.onboarding.length, 'your drivers in onboarding', { href: '#/onboarding' })}${App.tile('people', r.unassigned, 'leads up for grabs', { href: '#/leads?owner=none&working=1' })}</div>
+      ${r.unlog}${r.plan}
       ${challengeCard(r.goal, s.due, r.badges)}
       <div class="dgrid">
-        <div>
+        <div>${r.tips}${r.fill}
           <section class="card"><h3>Call list</h3>
             ${r.calls.length ? `<div class="scroll"><table class="mini calls"><thead><tr><th>Driver</th><th>Phone</th><th>Follow-up</th><th>Last note</th></tr></thead><tbody>${r.calls.map((d) => `<tr><td><a href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><div>${badge(d.status)}</div></td>
               <td>${(d.phones || []).map((p) => App.phone(p)).join('') || '<span class="none">No phone</span>'}</td>
@@ -142,6 +144,9 @@
   async function viewHome() {
     const live = App.drawing();
     const [r, g, bd] = await Promise.all([api('/api/dashboard'), S.me.role === 'admin' ? null : api('/api/challenge').catch(() => null), S.me.role === 'admin' ? null : api('/api/badges').catch(() => null)]); if (!live()) return;
+    const member = S.me.role !== 'admin';
+    const [fg, fe, plan, tips, unlog] = await Promise.all([api('/api/fleet/goal').catch(() => null), api('/api/fleet/empty').catch(() => null), member ? api('/api/plan').catch(() => null) : null, member ? api('/api/coaching').then((x) => x.tips).catch(() => []) : [], member ? App.unloggedBar() : '']);
+    r.fill = fg && fe ? App.fillCard(fg, fe, member ? S.me.id : null) : ''; r.plan = plan ? App.planCard(plan) : ''; r.tips = App.tipsCard(tips || []); r.unlog = unlog || '';
     if (g) { r.goal = g; App.setGoal(g); }
     r.badges = bd;
     document.title = (r.role === 'admin' ? 'Dashboard' : 'My day') + ' · FleetHire';
@@ -248,7 +253,7 @@
     return `<span class="oil ${o.state}">${o.state === 'overdue' ? 'Overdue' : o.state === 'soon' ? 'Due soon' : 'OK'}</span><div class="small mut">${parts.join(' · ')}</div>`;
   };
   async function viewTrucks() {
-    const live = App.drawing(); const r = await api('/api/trucks'); if (!live()) return;
+    const live = App.drawing(); const [r, fe, fg] = await Promise.all([api('/api/trucks'), api('/api/fleet/empty').catch(() => null), api('/api/fleet/goal').catch(() => null)]); if (!live()) return;
     trucks = r.trucks; const sum = r.summary; const admin = S.me.role === 'admin'; const disp = S.me.role === 'dispatcher'; const canEdit = true; // anyone adds and edits trucks; only an admin removes one
     document.title = 'Trucks · FleetHire';
     const n = (s) => trucks.filter((t) => t.state === s).length;
@@ -263,7 +268,10 @@
       .filter(([, l]) => l.length).map(([c, l]) => [c, l.sort(byUnit)]);
     const mine = trucks.filter((t) => t.dispatcherId === S.me.id).length;
     const tile = (k, v, l, cls) => `<button type="button" class="ftile ${cls || ''}" data-act="truckFilter" data-k="${k}" aria-pressed="${truckFilter === k}"><b>${v}</b><span>${l}</span></button>`;
-    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck: its company and driver, oil changes, shop visits and what it costs.', `${admin || disp ? '<button class="btn plain" data-act="fleetSettings">Oil change settings</button>' : ''}${canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : ''}`)}
+    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck: its company and driver, oil changes, shop visits and what it costs.', `${admin || disp ? '<button class="btn plain" data-act="fleetSettings">Truck settings</button>' : ''}${canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : ''}`)}
+      ${fe && fg && trucks.length ? `<section class="card eboard"><div class="ebhead">${App.goalRing(fg)}<div class="grow"><h3>${fe.count ? `${plural(fe.count, 'empty truck')}: about ${App.money(fe.losingPerDay)} lost every day` : 'Every truck has a driver'}</h3>
+        <p class="small mut">Lease, insurance and fees: ${App.money(fe.monthly)} a month per truck, ${App.money(fe.perDay)} a day, running or not.${fe.lost ? ` So far these empty trucks have cost ${App.money(fe.lost)}.` : ''} ${fg.filled} filled this month, goal ${fg.target}.</p></div></div>
+        ${App.emptyList(fe, 50)}</section>` : ''}
       ${trucks.length ? `<div class="ftiles">${tile('oil', sum.overdue, 'oil changes overdue', sum.overdue ? 'bad' : '')}${tile('oil', sum.soon, 'due soon', sum.soon ? 'warn' : '')}${tile('issues', sum.issues, 'open issues', sum.issues ? 'warn' : '')}
         <div class="ftile static"><b>${money(sum.monthCost)}</b><span>spent this month</span></div><div class="ftile static${sum.unpaid ? ' warn' : ''}"><b>${money(sum.unpaid)}</b><span>not paid yet</span></div></div>` : ''}
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${[['', `All ${trucks.length}`], ...(mine || disp ? [['mine', `Mine ${mine}`]] : []), ['oil', `Oil due ${sum.overdue + sum.soon}`], ['assigned', `With a driver ${n('assigned')}`], ['empty', `Empty ${n('empty')}`], ['out', `Out of service ${n('out')}`]].map(([k, l]) => `<button data-act="truckFilter" data-k="${k}" class="${truckFilter === k ? 'on' : ''}" aria-pressed="${truckFilter === k}">${l}</button>`).join('')}</div>
@@ -272,7 +280,7 @@
       ${trucks.length ? (groups.map(([co, list]) => `<section class="cotable"><h3 class="cohead">${co ? App.coTag(co.id, true) : '<span class="co none">No company</span>'}<span class="small mut">${plural(list.length, 'truck')}${list.filter((t) => t.state === 'empty').length ? `, ${list.filter((t) => t.state === 'empty').length} empty` : ''}</span></h3>
         <div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th>Truck</th><th style="width:130px">Status</th><th>Driver</th><th style="width:150px">Oil change</th><th style="width:110px">Issues</th><th style="width:110px">This month</th>${canEdit ? '<th style="width:60px"></th>' : ''}</tr></thead><tbody>
         ${list.map((t) => `<tr data-truck="${t.id}" class="${t.state === 'empty' ? 'emptyrow' : ''}"><td><a class="unit" href="#/truck/${t.id}">${esc(t.unit)}</a></td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}${t.dispatcher ? `<div class="small mut">Dispatcher: ${esc(t.dispatcher)}</div>` : ''}</td>
-          <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>
+          <td><span class="tstate ${t.state}">${STATE[t.state]}</span>${t.lastFill && t.state === 'assigned' ? `<div class="small mut" title="${esc(t.lastFill.driver || '')}">Filled by <b>${esc(t.lastFill.owner || 'the team')}</b></div>` : ''}</td>
           <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="${App.driverHref(t.driver.id, t.driver.status)}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? `${esc(t.driverName)}${canEdit ? ' <button type="button" class="linkbtn small" data-act="truckEdit">Link to a driver</button>' : ''}` : '<span class="none">Nobody</span>'}</td>
           <td>${oilCell(t.oil, t.outOfService)}</td>
           <td>${t.openIssues ? `<a class="tiss open" href="#/truck/${t.id}">${t.openIssues} open</a>` : '<span class="none">None</span>'}</td>

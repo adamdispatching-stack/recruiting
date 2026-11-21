@@ -5,7 +5,10 @@ const { q } = db;
 const DAY = 86400000;
 // the day work was done, in the team's time zone ($2): what the history is sorted by
 const DAY_SQL = `coalesce(done_on, (coalesce(fixed_at, at) AT TIME ZONE $2)::date)`;
-const fleet = () => ({ oilMiles: 25000, oilDays: 90, warnMiles: 2500, warnDays: 10, askDriver: false, ...(db.settings.fleet || {}) });
+const fleet = () => ({ oilMiles: 25000, oilDays: 90, warnMiles: 2500, warnDays: 10, askDriver: false, costLease: 5000, costInsurance: 2000, costOther: 1000, ...(db.settings.fleet || {}) });
+// what one truck costs whether it runs or not
+const monthly = () => { const f = fleet(); return (+f.costLease || 0) + (+f.costInsurance || 0) + (+f.costOther || 0); };
+const perDay = () => Math.round((monthly() * 12 / 365) * 100) / 100;
 const when = (e) => (e.done_on ? new Date(e.done_on + 'T12:00:00Z') : e.fixed_at || e.at);
 
 // The latest mileage wins; an older or smaller reading never moves the odometer back.
@@ -92,4 +95,48 @@ function start() {
   const run = () => remind().catch((e) => console.error('oil remind', e.message));
   setTimeout(run, +process.env.FLEET_TICK_MS || 20000); setInterval(run, +process.env.FLEET_TICK_MS || 3600000);
 }
-module.exports = { DAY_SQL, fleet, setOdometer, lastOils, oilStatus, oilText, costs, remind, start };
+// ---------- empty trucks and who fills them ----------
+// Empty = in service and not running: no driver, or a driver who has not started yet (coming).
+// Empty since: the latest of added, back in service, last driver left; the cost is counted per day.
+async function emptyBoard() {
+  const r = (await q(`SELECT t.id, t.unit, t.company_id, t.details, t.created_at, t.driver_name, d.id d_id, d.name d_name, d.status d_status, d.owner_id, u.name owner, o.expected_arrival::text arrival,
+      (SELECT max(h.at) FROM truck_history h WHERE h.truck_id = t.id AND (h.kind = 'added' OR (h.kind = 'service' AND h.to_text = 'in') OR (h.kind = 'driver' AND h.to_text IS NULL))) since
+    FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id LEFT JOIN users u ON u.id = d.owner_id LEFT JOIN onboarding o ON o.driver_id = d.id
+    WHERE NOT t.out_of_service AND (t.driver_id IS NULL OR d.status <> 'Hired') AND t.driver_name IS NULL`)).rows;
+  const day = perDay();
+  const trucks = r.map((t) => { const since = t.since || t.created_at; const days = Math.max(0, Math.floor((Date.now() - new Date(since)) / DAY));
+    return { id: t.id, unit: t.unit, companyId: t.company_id, details: t.details, since, days, lost: Math.round(days * day),
+      coming: t.d_id ? { id: t.d_id, name: t.d_name, status: t.d_status, ownerId: t.owner_id, owner: t.owner, arrival: t.arrival } : null }; })
+    .sort((a, b) => (!!a.coming - !!b.coming) || b.days - a.days);
+  return { perDay: day, monthly: monthly(), trucks, count: trucks.length, losingPerDay: Math.round(trucks.length * day), lost: trucks.reduce((n, t) => n + t.lost, 0) };
+}
+// A driver started in a truck: the recruiter whose driver it is fills it. Once per truck and driver.
+async function checkFill(c, driverId) {
+  const d = (await c.query(`SELECT d.id, d.name, d.status, d.owner_id, t.id truck_id, t.unit, u.name owner FROM drivers d JOIN trucks t ON t.driver_id = d.id LEFT JOIN users u ON u.id = d.owner_id WHERE d.id = $1`, [driverId])).rows[0];
+  if (!d || d.status !== 'Hired') return false;
+  const r = await c.query(`INSERT INTO truck_fills (truck_id, driver_id, user_id, unit, driver_name) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING id`, [d.truck_id, d.id, d.owner_id, d.unit, d.name]);
+  if (!r.rows[0]) return false;
+  const team = (await c.query(`SELECT id FROM users WHERE active`)).rows.map((x) => x.id);
+  const text = `🎉 Truck ${d.unit} is filled: ${d.name} started${d.owner ? `. Great work, ${d.owner}!` : ''}`;
+  for (const id of team) await db.notify(c, id, 'fill', text, '#/truck/' + d.truck_id);
+  return true;
+}
+const monthOf = (d = new Date()) => new Date(d).toLocaleDateString('en-CA', { timeZone: db.settings.tz }).slice(0, 7);
+// The team's goal for a month: trucks filled, each person's share and their own best month
+async function goal(month = monthOf()) {
+  const tz = db.settings.tz;
+  const fills = (await q(`SELECT f.*, u.name owner FROM truck_fills f LEFT JOIN users u ON u.id = f.user_id WHERE to_char(f.at AT TIME ZONE $1, 'YYYY-MM') = $2 ORDER BY f.at DESC`, [tz, month])).rows;
+  const per = (await q(`SELECT user_id, to_char(at AT TIME ZONE $1, 'YYYY-MM') m, count(*)::int n FROM truck_fills WHERE user_id IS NOT NULL GROUP BY 1, 2`, [tz])).rows;
+  const people = (await q(`SELECT id, name, role FROM users WHERE active AND role = 'member' ORDER BY lower(name)`)).rows.map((u) => {
+    const mine = per.filter((x) => x.user_id === u.id);
+    const before = mine.filter((x) => x.m < month).map((x) => x.n);
+    return { id: u.id, name: u.name, filled: (mine.find((x) => x.m === month) || {}).n || 0, best: before.length ? Math.max(...before) : 0 };
+  });
+  const set = (db.settings.fillGoals || {})[month];
+  const empty = await emptyBoard();
+  const target = set || Math.max(1, empty.count + fills.length);
+  return { month, target, setByAdmin: !!set, filled: fills.length, empty: empty.count, perDay: empty.perDay,
+    fills: fills.map((f) => ({ truckId: f.truck_id, unit: f.unit, driverId: f.driver_id, driver: f.driver_name, userId: f.user_id, owner: f.owner, at: f.at })), people };
+}
+
+module.exports = { emptyBoard, checkFill, goal, monthOf, perDay, monthly, DAY_SQL, fleet, setOdometer, lastOils, oilStatus, oilText, costs, remind, start };

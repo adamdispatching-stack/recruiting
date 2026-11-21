@@ -70,6 +70,7 @@
         <section class="card"><h3>Costs</h3><dl class="figs">${[['This month', c.month], ['This year', c.year], ['All time', c.all]].map(([l, v]) => `<div><dd>${money(v)}</dd><dt>${l}</dt></div>`).join('')}</dl>
           ${c.unpaid ? `<p class="unpaidline">${money(c.unpaid)} not paid yet</p>` : ''}
           ${kinds.length ? `<ul class="kbars">${kinds.map(([k, v]) => `<li><span>${esc(KIND[k] || k)}</span><i style="width:${Math.max(4, (v / top) * 100)}%"></i><b>${money(v)}</b></li>`).join('')}</ul>` : '<p class="hint">No costs yet. Add the cost when you log a service.</p>'}</section>
+        ${r.fills.length ? `<section class="card"><h3>Filled by</h3><ul class="evlist">${r.fills.map((f) => `<li class="ev"><time>${esc(dateText(dayOf(f.at), { year: 'numeric' }))}</time><div class="grow"><b>${esc(f.owner || 'The team')}</b>: ${f.driverId ? `<a href="${App.driverHref(f.driverId, 'Hired')}">${esc(f.driver)}</a>` : esc(f.driver)} started</div></li>`).join('')}</ul></section>` : ''}
         <section class="card"><h3>Drivers and companies</h3>${r.history.filter((h) => ['driver', 'company'].includes(h.kind)).length ? `<ul class="evlist">${r.history.filter((h) => ['driver', 'company'].includes(h.kind)).slice(0, 12).map(histRow).join('')}</ul>` : '<p class="hint">Changes of driver and company are kept here from now on.</p>'}</section>
         ${t.notes ? `<section class="card"><h3>Notes</h3><p class="small" style="white-space:pre-wrap">${esc(t.notes)}</p></section>` : ''}
       </div></div></main>`;
@@ -128,11 +129,16 @@
   // for all trucks (admins and dispatchers)
   on('fleetSettings', async () => {
     const f = await api('/api/fleet/settings');
-    dialog(`<form id="fsForm" class="dform"><h2>Oil change settings</h2><div class="grid2">
+    dialog(`<form id="fsForm" class="dform"><h2>Truck settings</h2><div class="grid2">
         <label class="fld">Oil change every (miles)<input name="oilMiles" type="number" min="1000" max="200000" step="500" required value="${f.oilMiles}"></label>
         <label class="fld">or every (days)<input name="oilDays" type="number" min="7" max="730" required value="${f.oilDays}"></label>
         <label class="fld">"Due soon" this many miles before<input name="warnMiles" type="number" min="0" max="50000" step="100" required value="${f.warnMiles}"></label>
         <label class="fld">or this many days before<input name="warnDays" type="number" min="0" max="120" required value="${f.warnDays}"></label></div>
+      <h3 class="sub">What a truck costs each month, running or not</h3><div class="grid2">
+        <label class="fld">Lease ($)<input name="costLease" type="number" min="0" max="100000" step="50" value="${f.costLease}"></label>
+        <label class="fld">Insurance ($)<input name="costInsurance" type="number" min="0" max="100000" step="50" value="${f.costInsurance}"></label>
+        <label class="fld">Other fees ($)<input name="costOther" type="number" min="0" max="100000" step="50" value="${f.costOther}"></label></div>
+      <p class="hint">Used to show what each empty truck costs per day.</p>
       <label class="chk"><input type="checkbox" name="askDriver" ${f.askDriver ? 'checked' : ''}><span>When an oil change is due, the bot asks the driver for the mileage in his dispatch group</span></label>
       <p class="hint">Whichever comes first, miles or days. A truck can have its own interval on its page. When one is due soon or overdue, its dispatcher (or every dispatcher) and the admins get a notification.</p><p class="err" id="fsErr" role="alert"></p>
       <div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (d) => {
