@@ -324,6 +324,27 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   say(RITA, '/mode watch', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT mode FROM tg_chats WHERE chat_id = $1`, [HCHAT.id])).rows[0].mode === 'watch'), '/mode watch: back to watching');
 
+  // ---------- ELD and accounting groups ----------
+  const ella = (await web('/api/drivers', { method: 'POST', body: { name: 'Ella Evans', source: 'Referral' } })).id;
+  await pg.query(`UPDATE drivers SET status = 'Hired' WHERE id = $1`, [ella]);
+  const E1 = { id: -100730, type: 'supergroup', title: 'Ella Evans - ELD team +1 215 555 0999' };
+  added(E1, X); // someone not connected; the phone is not on the website
+  ok(await until(async () => ((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [E1.id])).rows[0] || {}).kind === 'eld'), '"Ella Evans - ELD team +1 215…": the ELD word is seen, Ella (active) found by name, connected as her ELD group');
+  ok(((await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [E1.id])).rows[0] || {}).driver_id === ella, 'to Ella');
+  const E2 = { id: -100731, type: 'supergroup', title: 'Аccounting Ella Evans' }; // Cyrillic А
+  added(E2, X);
+  ok(await until(async () => ((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [E2.id])).rows[0] || {}).kind === 'accounting'), '"Аccounting" typed on a Russian keyboard: her accounting group');
+  // nobody fits: the card lets you pick the group type and any driver
+  const E3 = { id: -100732, type: 'supergroup', title: 'Zed Zero ELD 610 555 0101' };
+  added(E3, X);
+  const e3 = await until(async () => (await web('/api/tg/waiting')).waiting.find((w) => w.chatId == E3.id));
+  ok(e3 && e3.kind === 'eld' && e3.others.some((o) => o.id === walt) && e3.others[0].status === 'Hired', 'nobody fits: waiting as an ELD group, every driver to pick from (active first)');
+  await web('/api/tg/waiting/' + e3.id, { method: 'POST', body: { driverId: walt, kind: 'eld' } });
+  ok(((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [E3.id])).rows[0] || {}).driver_id === walt, 'picked Walt: his ELD group');
+  // a dispatch group renamed to say ELD: the same driver's ELD group now
+  push({ message: { message_id: mid++, from: RITA, chat: { ...YCHAT, title: 'Yonis Santa ELD' }, date: Math.floor(Date.now() / 1000), new_chat_title: 'Yonis Santa ELD' } });
+  ok(await until(async () => ((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [YCHAT.id])).rows[0] || {}).kind === 'eld'), 'renamed "Yonis Santa ELD": now his ELD group');
+
   // the bot's history: reactions and replies to the bot
   const bm = tg.sent.filter((m) => String(m.chat_id) === String(PCHAT.id)).pop();
   push({ message_reaction: { chat: PCHAT, message_id: bm.message_id, user: PAUL, date: Math.floor(Date.now() / 1000), old_reaction: [], new_reaction: [{ type: 'emoji', emoji: '👍' }] } });
@@ -340,7 +361,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
     const { chromium } = require('playwright'); const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
     const p = await (await b.newContext({ viewport: { width: 1300, height: 1000 } })).newPage(); const errs = []; p.on('pageerror', (e) => errs.push(e.message));
     await p.goto(BASE + '/#/login'); await p.fill('input[name=email]', 'admin@example.com'); await p.fill('input[name=password]', 'test-password-123'); await p.click('#lf button'); await p.waitForSelector('.rail');
-    added({ id: -100707, type: 'supergroup', title: 'Mark Marshall ELD' }, X); added({ id: -100711, type: 'supergroup', title: 'New group' }, X); await sleep(1500);
+    added({ id: -100707, type: 'supergroup', title: 'Mark Marshall ELD' }, X); added({ id: -100733, type: 'supergroup', title: 'Nobody Here ELD 6105550199' }, X); added({ id: -100711, type: 'supergroup', title: 'New group' }, X); await sleep(1500);
     await p.goto(BASE + '/#/telegram?tab=groups'); await p.waitForSelector('.tgwait'); await p.locator('.tgwait').screenshot({ path: '/tmp/shot/wait.png' });
     await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist.png', fullPage: false });
     await p.click('[data-act=tgLogF][data-k="tap,reaction,reply"]'); await p.waitForTimeout(500); await p.screenshot({ path: '/tmp/shot/hist2.png' });

@@ -251,10 +251,12 @@ module.exports = (app) => {
     const out = [];
     for (const w of r.rows) {
       const f = await bot.findDrivers(bot.titleInfo(w.title));
-      if (!f.list.length) f.list = (await q(`SELECT id, name, status FROM drivers WHERE status IN ('Onboarding', 'Hired') AND left_on IS NULL ORDER BY (status = 'Onboarding') DESC, updated_at DESC LIMIT 60`)).rows; // nothing in the title: drivers in onboarding, then active
+      // everyone else working with us, so any driver can be picked (active first for ELD / accounting groups)
+      const others = (await q(`SELECT id, name, status FROM drivers WHERE status IN ('Onboarding', 'Hired') AND left_on IS NULL AND NOT (id = ANY($1::int[])) ORDER BY (status = $2) DESC, name LIMIT 300`,
+        [[...f.list.map((d) => d.id), w.driver_id || 0], (w.kind || 'dispatch') === 'dispatch' && !(w.member_count > 10) ? 'Onboarding' : 'Hired'])).rows;
       const ti = bot.titleInfo(w.title);
       out.push({ big: w.member_count > 10, members: w.member_count, newName: ti.name || null, newPhone: ti.phone || null, id: w.id, chatId: w.chat_id, title: w.title, who: w.who, what: w.what, kind: w.kind || bot.titleInfo(w.title).kind, driverId: w.driver_id, driver: w.driver, at: w.created_at, link: w.invite_link,
-        options: f.list.filter((d) => d.id !== w.driver_id).map((d) => ({ id: d.id, name: d.name, status: d.status })) });
+        options: f.list.filter((d) => d.id !== w.driver_id).map((d) => ({ id: d.id, name: d.name, status: d.status })), others: others.map((d) => ({ id: d.id, name: d.name, status: d.status })) });
     }
     res.json({ waiting: out });
   }));

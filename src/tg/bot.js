@@ -144,22 +144,32 @@ async function link(m, code, who) {
 const isStaff = (p) => p && (p.role === 'staff' || !!p.user_id);
 const KIND_WORD = { dispatch: 'dispatch', updates: 'dispatch', onboarding: 'dispatch', eld: 'eld', accounting: 'accounting', acct: 'accounting', accounts: 'accounting' };
 // The group's title: "John Smith 215-555-0144", "John Smith ELD", "Accounting - John Smith"
+// Cyrillic letters that look like Latin ones (a title typed on a Russian keyboard: "ЕLD", "АCCOUNTING")
+const LOOK = { 'а': 'a', 'в': 'b', 'е': 'e', 'ё': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'у': 'y', 'х': 'x', 'і': 'i' };
+const latin = (t) => String(t || '').toLowerCase().replace(/[авеёкмнорстухі]/g, (c) => LOOK[c]);
+const ELD_W = new Set(['eld', 'elds', 'елд', 'элд', 'logs', 'logbook', 'eldgroup', 'eldteam', 'eldchat']);
+const ACC_W = new Set(['accounting', 'accountant', 'accounts', 'account', 'acct', 'acc', 'payroll', 'settlement', 'settlements', 'бухгалтерия', 'бухгалтер']);
+const NOISE = new Set([...ELD_W, ...ACC_W, 'dispatch', 'dispatcher', 'group', 'chat', 'team', 'support', 'update', 'updates', 'onboarding', 'fleethire', 'driver', 'new', 'truck', 'unit', 'trk', 'tr', 'and', 'with', 'for']);
+// The group's title: "John Smith 215-555-0144", "John Smith ELD", "ELD_John Smith", "Accounting - John Smith"
 function titleInfo(title) {
   const t = String(title || '');
-  const kind = /\beld\b/i.test(t) ? 'eld' : /\b(accounting|accounts|acct)\b/i.test(t) ? 'accounting' : 'dispatch';
+  const toks = [...latin(t).split(/[^\p{L}\p{N}]+/u), ...t.toLowerCase().split(/[^\p{L}\p{N}]+/u)].filter(Boolean);
+  const kind = toks.some((w) => ELD_W.has(w) || /^eld(group|team|chat|s)?$/.test(w)) ? 'eld' : toks.some((w) => ACC_W.has(w) || /^account/.test(w)) ? 'accounting' : 'dispatch';
   // a phone in any form: 2675550177, 267 555 0177, 267-555-0177, (267)555-0177, +1 267 5550177, 1-267-555-0177
   let pm = t.match(/(?:\+?1[\s.-]*)?\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4}(?!\d)/);
   if (pm && !db.digits(pm[0])) pm = null;
   if (!pm) for (const x of t.match(/\+?\(?\d[\d\s().-]*\d/g) || []) { if (db.digits(x)) { pm = [x]; break; } }
   const phone = pm ? db.digits(pm[0]) : null;
-  const name = (pm ? t.replace(pm[0], ' ') : t).replace(/\b(eld|dispatch|accounting|accounts|acct|group|chat|updates?|onboarding|fleethire|driver|new)\b/gi, ' ').replace(/[^\p{L}' -]+/gu, ' ').replace(/\s+/g, ' ').replace(/^[ '-]+|[ '-]+$/g, '').trim();
   const um = t.match(/\b(?:truck|unit|trk|tr)\s*#?\s*([a-z]?\d{2,5}[a-z]?)\b|#\s*([a-z]?\d{2,5}[a-z]?)\b/i);
-  return { kind, phone, name: name.replace(/\b(truck|unit|trk|tr)\b/gi, ' ').replace(/\s+/g, ' ').trim(), unit: um ? um[1] || um[2] : null };
+  const name = (pm ? t.replace(pm[0], ' ') : t).split(/[^\p{L}'-]+/u).filter((w) => w && !NOISE.has(latin(w)) && !NOISE.has(w.toLowerCase()) && !/^eld(group|team|chat|s)?$/.test(latin(w)) && !/^-+$/.test(w)).join(' ').replace(/^[ '-]+|[ '-]+$/g, '').trim();
+  return { kind, phone, name, unit: um ? um[1] || um[2] : null };
 }
-// Drivers that fit: the phone number first, then the name. sure = one clear match.
-async function findDrivers({ phone, name, unit, big = false }) {
+// Drivers that fit: the phone number first, then the truck, then the name (the most matching words wins). sure = one clear match.
+async function findDrivers({ phone, name, unit, big = false, kind = 'dispatch' }) {
   const OUT = `status NOT IN ('Not interested', 'Declined on Indeed', 'No CDL')`;
-  const res = (r, by) => { const hired = r.filter((d) => d.status === 'Hired'); return r.length === 1 ? { sure: r[0], list: r, by } : big && hired.length === 1 ? { sure: hired[0], list: r, by } : null; };
+  // ELD and accounting groups are for working drivers: prefer the active one
+  const pref = big || kind !== 'dispatch';
+  const res = (r, by) => { const hired = r.filter((d) => d.status === 'Hired'); return r.length === 1 ? { sure: r[0], list: r, by } : pref && hired.length === 1 ? { sure: hired[0], list: r, by } : null; };
   if (phone) {
     const r = (await q(`SELECT id, name, status, phones FROM drivers WHERE $1 = ANY(phones) AND ${OUT} ORDER BY (status = 'Hired') DESC, updated_at DESC LIMIT 6`, [phone])).rows;
     if (r.length) return res(r, 'phone') || { sure: null, list: r };
@@ -168,11 +178,14 @@ async function findDrivers({ phone, name, unit, big = false }) {
     const r = (await q(`SELECT d.id, d.name, d.status, d.phones FROM trucks t JOIN drivers d ON d.id = t.driver_id WHERE upper(t.unit) = upper($1) AND d.${OUT}`, [unit])).rows;
     if (r.length === 1) return { sure: r[0], list: r, by: 'truck' };
   }
-  const words = String(name || '').split(/\s+/).filter((x) => x.length > 1);
+  const words = [...new Set(String(name || '').split(/\s+/).filter((x) => x.length > 1))].slice(0, 6);
   if (!words.length) return { sure: null, list: [] };
-  const r = (await q(`SELECT id, name, status, phones FROM drivers WHERE ${words.map((_, i) => `name ILIKE $${i + 1}`).join(' AND ')} AND ${OUT}
-      ORDER BY (status = 'Hired') DESC, (status = 'Onboarding') DESC, updated_at DESC LIMIT 6`, words.map((x) => `%${x}%`))).rows;
-  const n = words.length >= 2 ? res(r, 'name') : null;
+  const need = Math.min(2, words.length);
+  const r = (await q(`SELECT * FROM (SELECT id, name, status, phones, updated_at, (${words.map((_, i) => `(name ILIKE $${i + 1})::int`).join(' + ')}) score FROM drivers WHERE ${OUT}) x
+      WHERE score >= ${need} ORDER BY score DESC, (status = 'Hired') DESC, (status = 'Onboarding') DESC, updated_at DESC LIMIT 8`, words.map((x) => `%${x}%`))).rows;
+  if (!r.length) return { sure: null, list: [], by: 'name' };
+  const top = r.filter((d) => d.score === r[0].score);
+  const n = r[0].score >= 2 ? res(top, 'name') : null;
   return n || { sure: null, list: r, by: 'name' };
 }
 const addPhone = (driverId, phone) => phone && q(`UPDATE drivers SET phones = array_append(phones, $2) WHERE id = $1 AND NOT ($2 = ANY(phones))`, [driverId, phone]);
@@ -188,9 +201,14 @@ async function askWhich(chatId, kind, info, list, who, replyTo) {
   return send(chatId, `Which driver is this <b>${KINDS[kind]}</b> group for?${!list.length && (info.name || info.phone) ? `\nI found nobody on the website with ${[info.name ? `the name "${esc(info.name)}"` : '', info.phone ? `the phone ${info.phone}` : ''].filter(Boolean).join(' or ')}.` : ''}`, { replyTo, buttons: rows });
 }
 // The bot was added to a group (or its title changed): read the title and connect it to the driver
-async function autoRegister(chat, who) {
+async function autoRegister(chat, who, { renamed = false } = {}) {
   const cur = (await q(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [chat.id])).rows[0];
-  if (cur && cur.kind && cur.driver_id) return;
+  if (cur && cur.kind && cur.driver_id) {
+    // renamed to say ELD or Accounting: the same driver's ELD / accounting group now
+    const k = titleInfo(chat.title).kind;
+    if (renamed && k !== 'dispatch' && k !== cur.kind) { await log('connect', `Renamed "${clip(chat.title, 60)}": now the ${KINDS[k]} group`, { chatId: chat.id, driverId: cur.driver_id, who }); await linkChat(chat.id, k, cur.driver_id, who && who.user_id || null, isStaff(who) ? who : null, { by: 'the new group title' }); }
+    return;
+  }
   const info = titleInfo(chat.title);
   // more than 10 people: a working driver's group (not onboarding)
   const count = await call('getChatMemberCount', { chat_id: chat.id }).catch(() => null);
@@ -208,8 +226,8 @@ async function autoRegister(chat, who) {
     for (const a of (await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows) await db.notify(db.pool, a.id, 'tg', `"${clip(chat.title, 50)}" has ${count} people, so it looks like a working driver's group, but ${f.sure.name} is "${f.sure.status}" on the website.`, '#/telegram/' + chat.id, { driverId: f.sure.id });
   }
   if (f.sure && isStaff(who)) { await addPhone(f.sure.id, info.phone); return linkChat(chat.id, info.kind, f.sure.id, who.user_id || null, who, { big: info.big }); }
-  // a big group (a working driver) matched by the truck or the one active driver: connected
-  if (f.sure && info.big && (f.by === 'truck' || f.sure.status === 'Hired')) {
+  // a big group, or an ELD / accounting group (a working driver), matched by the truck or the one active driver: connected
+  if (f.sure && (info.big || info.kind !== 'dispatch') && (f.by === 'truck' || f.sure.status === 'Hired')) {
     await log('connect', `${f.sure.name} (${f.by} match, active driver): connected by itself`, { chatId: chat.id, driverId: f.sure.id, who });
     await addPhone(f.sure.id, info.phone); return linkChat(chat.id, info.kind, f.sure.id, null, null, { by: 'the group title', big: true });
   }
@@ -385,7 +403,7 @@ async function handle(u) {
   if (who) await q(`INSERT INTO tg_members (chat_id, tg_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [chat.chat_id, who.tg_id]);
   for (const nm of m.new_chat_members || []) { if (nm.is_bot) continue; const p = await person(nm); await q(`INSERT INTO tg_members (chat_id, tg_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [chat.chat_id, p.tg_id]); }
   if (m.left_chat_member && !m.left_chat_member.is_bot) await q(`DELETE FROM tg_members WHERE chat_id = $1 AND tg_id = $2`, [chat.chat_id, m.left_chat_member.id]);
-  if (m.new_chat_title) { await q(`UPDATE tg_chats SET title = $2 WHERE chat_id = $1`, [chat.chat_id, m.new_chat_title]); return autoRegister({ ...m.chat, title: m.new_chat_title }, who); }
+  if (m.new_chat_title) { await q(`UPDATE tg_chats SET title = $2 WHERE chat_id = $1`, [chat.chat_id, m.new_chat_title]); return autoRegister({ ...m.chat, title: m.new_chat_title }, who, { renamed: true }); }
   if (!m.text && !m.caption && !m.photo && !m.document && !m.location && !m.voice) return;
   await saveMessage(m);
   if (who && m.reply_to_message && m.reply_to_message.from && state.me && m.reply_to_message.from.id === state.me.id && !u.edited_message)
@@ -478,4 +496,4 @@ async function start() {
   await retryWaiting().catch((e) => console.error('tg waiting', e.message));
   loop();
 }
-module.exports = { setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+module.exports = { latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

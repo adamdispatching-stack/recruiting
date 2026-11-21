@@ -12,4 +12,10 @@ ok(titleInfo('Accounting - Paul Penn').kind === 'accounting' && titleInfo('Paul 
 ok(titleInfo('Paul Penn 2675550177 / 4845550111').phone === '2675550177', 'two phones: the first');
 ok(titleInfo('Paul Penn 555 01').phone === null, 'too few digits: no phone');
 ok(titleInfo('José Núñez 2675550177').name === 'José Núñez', 'accented names stay');
+for (const [t, k, n, ph] of [['John Smith 2155550177 ELD', 'eld', 'John Smith', '2155550177'], ['ELD_John Smith', 'eld', 'John Smith', null], ['📋ELD John Smith', 'eld', 'John Smith', null],
+  ['John Smith (ELD) +1 215 555 0177', 'eld', 'John Smith', '2155550177'], ['John Smith - Eld team', 'eld', 'John Smith', null], ['ЕLD John Smith', 'eld', 'John Smith', null], ['Елд John Smith', 'eld', 'John Smith', null],
+  ['John Smith Logs', 'eld', 'John Smith', null], ['Eldon Brooks', 'dispatch', 'Eldon Brooks', null], ['John Smith Accounting', 'accounting', 'John Smith', null], ['ACC John Smith 215 555 0177', 'accounting', 'John Smith', '2155550177'],
+  ['John Smith payroll', 'accounting', 'John Smith', null], ['Аccounting John Smith', 'accounting', 'John Smith', null], ['John Smith ELD group 2155550177', 'eld', 'John Smith', '2155550177']]) {
+  const i = titleInfo(t); ok(i.kind === k && i.name === n && i.phone === ph, `"${t}" → ${i.kind} / ${i.name} / ${i.phone}`);
+}
 process.exit(process.exitCode || 0);
