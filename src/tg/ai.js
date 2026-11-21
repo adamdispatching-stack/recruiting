@@ -95,6 +95,8 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     blockers: { type: 'array', items: { type: 'string' }, description: 'Problems holding it up (a failed check, a missing document, the driver unsure...).' },
     open_questions: { type: 'array', items: { type: 'string' }, description: 'Questions the driver asked that nobody answered yet.' },
     driver_mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry', 'unknown'] },
+    start_date: { type: 'string', description: 'The day the driver will start: ready to roll, arriving, or coming in for orientation, as YYYY-MM-DD, ONLY if the messages say it (the latest one counts). Work out "Monday" or "next week Tuesday" from the date of the message that says it. Empty if not said.' },
+    travel: { type: 'string', description: 'How and when the driver gets to us, a few words (for example "Greyhound, arrives Newark 6 PM Sunday" or "drives his own car"), ONLY if said. No ticket or confirmation numbers. Empty otherwise.' },
     license_state: { type: 'string', description: 'The 2-letter US state of the driver\'s CDL (like PA), ONLY if a message or a CDL picture shows it. Empty otherwise.' },
     zip: { type: 'string', description: 'The driver\'s home ZIP code (5 digits) for booking a drug test nearby, ONLY if the driver said it. Empty otherwise.' },
     done_steps: { type: 'array', description: 'Listed onboarding steps the messages clearly show are DONE (not just planned). Only ids from the list.', items: { type: 'object', properties: {
@@ -114,6 +116,7 @@ Open truck issues (id: title): ${openIssues.length ? openIssues.map((i) => `${i.
 Truck services not marked paid yet (id: title, cost): ${unpaid.length ? unpaid.map((i) => `${i.id}: ${i.title}${i.cost !== null ? ' $' + i.cost : ''}`).join('; ') : 'none'}${onb ? `
 
 This driver is ONBOARDING (not driving for us yet). Fill "onboarding" every time.
+Today is ${onb.today}. Start date on the website: ${onb.start || 'not set'}.${onb.travel ? ` Travel details on the website: ${onb.travel}.` : ''}
 Amazon Relay step: ${onb.amazon || 'invite not sent yet'}.${onb.last ? ` Last known status: ${onb.last}` : ''}
 ONBOARDING STEPS still open (id: step): ${onb.steps.length ? onb.steps.map((x) => `${x.id}: ${x.label}`).join('; ') : 'none'}
 Mark a step done only when a message or a picture clearly shows it is done (a result, a confirmation, a ticket, "done", "passed"), never when it is only planned or asked for.` : ''}`;

@@ -54,9 +54,9 @@ module.exports = (app) => {
       if (b[k] === undefined) continue;
       const v = b[k] || null;
       if (v && !isDate(v)) return res.status(400).json({ error: 'That date is not valid' });
-      if (v !== (o[col] || null)) { set[col] = v; log.push(['arrival', v ? `${label}: ${niceDate(v)}` : `${label} date cleared`]); }
+      if (v !== (o[col] || null)) { set[col] = v; if (col === 'expected_arrival') set.arrival_by = null; log.push(['arrival', v ? `${label}: ${niceDate(v)}` : `${label} date cleared`]); }
     }
-    if (b.arrivalNote !== undefined) { const v = String(b.arrivalNote).trim().slice(0, 500) || null; if (v !== o.arrival_note) { set.arrival_note = v; log.push(['arrival', v ? `Arrival details: ${v}` : 'Arrival details cleared']); } }
+    if (b.arrivalNote !== undefined) { const v = String(b.arrivalNote).trim().slice(0, 500) || null; if (v !== o.arrival_note) { set.arrival_note = v; set.note_by = null; log.push(['arrival', v ? `Arrival details: ${v}` : 'Arrival details cleared']); } }
     if (b.telegramLink !== undefined) {
       const v = String(b.telegramLink).trim() || null;
       if (v && !/^https:\/\/(t\.me|telegram\.me)\/\S+$/i.test(v)) return res.status(400).json({ error: 'Paste the invite link of the Telegram group. It starts with https://t.me/' });

@@ -22,11 +22,11 @@ async function tellTeam(driverId, chatId, text, ownerToo = true) {
 }
 async function digestChat(chatId) {
   const chat = (await q(`SELECT c.*, d.name driver, d.status driver_status, d.amazon_step, d.owner_id, t.id truck_id, t.unit FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id LEFT JOIN trucks t ON t.driver_id = c.driver_id WHERE c.chat_id = $1`, [chatId])).rows[0];
-  const fresh = (await q(`SELECT m.*, p.role, to_char(m.at AT TIME ZONE $2, 'Mon DD HH24:MI') hm FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 AND NOT m.digested ORDER BY m.at LIMIT ${BATCH}`, [chatId, db.settings.tz])).rows;
+  const fresh = (await q(`SELECT m.*, p.role, to_char(m.at AT TIME ZONE $2, 'Dy Mon DD HH24:MI') hm FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 AND NOT m.digested ORDER BY m.at LIMIT ${BATCH}`, [chatId, db.settings.tz])).rows;
   if (!fresh.length) return null;
   const done = () => q(`UPDATE tg_messages SET digested = true WHERE chat_id = $1 AND id = ANY($2::bigint[])`, [chatId, fresh.map((m) => m.id)]);
   if (!chat || !chat.driver_id || !chat.kind || !ai.on()) { await done(); return null; }
-  const before = (await q(`SELECT m.*, p.role, to_char(m.at AT TIME ZONE $3, 'Mon DD HH24:MI') hm FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 AND m.at < $2 ORDER BY m.at DESC LIMIT 20`, [chatId, fresh[0].at, db.settings.tz])).rows.reverse();
+  const before = (await q(`SELECT m.*, p.role, to_char(m.at AT TIME ZONE $3, 'Dy Mon DD HH24:MI') hm FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 AND m.at < $2 ORDER BY m.at DESC LIMIT 20`, [chatId, fresh[0].at, db.settings.tz])).rows.reverse();
   const line = (m) => `[${m.hm}] ${m.is_bot ? 'Bot' : `${m.from_name || 'Someone'} (${ROLE[m.role] || 'unknown'})`}: ${m.text || ''}${m.media ? ` [${m.media}${m.media_note ? ': ' + m.media_note : ''}]` : ''}`;
   // the pictures in the new messages (a few), so numbers can be checked
   const images = [];
@@ -42,7 +42,9 @@ async function digestChat(chatId) {
     const steps = (await q(`SELECT id, label FROM checklist WHERE driver_id = $1 AND NOT done AND auto IS NULL ORDER BY position, id`, [chat.driver_id])).rows;
     const cs = (await q(`SELECT ai_status FROM onb_cases WHERE driver_id = $1`, [chat.driver_id])).rows[0];
     const am = chat.amazon_step ? (db.AMAZON.find((x) => x.key === chat.amazon_step) || {}).long : null;
-    onb = { steps, amazon: am, last: cs && cs.ai_status ? cs.ai_status.summary : null };
+    const ob = (await q(`SELECT to_char(expected_arrival, 'Dy YYYY-MM-DD') start, arrival_note, to_char(now() AT TIME ZONE $2, 'Dy YYYY-MM-DD') today FROM onboarding WHERE driver_id = $1`, [chat.driver_id, db.settings.tz])).rows[0] || {};
+    onb = { steps, amazon: am, last: cs && cs.ai_status ? cs.ai_status.summary : null, start: ob.start || null, travel: ob.arrival_note || null,
+      today: ob.today || (await q(`SELECT to_char(now() AT TIME ZONE $1, 'Dy YYYY-MM-DD') t`, [db.settings.tz])).rows[0].t };
   }
   // messages brought in from an export (before the bot joined): read and learned from, never acted on
   const quiet = fresh.every((m) => m.imported);
@@ -97,11 +99,44 @@ async function digestChat(chatId) {
   if (onboarding && r.onboarding && r.onboarding.summary) await onboardingStatus(chat, r.onboarding, onb.steps, quiet);
   return out;
 }
+// "I'll be ready to roll Monday": the start date on the website. A date the team typed is never changed; the recruiter is told instead.
+async function startFromChat(chat, o, quiet) {
+  const ob = (await q(`SELECT o.*, to_char(o.expected_arrival, 'YYYY-MM-DD') ea, d.name, d.owner_id, (now() AT TIME ZONE $2)::date::text today FROM onboarding o JOIN drivers d ON d.id = o.driver_id WHERE o.driver_id = $1`, [chat.driver_id, db.settings.tz])).rows[0];
+  if (!ob) return;
+  const lib = require('../lib'); const tell = async (t) => { const to = ob.owner_id ? [ob.owner_id] : (await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows.map((r) => r.id); for (const id of to) await db.notify(db.pool, id, 'tg', t, '#/driver/' + chat.driver_id, { driverId: chat.driver_id }); };
+  const sd = /^\d{4}-\d{2}-\d{2}$/.test(o.start_date || '') ? o.start_date : null;
+  const days = sd ? (new Date(sd) - new Date(ob.today)) / 864e5 : null;
+  if (sd && days >= -1 && days <= 90 && sd !== ob.ea) {
+    if (!ob.ea || (ob.arrival_by === 'ai' && !quiet)) {
+      await q(`UPDATE onboarding SET expected_arrival = $2, arrival_by = 'ai' WHERE driver_id = $1`, [chat.driver_id, sd]);
+      await db.syncAuto(db.pool, chat.driver_id, null);
+      await q(`UPDATE drivers SET updated_at = now() WHERE id = $1`, [chat.driver_id]);
+      await lib.history(chat.driver_id, `Start date: ${lib.niceDate(sd)} (from the Telegram group${ob.ea ? `, was ${lib.niceDate(ob.ea)}` : ''})`, 'AI', 'telegram').catch(() => {});
+      await bot.log('fact', `Saved the start date ${lib.niceDate(sd)}${ob.ea ? ` (was ${lib.niceDate(ob.ea)})` : ''} from the chat`, { chatId: chat.chat_id, driverId: chat.driver_id });
+      if (!quiet) await tell(`${ob.name}: start date set to ${lib.niceDate(sd)} from the Telegram group${ob.ea ? ` (was ${lib.niceDate(ob.ea)})` : ''}.`);
+    } else if (!quiet) {
+      const said = ((await q(`SELECT sent FROM onb_cases WHERE driver_id = $1`, [chat.driver_id])).rows[0] || {}).sent || {};
+      if (said.startSaid !== sd) {
+        await q(`UPDATE onb_cases SET sent = coalesce(sent, '{}'::jsonb) || $2::jsonb WHERE driver_id = $1`, [chat.driver_id, JSON.stringify({ startSaid: sd })]);
+        await bot.log('fact', `The chat says the start is ${lib.niceDate(sd)}, the website says ${lib.niceDate(ob.ea)}: the recruiter is told`, { chatId: chat.chat_id, driverId: chat.driver_id });
+        await tell(`${ob.name}: the Telegram group says the start is ${lib.niceDate(sd)}, but the website says ${lib.niceDate(ob.ea)}. Check and change it if needed.`);
+      }
+    }
+  }
+  const tv = o.travel ? bot.redact(String(o.travel)).replace(/\d{6,}/g, '').slice(0, 300).trim() : '';
+  if (tv && tv !== ob.arrival_note && (!ob.arrival_note || ob.note_by === 'ai')) {
+    await q(`UPDATE onboarding SET arrival_note = $2, note_by = 'ai' WHERE driver_id = $1`, [chat.driver_id, tv]);
+    await lib.history(chat.driver_id, `Arrival details: ${tv} (from the Telegram group)`, 'AI', 'telegram').catch(() => {});
+    await bot.log('fact', `Saved the arrival details: ${tv}`, { chatId: chat.chat_id, driverId: chat.driver_id });
+  }
+}
 async function onboardingStatus(chat, o, steps, quiet) {
   const s = { summary: bot.redact(String(o.summary)).slice(0, 800), waitingOn: o.waiting_on || null, nextStep: o.next_step ? String(o.next_step).slice(0, 200) : null,
     blockers: (o.blockers || []).map((x) => bot.redact(String(x)).slice(0, 200)).slice(0, 6), openQuestions: (o.open_questions || []).map((x) => bot.redact(String(x)).slice(0, 200)).slice(0, 6), mood: o.driver_mood || null };
   await q(`INSERT INTO onb_cases (driver_id, chat_id, mode, ai_status, ai_status_at) VALUES ($1, $2, 'watch', $3, now()) ON CONFLICT (driver_id) DO UPDATE SET ai_status = $3, ai_status_at = now()`, [chat.driver_id, chat.chat_id, JSON.stringify(s)]);
   // the CDL state and the ZIP (for the MVR and the drug test): fills gaps only
+  // the start date and how the driver travels, from what was said
+  if (o.start_date || o.travel) await startFromChat(chat, o, quiet).catch((e) => console.error('start date', e.message));
   if (o.license_state || o.zip) await require('./mvr').setFacts(chat.driver_id, { state: o.license_state || undefined, zip: o.zip || undefined }, 'AI', { onlyEmpty: true }).catch((e) => console.error('mvr', e.message));
   const auto = !!(db.settings.tg || {}).autoTick; const found = [];
   for (const st of o.done_steps || []) {

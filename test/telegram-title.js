@@ -33,11 +33,21 @@ http.createServer((req, res) => {
     res.statusCode = 404; res.end(JSON.stringify({ ok: false, description: 'unknown ' + method }));
   });
 }).listen(4999);
-// ---------- fake AI: nothing special ----------
+// ---------- fake AI: the start date from the chat ----------
+const AI = {};
 http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', () => {
     const j = JSON.parse(body); const tool = j.tools[0].name;
+    if (tool === 'group_digest' && /ONBOARDING STEPS/.test(j.system)) {
+      const fresh = ((j.messages[0].content.find((c) => c.type === 'text') || {}).text || '').split('NEW MESSAGES:')[1] || '';
+      const today = /Today is \w+ (\d{4}-\d{2}-\d{2})/.exec(j.system)[1]; const day = (dow) => { const d = new Date(today + 'T12:00:00Z'); do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() !== dow); return d.toISOString().slice(0, 10); };
+      const o = { summary: 'Onboarding.', waiting_on: 'driver', next_step: 'Start', blockers: [], open_questions: [], driver_mood: 'good', done_steps: [] };
+      if (/ready to roll on Monday/.test(fresh)) { o.start_date = day(1); o.travel = 'Greyhound, arrives Newark Sunday 6 PM, ticket 88812345'; }
+      if (/actually Wednesday/.test(fresh)) o.start_date = day(3);
+      AI.seen = (AI.seen || 0) + 1;
+      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts: [], learned: [], onboarding: o } }] }));
+    }
     const input = tool === 'group_digest' ? { truck_events: [], driver_notes: [], alerts: [], learned: [] } : tool === 'reply_plan' ? { is_question: false, confident: false, answer: '', progress: 'none', mood: 'neutral' } : { summary: 'A day.', issues: [], mood: 'good' };
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input }] }));
   });
@@ -63,7 +73,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
 (async () => {
   execSync(`pkill -f "node src/serve[r].js" || true; sleep 0.4; su postgres -c "psql -q -h /tmp -p 5433 -c 'DROP DATABASE IF EXISTS recruiting_test' -c 'CREATE DATABASE recruiting_test'"`, { stdio: 'ignore' });
   const env = { ...process.env, DATABASE_URL: DB, PGSSL: 'off', ADMIN_EMAIL: 'admin@example.com', ADMIN_PASSWORD: 'test-password-123', PORT: '3999',
-    TELEGRAM_BOT_TOKEN: '999:test', TG_API_BASE: 'http://localhost:4999', TG_POLL_SECONDS: '1', TG_TICK_MS: '1000', TG_NO_QUIET: '1', TG_DIGEST_MS: '600000', TG_PROFILE_MS: '600000', ANTHROPIC_API_KEY: 'test', ANTHROPIC_BASE_URL: 'http://localhost:4998' };
+    TELEGRAM_BOT_TOKEN: '999:test', TG_API_BASE: 'http://localhost:4999', TG_POLL_SECONDS: '1', TG_TICK_MS: '1000', TG_NO_QUIET: '1', TG_DIGEST_MS: '1000', TG_DIGEST_SETTLE_MIN: '0.03', TG_PROFILE_MS: '600000', ANTHROPIC_API_KEY: 'test', ANTHROPIC_BASE_URL: 'http://localhost:4998' };
   require('child_process').spawn('node', ['src/server.js'], { cwd: __dirname + '/..', env, stdio: ['ignore', require('fs').openSync('/tmp/server.log', 'w'), require('fs').openSync('/tmp/server.log', 'a')], detached: true }).unref();
   let cookie = '';
   const web = async (path, opts = {}) => { const r = await fetch(BASE + path, { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json', Cookie: opts.cookie || cookie }, body: opts.body ? JSON.stringify(opts.body) : undefined }); const sc = r.headers.get('set-cookie'); if (sc && !opts.cookie) cookie = sc.split(';')[0]; const t = await r.text(); try { return { status: r.status, ...JSON.parse(t) }; } catch (e) { return { status: r.status, text: t }; } };
@@ -130,7 +140,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(async () => (await pg.query(`SELECT license_state FROM drivers WHERE id = $1`, [paul])).rows[0].license_state === 'PA'), 'the driver answers "Pennsylvania": CDL state PA');
   ok(await until(async () => (await pg.query(`SELECT text FROM notices WHERE user_id = $1`, [rita])).rows.some((r) => /CDL is from Pennsylvania: the MVR needs the last 4 of the SSN/.test(r.text))), 'Rita is told: a PA MVR needs the last 4 of the SSN');
   let dv = await web('/api/drivers/' + paul);
-  ok(dv.mvrNeeds.map((x) => x.key).join() === 'ssn4,zip', 'the driver page: still needed: last 4 of SSN, ZIP');
+  ok(dv.mvrNeeds.map((x) => x.key).join() === 'ssn4,zip,start', 'the driver page: still needed: last 4 of SSN, ZIP, start date');
   say(RITA, 'Please send the last 4 of your SSN for the MVR', PCHAT); await sleep(200);
   const m4 = mid; say(PAUL, '4321', PCHAT);
   ok(await until(async () => (await pg.query(`SELECT ssn4 FROM drivers WHERE id = $1`, [paul])).rows[0].ssn4 === '4321'), 'the 4 digits are saved');
@@ -143,7 +153,21 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok((tg.deleted || []).some((d) => d.chat_id === PCHAT.id && d.message_id === m9) && (await pg.query(`SELECT ssn4 FROM drivers WHERE id = $1`, [paul])).rows[0].ssn4 === '6789', 'a full SSN in the group: deleted, only the last 4 kept');
   ok(!inChat(n, PCHAT).length, 'watch and learn: the bot wrote nothing in the group');
   dv = await web('/api/drivers/' + paul);
-  ok(dv.driver.licenseState === 'PA' && dv.driver.hasSsn4 && !('ssn4' in dv.driver) && !dv.mvrNeeds.length, 'the driver page: PA, last 4 given (not sent with the page), nothing missing');
+  ok(dv.driver.licenseState === 'PA' && dv.driver.hasSsn4 && !('ssn4' in dv.driver) && dv.mvrNeeds.map((x) => x.key).join() === 'start', 'the driver page: PA, last 4 given (not sent with the page), only the start date missing');
+  // "ready to roll on Monday": the start date on the website, from the chat
+  say(PAUL, 'I will be ready to roll on Monday, taking the Greyhound', PCHAT);
+  const ob1 = await until(async () => (await pg.query(`SELECT to_char(expected_arrival, 'YYYY-MM-DD') ea, extract(dow FROM expected_arrival)::int dow, arrival_by, arrival_note FROM onboarding WHERE driver_id = $1 AND expected_arrival IS NOT NULL`, [paul])).rows[0], 15000, 'start date');
+  ok(ob1 && ob1.dow === 1 && ob1.arrival_by === 'ai', '"ready to roll on Monday": the start date is set to Monday');
+  ok(ob1 && /Greyhound/.test(ob1.arrival_note) && !/88812345/.test(ob1.arrival_note), 'and the travel details (no ticket number)');
+  ok((await pg.query(`SELECT text FROM notices WHERE user_id = $1 AND text LIKE 'Paul Penn: start date set to%'`, [rita])).rows.length === 1, 'Rita is told');
+  ok((await pg.query(`SELECT done FROM checklist WHERE driver_id = $1 AND key = 'arrival_date'`, [paul])).rows[0].done, 'the "Arrival date set" step ticks itself');
+  // the team sets another date: the chat never overwrites it, the recruiter is told instead
+  const tue = new Date(new Date(ob1.ea + 'T12:00:00Z').getTime() + 864e5).toISOString().slice(0, 10);
+  await web(`/api/drivers/${paul}/onboarding`, { method: 'PATCH', body: { expectedArrival: tue } });
+  ok(!(await pg.query(`SELECT arrival_by FROM onboarding WHERE driver_id = $1`, [paul])).rows[0].arrival_by, 'Rita changes it on the website (Tuesday): the team\'s date now');
+  say(PAUL, 'actually Wednesday is better', PCHAT);
+  ok(await until(async () => (await pg.query(`SELECT text FROM notices WHERE user_id = $1 AND text LIKE 'Paul Penn: the Telegram group says the start is%'`, [rita])).rows.length === 1, 15000), 'the driver says Wednesday: Rita is told the chat and the website differ');
+  ok((await pg.query(`SELECT extract(dow FROM expected_arrival)::int d FROM onboarding WHERE driver_id = $1`, [paul])).rows[0].d === 2, 'the team\'s date (Tuesday) stays');
   ok((await web(`/api/drivers/${paul}/ssn4`)).ssn4 === '6789', 'Show: the admin sees the 4 digits');
   ok((await pg.query(`SELECT 1 FROM driver_events WHERE driver_id = $1 AND text LIKE '%looked at the last 4 of SSN%'`, [paul])).rows.length === 1, 'and the look is in the history');
   const disp = (await web('/api/users', { method: 'POST', body: { name: 'Dee Dispatch', email: 'dee@example.com', password: 'dee-pass-12345', role: 'dispatcher' } }));

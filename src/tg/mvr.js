@@ -18,7 +18,7 @@ const SSN_WORDS = /\b(ssn|social(\s+security)?|last\s*(4|four)(\s+digits)?)\b/i;
 const ZIP_WORDS = /\b(zip|postal|drug\s*test|lab|facility)\b/i;
 
 async function driver(id) {
-  return (await q(`SELECT d.id, d.name, d.status, d.zip, d.license_state, d.ssn4 IS NOT NULL has_ssn4, d.ssn4_at, d.owner_id,
+  return (await q(`SELECT d.id, d.name, d.status, d.zip, d.license_state, d.ssn4 IS NOT NULL has_ssn4, d.ssn4_at, d.owner_id, (SELECT expected_arrival IS NULL FROM onboarding WHERE driver_id = d.id) no_start,
     (SELECT done FROM checklist WHERE driver_id = d.id AND key = 'mvr' LIMIT 1) mvr_done FROM drivers d WHERE d.id = $1`, [id])).rows[0];
 }
 // what is still missing, in plain words
@@ -28,6 +28,7 @@ function needs(d) {
   if (!d.license_state) out.push({ key: 'state', label: 'CDL state' });
   if (d.license_state === 'PA' && !d.has_ssn4 && !d.mvr_done) out.push({ key: 'ssn4', label: 'Last 4 of SSN (Pennsylvania MVR)' });
   if (!d.zip) out.push({ key: 'zip', label: 'ZIP code (drug test nearby)' });
+  if (d.no_start) out.push({ key: 'start', label: 'Start date' });
   return out;
 }
 async function tellOwner(d, text) {
@@ -99,8 +100,8 @@ async function fromGroup(c, m, raw) {
   const four = nums.length === 1 && nums[0].length === 4 ? nums[0] : null;
   if ((four || full) && (SSN_WORDS.test(text) || SSN_WORDS.test(recent))) {
     const v = four || full[0].replace(/\D/g, '').slice(-4);
+    await q(`UPDATE tg_messages SET text = '[last 4 of SSN, hidden]' WHERE chat_id = $1 AND msg_id = $2`, [m.chat.id, m.message_id]); // hidden first
     await setFacts(c.driver_id, { ssn4: v }, c.name);
-    await q(`UPDATE tg_messages SET text = '[last 4 of SSN, hidden]' WHERE chat_id = $1 AND msg_id = $2`, [m.chat.id, m.message_id]);
     if (full) await bot.call('deleteMessage', { chat_id: m.chat.id, message_id: m.message_id }).catch(() => {});
     return;
   }
@@ -123,7 +124,8 @@ async function ask(driverId) {
   const lines = [];
   if (todo.some((n) => n.key === 'state')) lines.push('Which state is your CDL from?');
   if (todo.some((n) => n.key === 'zip')) lines.push('What is your ZIP code? We will book your drug test at a facility near you.');
-  if (lines.length) await send(c.chat_id, `${who}, ${lines.length > 1 ? 'two quick questions:\n' + lines.map((l, i) => `${i + 1}. ${l}`).join('\n') : lines[0].charAt(0).toLowerCase() + lines[0].slice(1)}`);
+  if (todo.some((n) => n.key === 'start')) lines.push('Which day can you start (be here and ready to roll)?');
+  if (lines.length) await send(c.chat_id, `${who}, ${lines.length > 1 ? 'a few quick questions:\n' + lines.map((l, i) => `${i + 1}. ${l}`).join('\n') : lines[0].charAt(0).toLowerCase() + lines[0].slice(1)}`);
   if (todo.some((n) => n.key === 'ssn4')) {
     const url = await privateLink(driverId);
     await send(c.chat_id, `${who}, your CDL is from Pennsylvania, so the MVR needs the <b>last 4 digits of your SSN</b>. Please send them to me privately${url ? ' (tap the button)' : ''}, not in this group.`, url ? { buttons: [[['🔒 Send privately', url]]] } : {});
