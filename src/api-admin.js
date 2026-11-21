@@ -71,7 +71,7 @@ module.exports = (app) => {
   }));
 
   // ---------- settings ----------
-  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets, noAnswer: db.settings.noAnswer }));
+  app.get('/api/settings', needUser, needAdmin, (req, res) => res.json({ tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets, noAnswer: db.settings.noAnswer, tg: db.settings.tg }));
   app.put('/api/settings', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const changed = [];
     if (b.tz !== undefined) { if (!validTz(b.tz)) return res.status(400).json({ error: 'That time zone is not known. Use a name like America/New_York.' }); if (b.tz !== db.settings.tz) { await db.saveSetting('tz', b.tz); changed.push('time zone'); } }
@@ -96,6 +96,19 @@ module.exports = (app) => {
       const t = b.fbTargets || {}; const v = {};
       for (const k of ['picture', 'post', 'comment', 'contact', 'chat', 'ppost', 'pcomment']) { const n = Math.round(+(t[k] ?? db.settings.fbTargets[k] ?? 0)); if (!(n >= 0 && n <= 200)) return res.status(400).json({ error: 'Daily targets: a number from 0 to 200' }); v[k] = n; }
       if (JSON.stringify(v) !== JSON.stringify(db.settings.fbTargets)) { await db.saveSetting('fbTargets', v); changed.push(`Facebook daily targets (${v.picture} ad pictures, ${v.post} posts, ${v.comment} comments, ${v.contact} drivers messaged, ${v.chat} group chats, ${v.ppost} personal posts, ${v.pcomment} other comments)`); }
+    }
+    if (b.tg !== undefined) {
+      const t = b.tg || {}; const cur = db.settings.tg; const hm = (x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
+      const times = t.eldTimes === undefined ? cur.eldTimes : [...new Set((Array.isArray(t.eldTimes) ? t.eldTimes : String(t.eldTimes).split(/[ ,;]+/)).map((x) => String(x).trim()).filter(Boolean).map((x) => (/^\d:\d\d$/.test(x) ? '0' + x : x)))].sort();
+      if (times.some((x) => !hm(x))) return res.status(400).json({ error: 'Write the check times like 11:00, 18:00' });
+      if (times.length > 6) return res.status(400).json({ error: 'At most 6 checks a day' });
+      const num = (v, def, lo, hi) => (v === undefined ? def : Math.round(+v));
+      const v = { eldTimes: times, eldDays: num(t.eldDays, cur.eldDays), remindMin: num(t.remindMin, cur.remindMin), summaryAt: t.summaryAt === undefined ? cur.summaryAt : String(t.summaryAt).trim(),
+        eldTeam: t.eldTeam === undefined ? cur.eldTeam : [...new Set((Array.isArray(t.eldTeam) ? t.eldTeam : String(t.eldTeam).split(/[ ,;]+/)).map((x) => String(x).trim().replace(/^@?/, '@')).filter((x) => /^@[A-Za-z0-9_]{4,32}$/.test(x)))] };
+      if (!(v.eldDays >= 0 && v.eldDays <= 365)) return res.status(400).json({ error: 'Days of checks: 0 to 365 (0 means always)' });
+      if (!(v.remindMin >= 15 && v.remindMin <= 720)) return res.status(400).json({ error: 'Remind after 15 to 720 minutes' });
+      if (!hm(v.summaryAt)) return res.status(400).json({ error: 'Write the summary time like 21:00' });
+      if (JSON.stringify(v) !== JSON.stringify(cur)) { await db.saveSetting('tg', v); changed.push('Telegram bot settings'); }
     }
     if (b.noAnswer !== undefined) {
       const n = b.noAnswer || {}; const text = String(n.text || '').trim().slice(0, 600);
@@ -126,7 +139,7 @@ module.exports = (app) => {
       if (JSON.stringify(v) !== JSON.stringify(db.settings.hours)) { await db.saveSetting('hours', v); changed.push(`working hours (${hours.weekText(week)})`); }
     }
     if (changed.length) await act(req.user, 'admin', null, `Changed settings: ${changed.join(', ')}`);
-    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets, noAnswer: db.settings.noAnswer });
+    res.json({ ok: true, tz: db.settings.tz, visibility: db.settings.visibility, sources: db.settings.sources, checklist: db.settings.checklist, hours: db.settings.hours, callPoints: db.settings.callPoints, share: db.settings.share, fbTargets: db.settings.fbTargets, noAnswer: db.settings.noAnswer, tg: db.settings.tg });
   }));
 
   // ---------- export and import ----------

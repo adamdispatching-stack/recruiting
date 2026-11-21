@@ -317,6 +317,7 @@
     return `<section class="card onb" id="onb"><h3>Onboarding<span class="grow"></span><span class="prog"><b>${done} of ${total}</b> steps done<span class="meter"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span></span></h3>
       ${needed.length ? `<div class="needbox" role="alert"><b>Needed now:</b> set the ${esc(needed.length < 2 ? needed[0] : needed.slice(0, -1).join(', ') + ' and ' + needed[needed.length - 1])}. ${needed.includes('arrival date') ? 'The driver is verified on Amazon, so plan the start date with them.' : 'The driver is verified on Amazon and starts within 3 days.'}${needed.includes('company') ? ' The company is set at the top of this page.' : ''}</div>` : ''}
       <p class="hint lead">Started ${esc(dateText(dayOf(ob.startedAt)))}${ob.startedBy ? ' by ' + esc(ob.startedBy) : ''}${ob.completedAt ? `. Hired ${esc(dateText(dayOf(ob.completedAt)))}.` : '.'}</p>
+      <div class="tggroups" aria-live="polite"></div>
       <div class="ofields">
         <label class="fld">Truck<select data-ch="onbTruck" data-fk="truck"><option value="">No truck yet</option>${truckGroups(trucks, d.companyId).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((t) => `<option value="${t.id}" ${ob.truck && ob.truck.id === t.id ? 'selected' : ''}>${esc(t.unit)}${t.details ? ', ' + esc(t.details) : ''}${t.location ? ' (' + esc(t.location) + ')' : ''}</option>`).join('')}</optgroup>`).join('')}</select>
           ${!ob.truck ? `<span class="hint">${ob.freeTrucks.length ? plural(ob.freeTrucks.length, 'empty truck') + ' to choose from' : 'No empty trucks right now.'} <a href="#/trucks">See trucks</a></span>` : ''}</label>
@@ -436,6 +437,7 @@
       patch({ name: f.get('name'), phones: split(f.get('phones')), emails: split(f.get('emails')), location: f.get('location'), zip: f.get('zip'), mode: f.get('mode'), source: f.get('source'), sourceDetail: f.get('sourceDetail'),
         expYears: f.get('expYears'), experience: f.get('experience'), relayBefore: f.get('relayBefore'), weeksOut: f.get('weeksOut'), daysHome: f.get('daysHome'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
     };
+    const tgh = document.querySelector('.tggroups'); if (tgh && App.tgLeadGroups) App.tgLeadGroups(d.id, tgh);
     const sf = $('#stepForm'); if (sf) sf.onsubmit = async (e) => { e.preventDefault(); const v = sf.label.value.trim(); if (!v) return; try { await api(`/api/drivers/${d.id}/checklist`, { method: 'POST', body: { label: v } }); toast('Step added'); again(); } catch (err) { fail(err); } };
   }
   const again = () => redraw(() => viewDriver(cur.driver.id));

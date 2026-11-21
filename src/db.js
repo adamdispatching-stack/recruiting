@@ -261,6 +261,44 @@ async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS notices_user ON notices(user_id, seen_at);
     ALTER TABLE notices ADD COLUMN IF NOT EXISTS driver_id INT REFERENCES drivers(id) ON DELETE CASCADE;
+    -- ---------- Telegram bot ----------
+    CREATE TABLE IF NOT EXISTS tg_state (key TEXT PRIMARY KEY, value JSONB);
+    -- groups the bot is in; kind: eld | accounting | updates | dispatch, linked to a driver with a code from the website
+    CREATE TABLE IF NOT EXISTS tg_chats (
+      chat_id BIGINT PRIMARY KEY, title TEXT, kind TEXT, driver_id INT REFERENCES drivers(id) ON DELETE SET NULL,
+      linked_by INT REFERENCES users(id) ON DELETE SET NULL, linked_at TIMESTAMPTZ, bot_admin BOOLEAN NOT NULL DEFAULT false,
+      active BOOLEAN NOT NULL DEFAULT true, card_msg_id BIGINT, last_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    -- Telegram users the bot has seen; role: driver | eld | accounting | dispatch | staff
+    CREATE TABLE IF NOT EXISTS tg_people (
+      tg_id BIGINT PRIMARY KEY, name TEXT, username TEXT, role TEXT, driver_id INT REFERENCES drivers(id) ON DELETE SET NULL,
+      user_id INT REFERENCES users(id) ON DELETE SET NULL, seen_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS tg_members (chat_id BIGINT NOT NULL, tg_id BIGINT NOT NULL, PRIMARY KEY (chat_id, tg_id));
+    -- what was said (passwords and account numbers are hidden before saving; pictures are not kept, only what they show)
+    CREATE TABLE IF NOT EXISTS tg_messages (
+      id BIGSERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, msg_id BIGINT NOT NULL, from_id BIGINT, from_name TEXT, is_bot BOOLEAN NOT NULL DEFAULT false,
+      text TEXT, media TEXT, media_note TEXT, reply_to BIGINT, at TIMESTAMPTZ NOT NULL, UNIQUE (chat_id, msg_id)
+    );
+    CREATE INDEX IF NOT EXISTS tg_messages_chat ON tg_messages(chat_id, at);
+    CREATE TABLE IF NOT EXISTS tg_links (
+      code TEXT PRIMARY KEY, driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, kind TEXT NOT NULL,
+      user_id INT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), used_at TIMESTAMPTZ
+    );
+    -- ELD setup for one driver, step by step, then daily checks by the ELD team
+    CREATE TABLE IF NOT EXISTS eld_cases (
+      driver_id INT PRIMARY KEY REFERENCES drivers(id) ON DELETE CASCADE, chat_id BIGINT, steps JSONB NOT NULL DEFAULT '{}',
+      wait JSONB, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), setup_done_at TIMESTAMPTZ, stopped_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS eld_checks (
+      id SERIAL PRIMARY KEY, driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, chat_id BIGINT, slot TEXT NOT NULL,
+      asked_at TIMESTAMPTZ NOT NULL DEFAULT now(), msg_id BIGINT, reminded INT NOT NULL DEFAULT 0, escalated_at TIMESTAMPTZ,
+      answer TEXT, problem TEXT, answered_by TEXT, answered_at TIMESTAMPTZ, fixed_at TIMESTAMPTZ, UNIQUE (driver_id, slot)
+    );
+    CREATE TABLE IF NOT EXISTS tg_summaries (
+      id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, day DATE NOT NULL, summary TEXT, issues JSONB, mood TEXT, messages INT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (chat_id, day)
+    );
     -- Badge levels each person reached (1 Bronze … 5 Diamond); kept once reached
     CREATE TABLE IF NOT EXISTS user_badges (
       user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -386,6 +424,9 @@ const DEFAULTS = {
   // Facebook daily targets for each recruiter (0 = not asked for)
   // ppost / pcomment: personal activity (own profile, posts that are not about the job), so Facebook does not limit the account
   fbTargets: { picture: 5, post: 5, comment: 15, contact: 20, chat: 2, ppost: 1, pcomment: 5 },
+  // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
+  // a second tag if nobody answers after remindMin, and the daily AI summary of each group
+  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [] },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },
