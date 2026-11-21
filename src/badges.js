@@ -151,7 +151,7 @@ module.exports = (app) => {
   // The team at a glance (admin): levels in each group, and the latest badge
   app.get('/api/badges/team', needUser, wrap(async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only an admin can see the team' });
-    const people = (await q(`SELECT * FROM users WHERE active AND role <> 'admin' ORDER BY lower(name)`)).rows;
+    const people = (await q(`SELECT * FROM users WHERE active AND role = 'member' ORDER BY lower(name)`)).rows;
     const out = [];
     for (const p of people) { const v = await compute(p); out.push({ id: p.id, name: p.name, earned: v.earned, total: v.total, groups: v.groups.map((g) => ({ id: g.id, earned: g.earned, total: g.total })), latest: v.recent[0] || null }); }
     res.json({ groups: GROUPS, levels: LEVELS, people: out.sort((a, b) => b.earned - a.earned) });

@@ -91,7 +91,7 @@ async function progress(u, full) {
   res.month = { met: h.monthSoFar.met + (met ? 1 : 0), missed: h.monthSoFar.miss };
   res.recent = [...h.recent.map((x) => ({ d: x.d, s: x.s })), { d: today, s: met ? 'met' : 'today' }];
   // the team today, so people can see who already finished
-  const people = (await q(`SELECT id, name FROM users WHERE active AND role <> 'admin' ORDER BY lower(name)`)).rows;
+  const people = (await q(`SELECT id, name FROM users WHERE active AND role = 'member' ORDER BY lower(name)`)).rows;
   const tc = (await q(`SELECT user_id, kind, count(*)::int n FROM fb_entries WHERE day = $1::date GROUP BY 1, 2`, [today])).rows;
   res.team = people.map((p) => {
     const pc = {}; for (const r of tc) if (r.user_id === p.id) pc[r.kind] = r.n;

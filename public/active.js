@@ -42,14 +42,14 @@
     const shown = rows.filter((x) => inCo(x) && tests[filter](x));
     const n = (f) => rows.filter((x) => inCo(x) && f(x)).length;
     const row = ({ d, cdl, med, road: rd }) => `<tr data-id="${d.id}">
-      <td><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>${d.phone ? `<div class="small">${App.phone(d.phone, '')}</div>` : ''}<div class="small mut">${[esc(one(d.mode)), d.truck ? `truck <b>${esc(d.truck.unit)}</b>` : d.ownTruck ? `own truck: ${esc(d.ownTruck)}` : 'no truck'].filter(Boolean).join(', ')}</div></td>
+      <td><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a>${d.phone ? `<div class="small">${App.phone(d.phone, '')}</div>` : ''}<div class="small mut">${[esc(one(d.mode)), d.truck ? `truck ${d.truck.id ? `<a href="#/truck/${d.truck.id}"><b>${esc(d.truck.unit)}</b></a>` : `<b>${esc(d.truck.unit)}</b>`}` : d.ownTruck ? `own truck: ${esc(d.ownTruck)}` : 'no truck'].filter(Boolean).join(', ')}</div></td>
       <td>${App.coTag(d.companyId) || '<span class="none">Not assigned</span>'}</td>
       <td class="exp ${cdl.state}">${cdl.html}</td><td class="exp ${med.state}">${med.html}</td>
       <td>${esc(periodText(d)) || '<span class="none">Not entered</span>'}</td>
       <td>${rd.html}</td>
       <td class="small">${d.hiredAt ? esc(dateText(dayOf(d.hiredAt), { year: 'numeric' })) : ''}${d.ownerId ? `<div class="mut">${esc(person(d.ownerId))}</div>` : ''}</td>
       <td class="tgcell">${['dispatch', 'eld', 'accounting'].map((k) => (d.groups && d.groups[k] ? `<a class="tgdot on" href="#/telegram/${d.groups[k]}" title="${TGK[k]} group">${TGK[k]}</a>` : `<span class="tgdot" title="No ${TGK[k]} group yet: in Telegram, type register ${k} in it">${TGK[k]}</span>`)).join('')}</td>
-      <td><button class="linkbtn" data-act="activeEdit">Edit</button></td></tr>`;
+      <td>${S.me.role === 'dispatcher' ? '' : '<button class="linkbtn" data-act="activeEdit">Edit</button>'}</td></tr>`;
     const seg = [['', `All ${n(() => true)}`], ['expiring', `Expiring ${n(bad)}`], ['missing', `Dates missing ${n(missing)}`], ['home', `Due home ${n(due)}`]];
     view.innerHTML = header('active') + `<main>${App.pageHead('Active drivers', 'Hired drivers on the road: their documents, working period and home time.')}
       <div class="tiles">${App.tile('wheel', n(() => true), 'active drivers', { on: !filter, href: '#/active' })}

@@ -18,6 +18,8 @@ async function applyTemplate(list) {
   }
 }
 
+const ROLE = (r) => (['admin', 'dispatcher'].includes(r) ? r : 'member');
+const ROLE_NAME = { admin: 'admin', member: 'recruiter', dispatcher: 'dispatcher' };
 module.exports = (app) => {
   // ---------- people ----------
   app.get('/api/users', needUser, needAdmin, wrap(async (req, res) => res.json((await q(`SELECT id, email, name, role, active, created_at FROM users ORDER BY id`)).rows)));
@@ -26,16 +28,16 @@ module.exports = (app) => {
     if (!/^\S+@\S+\.\S+$/.test(String(email || '').trim()) || !String(name || '').trim()) return res.status(400).json({ error: 'Name and email are required' });
     if (String(password || '').length < 10) return res.status(400).json({ error: 'Password needs at least 10 characters' });
     let id;
-    try { id = (await q(`INSERT INTO users (email, name, pass_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`, [String(email).trim().toLowerCase(), String(name).trim().slice(0, 80), hashPassword(password), role === 'admin' ? 'admin' : 'member'])).rows[0].id; }
+    try { id = (await q(`INSERT INTO users (email, name, pass_hash, role) VALUES ($1, $2, $3, $4) RETURNING id`, [String(email).trim().toLowerCase(), String(name).trim().slice(0, 80), hashPassword(password), ROLE(role)])).rows[0].id; }
     catch (e) { if (e.code === '23505') return res.status(400).json({ error: 'Someone already uses that email' }); throw e; }
-    await act(req.user, 'admin', null, `Created an account for ${String(name).trim()} (${role === 'admin' ? 'admin' : 'recruiter'})`);
+    await act(req.user, 'admin', null, `Created an account for ${String(name).trim()} (${ROLE_NAME[ROLE(role)]})`);
     res.json({ ok: true, id });
   }));
   app.patch('/api/users/:id', needUser, needAdmin, wrap(async (req, res) => {
     const id = +req.params.id; const b = req.body || {};
     const target = (await q(`SELECT * FROM users WHERE id = $1`, [id])).rows[0];
     if (!target) return res.status(404).json({ error: 'Person not found' });
-    if (id === req.user.id && (b.active === false || b.role === 'member')) return res.status(400).json({ error: "You can't remove your own admin access" });
+    if (id === req.user.id && (b.active === false || (b.role && b.role !== 'admin'))) return res.status(400).json({ error: "You can't remove your own admin access" });
     if (b.password !== undefined) {
       if (String(b.password).length < 10) return res.status(400).json({ error: 'Password needs at least 10 characters' });
       await q(`UPDATE users SET pass_hash = $2 WHERE id = $1`, [id, hashPassword(b.password)]); await q(`DELETE FROM sessions WHERE user_id = $1`, [id]);
@@ -46,7 +48,7 @@ module.exports = (app) => {
       await lib.loadGone();
       await act(req.user, 'admin', null, b.active ? `Gave ${target.name} access again` : `Removed ${target.name}'s access`);
     }
-    if (b.role && (b.role === 'admin' ? 'admin' : 'member') !== target.role) { await q(`UPDATE users SET role = $2 WHERE id = $1`, [id, b.role === 'admin' ? 'admin' : 'member']); await act(req.user, 'admin', null, `Made ${target.name} ${b.role === 'admin' ? 'an admin' : 'a recruiter'}`); }
+    if (b.role && ROLE(b.role) !== target.role) { await q(`UPDATE users SET role = $2 WHERE id = $1`, [id, ROLE(b.role)]); await act(req.user, 'admin', null, `Made ${target.name} ${{ admin: 'an admin', member: 'a recruiter', dispatcher: 'a dispatcher' }[ROLE(b.role)]}`); }
     if (b.name !== undefined && String(b.name).trim()) await q(`UPDATE users SET name = $2 WHERE id = $1`, [id, String(b.name).trim().slice(0, 80)]);
     res.json({ ok: true });
   }));

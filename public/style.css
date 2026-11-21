@@ -1464,3 +1464,62 @@ kbd{padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-
 .tgalerts li{display:flex;gap:10px;align-items:flex-start}
 .tevents li .grow{flex:1;min-width:0}
 .tevents li select{flex:none;width:auto;min-width:110px}
+
+/* ---------- trucks: oil, costs, the truck's own page ---------- */
+.ftiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:0 0 14px}
+.ftile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit;color:inherit;text-align:left}
+button.ftile{cursor:pointer}button.ftile:hover{border-color:#B9C4BF}
+.ftile[aria-pressed="true"]{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
+.ftile b{font-size:24px;font-weight:800;line-height:1.1}.ftile span{color:var(--mut);font-size:12.5px}
+.ftile.bad b{color:var(--red)}.ftile.warn b{color:var(--yellow-ink)}
+@media (max-width:900px){.ftiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+a.unit{font-weight:800;font-size:15px;color:var(--ink)}
+.oil{display:inline-block;padding:1px 8px;border-radius:8px;font-size:12px;font-weight:700}
+.oil.ok{background:var(--green-t);color:var(--green-d)}.oil.soon{background:var(--yellow-t);color:var(--yellow-ink)}.oil.overdue{background:var(--red);color:#fff}.oil.unknown{background:var(--hair);color:var(--mut)}
+a.tiss{text-decoration:none;display:inline-block}
+.small.bad{color:var(--red);font-weight:600}
+.rtag.disp{background:var(--blue-t);color:var(--blue)}
+.rolepick{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;margin:0 0 8px;border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.rolepick:has(input:checked){border-color:var(--green);background:var(--green-t)}
+.rolepick input{margin-top:4px}.rolepick .hint{display:block;margin:2px 0 0}
+.tlist a{display:inline-block;margin:0 6px 4px 0;padding:2px 9px;border-radius:8px;background:var(--hair);color:var(--ink);font-weight:700;text-decoration:none}
+.pdlg .dprof{border:0;padding:0;box-shadow:none}
+
+.truckpage .dhead h2{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.truckpage .dhead h2 .tstate{font-size:12.5px}
+.tfacts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 20px;margin:16px 0 0;padding:14px 0 0;border-top:1px solid var(--hair)}
+.tfacts dt{color:var(--mut);font-size:12.5px;margin-bottom:2px}.tfacts dd{margin:0}
+@media (max-width:900px){.tfacts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tcols{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
+/* the oil change: a plate like a road sign, colored by how close it is */
+.oilhero{display:flex;gap:20px;align-items:stretch;flex-wrap:wrap;margin:-2px;padding:18px 20px;border-radius:12px;border:2px solid var(--green);background:var(--green-t)}
+.oilhero.soon{border-color:var(--yellow);background:var(--yellow-t)}
+.oilhero.overdue{border-color:var(--red);background:var(--red-t)}
+.oilhero.unknown{border:2px dashed #B9C4BF;background:#F6F8F7}
+.oh-main{flex:1 1 260px}
+.oh-k{display:block;font-size:13px;font-weight:700;color:var(--mut)}
+.oh-big{display:block;font-size:30px;font-weight:800;line-height:1.15;margin:2px 0 4px}
+.oilhero.ok .oh-big{color:var(--green-d)}.oilhero.soon .oh-big{color:var(--yellow-ink)}.oilhero.overdue .oh-big{color:var(--red)}
+.oh-left{font-size:17px;font-weight:700;margin:0 0 6px}
+.oilhero p{margin:0 0 4px}
+.oh-last{flex:0 1 230px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-content:start;margin:0;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,.75);font-size:13.5px}
+.oh-last dt{color:var(--mut)}.oh-last dd{margin:0;font-weight:600}
+.oh-acts{margin-top:10px}
+.evlist{margin:8px 0 0;padding:0;list-style:none}
+.ev{display:flex;gap:14px;align-items:flex-start;padding:11px 0;border-top:1px solid var(--hair)}
+.ev:first-child{border-top:0}
+.ev time{flex:0 0 96px;color:var(--mut);font-size:12.5px;padding-top:2px}
+.ev .grow{flex:1;min-width:0}
+.ev.hist .grow{color:var(--ink)}
+.evcost{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right}
+.evcost .linkbtn{font-size:12.5px}
+.paid{display:inline-block;padding:0 7px;border-radius:7px;font-size:11.5px;font-weight:700}
+.paid.yes{background:var(--green-t);color:var(--green-d)}.paid.no{background:var(--red-t);color:var(--red)}.paid.unk{background:var(--hair);color:var(--mut)}
+.seg.sm button{height:28px;padding:0 10px;font-size:12.5px}
+.card .seg{max-width:100%;overflow-x:auto}
+.unpaidline{margin:8px 0 0;padding:6px 10px;border-radius:8px;background:var(--red-t);color:var(--red);font-weight:700}
+.kbars{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:7px}
+.kbars li{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:center;font-size:13px}
+.kbars i{display:block;height:8px;border-radius:4px;background:var(--viz-1)}
+.kbars b{font-weight:700}
+@media (max-width:900px){.tcols{grid-template-columns:minmax(0,1fr)}.ev time{flex-basis:76px}.truckpage .dhead .acts{width:100%}}

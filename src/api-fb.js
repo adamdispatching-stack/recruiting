@@ -101,7 +101,7 @@ module.exports = (app) => {
   // ---------- the team's day (admin) ----------
   app.get('/api/fb/team', needUser, needAdmin, wrap(async (req, res) => {
     const t = await today(); const day = isDate(req.query.day) ? req.query.day : t;
-    const people = (await q(`SELECT id, name, role, hours FROM users WHERE active ORDER BY lower(name)`)).rows.filter((p) => p.role !== 'admin');
+    const people = (await q(`SELECT id, name, role, hours FROM users WHERE active ORDER BY lower(name)`)).rows.filter((p) => p.role === 'member');
     const goals = {}; for (const p of people) goals[p.id] = await require('./challenge').progress(p).catch(() => null);
     const c = await counts(people.map((p) => p.id), day, day);
     const last = (await q(`SELECT user_id, max(created_at) at FROM fb_entries WHERE day = $1::date GROUP BY 1`, [day])).rows;

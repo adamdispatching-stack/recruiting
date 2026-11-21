@@ -131,13 +131,22 @@ module.exports = (app) => {
 
   // ---------- trucks ----------
   app.get('/api/trucks', needUser, wrap(async (req, res) => {
-    const r = await q(`SELECT t.*, d.name d_name, d.status d_status, d.owner_id d_owner,
-        (SELECT count(*)::int FROM truck_events e WHERE e.truck_id = t.id AND e.status <> 'fixed') open_issues,
-        (SELECT row_to_json(x) FROM (SELECT title, status, at FROM truck_events e WHERE e.truck_id = t.id ORDER BY at DESC LIMIT 1) x) last_event
-      FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id ORDER BY length(t.unit), t.unit`);
-    res.json({ trucks: r.rows.map((t) => ({ id: t.id, unit: t.unit, details: t.details, location: t.location, notes: t.notes, outOfService: t.out_of_service, driverName: t.driver_name, companyId: t.company_id,
+    const tz = db.settings.tz;
+    const r = await q(`SELECT t.*, d.name d_name, d.status d_status, d.owner_id d_owner, u.name dispatcher,
+        (SELECT count(*)::int FROM truck_events e WHERE e.truck_id = t.id AND e.status <> 'fixed' AND e.kind <> 'oil_change') open_issues,
+        (SELECT row_to_json(x) FROM (SELECT title, status, at FROM truck_events e WHERE e.truck_id = t.id ORDER BY at DESC LIMIT 1) x) last_event,
+        (SELECT coalesce(sum(cost), 0) FROM truck_events e WHERE e.truck_id = t.id AND to_char(coalesce(e.done_on, (e.at AT TIME ZONE $1)::date), 'YYYY-MM') = to_char(now() AT TIME ZONE $1, 'YYYY-MM')) month_cost,
+        (SELECT coalesce(sum(cost), 0) FROM truck_events e WHERE e.truck_id = t.id AND e.paid = false) unpaid
+      FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id LEFT JOIN users u ON u.id = t.dispatcher_id ORDER BY length(t.unit), t.unit`, [tz]);
+    const fl = require('./fleet'); const last = await fl.lastOils(r.rows.map((t) => t.id));
+    const trucks = r.rows.map((t) => ({ id: t.id, unit: t.unit, details: t.details, location: t.location, notes: t.notes, outOfService: t.out_of_service, driverName: t.driver_name, companyId: t.company_id,
       driver: t.driver_id ? { id: canSee(req.user, { owner_id: t.d_owner }) ? t.driver_id : null, name: t.d_name, status: t.d_status } : null,
-      state: t.out_of_service ? 'out' : t.driver_id || t.driver_name ? 'assigned' : 'empty', updatedAt: t.updated_at, openIssues: t.open_issues, lastEvent: t.last_event })) });
+      state: t.out_of_service ? 'out' : t.driver_id || t.driver_name ? 'assigned' : 'empty', updatedAt: t.updated_at, openIssues: t.open_issues, lastEvent: t.last_event,
+      dispatcherId: t.dispatcher_id, dispatcher: t.dispatcher, vin: t.vin, plate: t.plate, oilMiles: t.oil_miles, oilDays: t.oil_days,
+      oil: fl.oilStatus(t, last[t.id]), monthCost: +t.month_cost, unpaid: +t.unpaid }));
+    const live = trucks.filter((t) => !t.outOfService);
+    res.json({ trucks, summary: { overdue: live.filter((t) => t.oil.state === 'overdue').length, soon: live.filter((t) => t.oil.state === 'soon').length, unknown: live.filter((t) => t.oil.state === 'unknown').length,
+      issues: trucks.reduce((n, t) => n + t.openIssues, 0), monthCost: Math.round(trucks.reduce((n, t) => n + t.monthCost, 0) * 100) / 100, unpaid: Math.round(trucks.reduce((n, t) => n + t.unpaid, 0) * 100) / 100 } });
   }));
   const truckFields = (b) => {
     const set = {};
@@ -145,11 +154,16 @@ module.exports = (app) => {
     for (const [k, col, max] of [['details', 'details', 120], ['location', 'location', 120], ['notes', 'notes', 500], ['driverName', 'driver_name', 80]]) if (b[k] !== undefined) set[col] = String(b[k]).trim().slice(0, max) || null;
     if (b.outOfService !== undefined) set.out_of_service = !!b.outOfService;
     if (b.companyId !== undefined) set.company_id = b.companyId ? +b.companyId : null;
+    if (b.dispatcherId !== undefined) set.dispatcher_id = b.dispatcherId ? +b.dispatcherId : null;
+    for (const [k, col] of [['vin', 'vin'], ['plate', 'plate']]) if (b[k] !== undefined) set[col] = String(b[k] || '').trim().toUpperCase().slice(0, 30) || null;
+    for (const [k, col, lo, hi] of [['oilMiles', 'oil_miles', 1000, 200000], ['oilDays', 'oil_days', 7, 730]]) if (b[k] !== undefined) { const n = Math.round(+b[k]); set[col] = b[k] === '' || b[k] === null ? null : n >= lo && n <= hi ? n : undefined; if (set[col] === undefined) { set.bad = `${k === 'oilMiles' ? 'Miles' : 'Days'} between oil changes: ${lo} to ${hi.toLocaleString('en-US')}`; delete set[col]; } }
     return set;
   };
   app.post('/api/trucks', needUser, wrap(async (req, res) => {
     const set = truckFields(req.body || {});
+    if (set.bad) return res.status(400).json({ error: set.bad });
     if (!set.unit) return res.status(400).json({ error: 'The unit number is required' });
+    if (set.dispatcher_id && !(await q(`SELECT 1 FROM users WHERE id = $1 AND active`, [set.dispatcher_id])).rows[0]) return res.status(400).json({ error: 'That person is not on the team' });
     if (set.company_id && !(await q(`SELECT 1 FROM companies WHERE id = $1`, [set.company_id])).rows[0]) return res.status(400).json({ error: 'That company is not in the list' });
     try {
       const cols = Object.keys(set);
@@ -162,7 +176,9 @@ module.exports = (app) => {
     const t = (await q(`SELECT * FROM trucks WHERE id = $1`, [+req.params.id || 0])).rows[0];
     if (!t) return res.status(404).json({ error: 'Truck not found' });
     const b = req.body || {}; const set = truckFields(b);
+    if (set.bad) return res.status(400).json({ error: set.bad });
     if (set.unit === '') return res.status(400).json({ error: 'The unit number is required' });
+    if (set.dispatcher_id && !(await q(`SELECT 1 FROM users WHERE id = $1 AND active`, [set.dispatcher_id])).rows[0]) return res.status(400).json({ error: 'That person is not on the team' });
     if (b.release) { set.driver_id = null; set.driver_name = null; }
     if (set.driver_name && t.driver_id && !b.release) return res.status(400).json({ error: 'This truck has a driver from the list. Release it first.' });
     if (set.company_id && !(await q(`SELECT 1 FROM companies WHERE id = $1`, [set.company_id])).rows[0]) return res.status(400).json({ error: 'That company is not in the list' });

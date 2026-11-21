@@ -101,11 +101,11 @@ module.exports = (app) => {
           open_seconds = LEAST(3600, activity_hours.open_seconds + EXCLUDED.open_seconds), clicks = activity_hours.clicks + EXCLUDED.clicks, last_at = now()`, [u.id, worked, open, clicks]);
     }
     await followupsDue(u).catch(() => {});
-    if (u.role !== 'admin') await streakAtStake(u).catch((e) => console.error('goal', e.message));
-    if (u.role !== 'admin') require('./badges').hourly(u).catch((e) => console.error('badges', e.message)); // in the background: it can take a moment
+    if (u.role === 'member') await streakAtStake(u).catch((e) => console.error('goal', e.message));
+    if (u.role === 'member') require('./badges').hourly(u).catch((e) => console.error('badges', e.message)); // in the background: it can take a moment
     const notices = (await q(`SELECT id, kind, text, link, created_at FROM notices WHERE user_id = $1 AND seen_at IS NULL ORDER BY created_at DESC LIMIT 20`, [u.id])).rows;
     const unread = (await q(`SELECT count(*)::int n FROM notices WHERE user_id = $1 AND seen_at IS NULL`, [u.id])).rows[0].n;
-    const goal = u.role !== 'admin' ? await challenge.progress(u).catch(() => null) : null;
+    const goal = u.role === 'member' ? await challenge.progress(u).catch(() => null) : null;
     res.json({ ok: true, notices, unread, goal });
   }));
   // Notifications for the person signed in. Seen = read.
@@ -162,7 +162,15 @@ module.exports = (app) => {
           ORDER BY g`, [id, r.from, r.to, r.tz]);
     const logins = await q(`SELECT at, kind, ip, ua FROM logins WHERE user_id = $1 AND at >= $2 AND at < $3 ORDER BY at DESC LIMIT 100`, [id, r.from, r.to]);
     const feed = await q(`SELECT a.*, u.name user_name FROM activity a JOIN users u ON u.id = a.user_id WHERE a.user_id = $1 AND a.at >= $2 AND a.at < $3 ORDER BY a.at DESC LIMIT 300`, [id, r.from, r.to]);
-    res.json({ now: new Date().toISOString(), period: r.period, days: r.days, tz: r.tz, today: r.today, person, unit: byHour ? 'hour' : 'day', series: series.rows,
+    let fleetWork = null;
+    if ((await q(`SELECT role FROM users WHERE id = $1`, [id])).rows[0].role === 'dispatcher') {
+      const fl = require('./fleet');
+      const mine = (await q(`SELECT * FROM trucks WHERE dispatcher_id = $1 AND NOT out_of_service`, [id])).rows; const last = await fl.lastOils(mine.map((t) => t.id));
+      const st = mine.map((t) => fl.oilStatus(t, last[t.id]).state);
+      const done = (await q(`SELECT count(*)::int n FROM activity WHERE user_id = $1 AND type = 'truck' AND at >= $2 AND at < $3`, [id, r.from, r.to])).rows[0].n;
+      fleetWork = { trucks: mine.map((t) => ({ id: t.id, unit: t.unit })), overdue: st.filter((x) => x === 'overdue').length, soon: st.filter((x) => x === 'soon').length, unknown: st.filter((x) => x === 'unknown').length, entries: done };
+    }
+    res.json({ now: new Date().toISOString(), period: r.period, days: r.days, tz: r.tz, today: r.today, person, unit: byHour ? 'hour' : 'day', series: series.rows, fleetWork,
       logins: logins.rows.map((l) => ({ at: l.at, kind: l.kind, ip: req.user.role === 'admin' ? l.ip : undefined, browser: browserOf(l.ua) })), feed: feed.rows.map(feedRow) });
   }));
 

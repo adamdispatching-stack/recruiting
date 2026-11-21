@@ -84,7 +84,7 @@ window.App = (() => {
   const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); if (m < 1) return 'just now'; if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`; const h = Math.round(m / 60); if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`; return teamWhen(iso); };
   const feedAv = (rows) => (rows.length ? `<ol class="feedav">${rows.map((f) => `<li>${avatar(f.user, 'sm')}<div><div><b>${esc(f.user)}</b> ${f.driver ? (f.driverId ? `<a href="#/driver/${f.driverId}">${esc(f.driver)}</a>: ` : `${esc(f.driver)}: `) : ''}${esc(f.text || '')}</div><time title="${esc(when(f.at))}">${esc(ago(f.at))}</time></div></li>`).join('')}</ol>` : '<p class="hint">Nothing yet.</p>');
   // Admin: pick the recruiter for a lead right where it is listed (lead list, dashboard, lead page)
-  const assignPick = (d, cls = '') => `<label class="assign ${cls}">${avatar(d.ownerId ? (S.me.people.find((p) => p.id === d.ownerId) || {}).name || '?' : '?', 'xs')}<select data-ch="assign" data-id="${d.id}" data-fk="assign${d.id}" aria-label="Recruiter for ${esc(d.name)}"><option value="">Nobody yet</option>${S.me.people.filter((p) => p.active || p.id === d.ownerId).map((p) => `<option value="${p.id}" ${p.id === d.ownerId ? 'selected' : ''}>${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select></label>`;
+  const assignPick = (d, cls = '') => `<label class="assign ${cls}">${avatar(d.ownerId ? (S.me.people.find((p) => p.id === d.ownerId) || {}).name || '?' : '?', 'xs')}<select data-ch="assign" data-id="${d.id}" data-fk="assign${d.id}" aria-label="Recruiter for ${esc(d.name)}"><option value="">Nobody yet</option>${S.me.people.filter((p) => (p.active && p.role !== 'dispatcher') || p.id === d.ownerId).map((p) => `<option value="${p.id}" ${p.id === d.ownerId ? 'selected' : ''}>${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select></label>`;
   // A phone number: tap to call, and a button that copies it
   const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 5.5V3.6c0-.9-.7-1.6-1.6-1.6H4.1c-.9 0-1.6.7-1.6 1.6v5.3c0 .9.7 1.6 1.6 1.6h1.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
   const phone = (p, cls = 'ph') => `<span class="phw"><a class="${cls}" href="tel:${esc(p)}">${esc(fmtPhone(p))}</a><button type="button" class="cpy" data-copy="${esc(fmtPhone(p))}" title="Copy ${esc(fmtPhone(p))}" aria-label="Copy phone number ${esc(fmtPhone(p))}">${COPY_ICON}</button></span>`;
@@ -166,7 +166,7 @@ window.App = (() => {
   const KNAME = { picture: ['ad picture', 'ad pictures'], post: ['group post', 'group posts'], comment: ['comment', 'comments'], contact: ['driver messaged', 'drivers messaged'], chat: ['group chat', 'group chats'], ppost: ['personal post', 'personal posts'], pcomment: ['other comment', 'other comments'] };
   const RING_R = 26, RING_C = 2 * Math.PI * RING_R;
   function goalRing() {
-    if (!S.me || S.me.role === 'admin') return '';
+    if (!S.me || S.me.role !== 'member') return '';
     const g = S.goal; if (!g || !g.on) return '<span class="goalring" hidden></span>';
     const pc = Math.min(100, g.pct || 0);
     const streak = g.streak ? `<span class="gstreak">🔥 ${g.streak}-day streak${g.atStake ? '<em>keep it going today</em>' : ''}</span>` : '<span class="gstreak none">Finish today to start a streak</span>';
@@ -178,7 +178,7 @@ window.App = (() => {
   function setGoal(g) {
     const prev = S.goal; S.goal = g;
     document.querySelectorAll('.goalring').forEach((el) => { el.outerHTML = goalRing(); });
-    if (!g || !g.on || !S.me || S.me.role === 'admin') return;
+    if (!g || !g.on || !S.me || S.me.role !== 'member') return;
     // a target reached since the last look: a small cheer; everything reached: the big one, once a day
     if (prev && prev.on && prev.today === g.today) {
       for (const k of g.kinds) { const p = prev.kinds.find((x) => x.k === k.k); if (p && p.n < p.target && k.n >= k.target && !g.met) cheer(`${k.target} ${KNAME[k.k][k.target === 1 ? 0 : 1]} done ✓`, `${g.done} of ${g.target} for today`); }
@@ -189,7 +189,7 @@ window.App = (() => {
     if (g.met && !prev) { try { localStorage.setItem(key, g.today); } catch (e) { /* storage blocked */ } } // already done when the site opened: no party
     if (typeof App !== 'undefined' && App.onGoal) App.onGoal(g);
   }
-  async function refreshGoal() { if (!S.me || S.me.role === 'admin') return; try { setGoal(await api('/api/challenge')); } catch (e) { /* next beat brings it */ } }
+  async function refreshGoal() { if (!S.me || S.me.role !== 'member') return; try { setGoal(await api('/api/challenge')); } catch (e) { /* next beat brings it */ } }
   function cheer(title, text) {
     let st = document.getElementById('pops'); if (!st) { st = document.createElement('div'); st.id = 'pops'; st.setAttribute('aria-live', 'polite'); document.body.appendChild(st); }
     const el = document.createElement('div'); el.className = 'pop k-cheer'; el.innerHTML = `<b>${esc(title)}</b><p>${esc(text)}</p>`;
@@ -270,8 +270,10 @@ window.App = (() => {
     if (S.me && Date.now() - (S.meAt || 0) > 5 * 60000) { S.meAt = Date.now(); api('/api/me').then((m) => { if (S.me) S.me = m; }).catch(() => {}); }
     const dlg = $('#dlg'); if (dlg && dlg.open) dlg.close(); // a form left open does not follow you to another screen
     if (h === '#/login') return viewLogin();
-    pageOpened(h);
     const [path, qs] = h.split('?');
+    // a dispatcher's screens: trucks, active drivers, their Telegram groups, their own activity and password
+    if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
+    pageOpened(h);
     for (const [re, fn] of routes) { const m = path.match(re); if (m) { try { return await fn(...m.slice(1), new URLSearchParams(qs || '')); } catch (e) { return fail(e); } } }
     go('#/');
   }
@@ -307,7 +309,8 @@ window.App = (() => {
   const icon = (k) => `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
   function header(active, extra = '') {
     const admin = S.me.role === 'admin';
-    const items = [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges'], ['#/telegram', 'Telegram', 'telegram'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
+    const disp = S.me.role === 'dispatcher';
+    const items = disp ? [['#/trucks', 'Trucks', 'trucks'], ['#/active', 'Active drivers', 'active'], ['#/telegram', 'Telegram', 'telegram'], ['#/team/me', 'My activity', 'team']] : [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges'], ['#/telegram', 'Telegram', 'telegram'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
     const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
         <div class="brand"><a href="#/" aria-label="FleetHire Recruiting, home"><svg class="logo" viewBox="0 0 40 28" width="38" height="27" aria-hidden="true"><path d="M2 5.5h21v15H2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M23 10h8.5l5.5 5.6v4.9H23z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="9" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><path d="M6 10.5h9M6 14.5h6" stroke="#F4B400" stroke-width="2.4" stroke-linecap="round"/></svg><span><b>FleetHire</b><small>Recruiting</small></span></a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>
@@ -316,7 +319,7 @@ window.App = (() => {
           <nav aria-label="Sections">${items.map(link).join('')}</nav>
           <span class="grow"></span>
           ${goalRing()}
-          <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : 'Recruiter'}</span></div>
+          <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : disp ? 'Dispatcher' : 'Recruiter'}</span></div>
             <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + `<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a>` : link(['#/settings', 'Password', 'settings', 'password'])}
               <button data-act="logout">${icon('out')}<span>Sign out</span></button></nav></div>
         </div></div></div></aside>${extra ? `<header class="sign"><div class="o"><div class="plate">${extra}</div></div></header>` : ''}`;

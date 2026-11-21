@@ -1,6 +1,6 @@
 // Team: what each person did (admin), one person's page with time by hour or day, and account management.
 (() => {
-  const { $, esc, view, S, api, toast, go, on, header, teamTime, teamWhen, dur, presenceHtml, dialog, feedHtml, tzName, plural } = App;
+  const { $, esc, view, S, api, toast, go, on, header, teamTime, teamWhen, dur, presenceHtml, dialog, feedHtml, tzName, plural, fail } = App;
   let period = 'today';
   const PERIODS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['7d', 'Last 7 days'], ['month', 'This month'], ['lastmonth', 'Last month']];
   const periodBar = () => `<div class="pagebar"><div class="seg" role="group" aria-label="Period">${PERIODS.map(([k, l]) => `<button data-act="period" data-k="${k}" class="${period === k ? 'on' : ''}" aria-pressed="${period === k}">${l}</button>`).join('')}</div>
@@ -28,7 +28,7 @@
     document.title = 'Team · FleetHire';
     const cols = ['clicks', 'opened', 'notes', 'contacts', 'added', 'forward', 'onboarded', 'hired', 'due', 'cold', 'owned'];
     const act = r.people.filter((p) => p.active); const tot = Object.fromEntries(cols.map((k) => [k, act.reduce((a, p) => a + p[k], 0)]));
-    const row = (p) => `<tr class="${p.active ? '' : 'off'}"><th scope="row"><a href="#/team/${p.id}">${esc(p.name)}</a>${p.role === 'admin' ? '<span class="rtag">Admin</span>' : ''}${p.active ? presenceHtml(p, r.now) : '<span class="pres never"><i></i>No access</span>'}</th>
+    const row = (p) => `<tr class="${p.active ? '' : 'off'}"><th scope="row"><a href="#/team/${p.id}">${esc(p.name)}</a>${p.role === 'admin' ? '<span class="rtag">Admin</span>' : p.role === 'dispatcher' ? '<span class="rtag disp">Dispatcher</span>' : ''}${p.active ? presenceHtml(p, r.now) : '<span class="pres never"><i></i>No access</span>'}</th>
       ${day ? `<td>${todayCell(p.day)}</td><td>${p.firstAt ? esc(teamTime(p.firstAt)) : '<span class="none">Not seen</span>'}</td><td>${p.lastAt ? esc(teamTime(p.lastAt)) : ''}</td>`
         : `<td class="n" title="${esc(p.weekText)}">${p.att.worked - p.att.extra} of ${p.att.scheduled}${p.att.extra ? `<div class="small mut">+${plural(p.att.extra, 'extra day')}</div>` : ''}</td><td class="n${p.att.off ? ' bad' : ''}">${num(p.att.off)}${p.att.approved ? `<div class="small mut">+${p.att.approved} approved</div>` : ''}</td><td class="n${p.att.late ? ' bad' : ''}">${num(p.att.late)}</td>`}
       <td class="n">${dur(p.openSeconds)}</td><td class="n strong">${dur(p.activeSeconds)}</td><td class="n${p.att.idle ? ' bad' : ''}">${day && p.day && p.day.idles.length ? `<button class="idlebtn" data-act="idleRow" aria-expanded="false" aria-controls="tidle-${p.id}">${dur(p.day.idle)}<span class="small"> · ${p.day.idles.length}×</span><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>${p.att.idleNow ? '<div><span class="idletag now">Idle now</span></div>' : ''}` : idleCell(p.att)}</td><td class="n">${num(p.clicks)}</td>${day ? `<td class="n"><a class="fbcell${p.fb && p.fb.met ? ' met' : ''}" href="#/facebook?user=${p.id}&day=${r.today && r.period === 'today' ? r.today : ''}">${p.fb ? `${p.fb.done}<span class="mut"> / ${p.fb.target}</span>` : '–'}</a></td>` : ''}
@@ -202,15 +202,15 @@
     const live = App.drawing();
     const [r, m] = await Promise.all([api(`/api/team/${id}?period=${period}`), api(`/api/team/${id}/month?m=${month}`)]); if (!live()) return;
     const p = r.person; shown = p; shownMonth = m; month = m.month;
-    const admin = S.me.role === 'admin', self = p.id === S.me.id, day = r.days === 1;
+    const admin = S.me.role === 'admin', self = p.id === S.me.id, day = r.days === 1, disp = p.role === 'dispatcher' && !!r.fleetWork;
     document.title = `${p.name} · FleetHire`;
     const fig = (v, l, hint) => `<div${hint ? ` title="${esc(hint)}"` : ''}><dd>${v}</dd><dt>${l}</dt></div>`;
     view.innerHTML = header('team') + `<main>
       ${admin ? '<a class="back" href="#/team">← Team</a>' : ''}
       <section class="dhead"><div class="top"><div class="who"><h2>${esc(p.name)}</h2>
-          <div class="sub">${esc(p.email)}, ${p.role === 'admin' ? 'admin' : 'recruiter'}${p.active ? '' : ', no access'}</div>
+          <div class="sub">${esc(p.email)}, ${ROLE_NAME[p.role] || 'recruiter'}${p.active ? '' : ', no access'}</div>
           <div class="contact">${p.active ? presenceHtml(p, r.now) : ''}</div></div>
-        ${admin && !self ? `<div class="acts"><button class="btn plain" data-act="personPw">Set password</button><button class="btn plain" data-act="personRole">${p.role === 'admin' ? 'Make recruiter' : 'Make admin'}</button><button class="btn ${p.active ? 'danger' : 'plain'}" data-act="personAccess">${p.active ? 'Remove access' : 'Give access back'}</button></div>` : ''}
+        ${admin && !self ? `<div class="acts"><button class="btn plain" data-act="personPw">Set password</button><button class="btn plain" data-act="personRole">Change role</button><button class="btn ${p.active ? 'danger' : 'plain'}" data-act="personAccess">${p.active ? 'Remove access' : 'Give access back'}</button></div>` : ''}
       </div></section>
       ${reportHtml(m, admin)}
       <h2 class="sect">Activity</h2>
@@ -219,28 +219,30 @@
       <section class="card"><dl class="figs wide">
         ${fig(dur(p.activeSeconds), 'active', 'Time with clicks, typing or scrolling')}${fig(dur(p.att.idle), 'idle', 'Stretches inside working hours with no activity on the website', p.att.idle)}${fig(dur(p.openSeconds), 'on site', 'The site was open and on screen')}
         ${day ? fig(p.firstAt ? esc(teamTime(p.firstAt)) : 'Not seen', 'first seen') + fig(p.lastAt ? esc(teamTime(p.lastAt)) : 'Not seen', 'last seen') : fig(`${p.att.worked - p.att.extra} of ${p.att.scheduled}`, 'days worked', 'Working days with enough active time') + fig(p.att.off, 'days off')}
-        ${fig(p.clicks.toLocaleString(), 'clicks')}${fig(p.opened, 'leads opened')}${fig(p.notes, 'notes')}${fig(p.contacts, 'calls, texts, emails', `${p.calls} of them calls`)}${fig(p.added, 'leads added')}${fig(p.forward, 'moved forward', 'Status changes they made that moved a lead forward')}
-        ${fig(p.onboarded, 'to onboarding', 'Their leads that started onboarding')}${fig(p.hired, 'hired', 'Their leads that were hired')}
+        ${disp ? fig(p.clicks.toLocaleString(), 'clicks') + fig(r.fleetWork.entries, 'truck entries', 'Oil changes, service, issues and mileage they logged or updated') : `${fig(p.clicks.toLocaleString(), 'clicks')}${fig(p.opened, 'leads opened')}${fig(p.notes, 'notes')}${fig(p.contacts, 'calls, texts, emails', `${p.calls} of them calls`)}${fig(p.added, 'leads added')}${fig(p.forward, 'moved forward', 'Status changes they made that moved a lead forward')}
+        ${fig(p.onboarded, 'to onboarding', 'Their leads that started onboarding')}${fig(p.hired, 'hired', 'Their leads that were hired')}`}
       </dl></section>
       <section class="card">${chartHtml(r)}</section>
       <div class="cols">
         <section class="card"><h3>${self ? 'What you did' : 'What they did'}<span class="grow"></span><span class="small mut">${r.feed.length >= 300 ? 'latest 300' : plural(r.feed.length, 'action')}</span></h3>${feedHtml(r.feed, false)}</section>
         <div>
-          <section class="card"><h3>Right now</h3><dl class="figs">${fig(p.owned, 'leads in progress')}${fig(p.due, 'follow-ups due')}${fig(p.cold, 'going cold')}</dl>
-            ${admin ? `<p class="hint foot"><a href="#/leads?owner=${p.id}&working=1">Their leads in progress</a>, <a href="#/leads?owner=${p.id}&due=1">follow-ups due</a>, <a href="#/leads?owner=${p.id}&cold=1">going cold</a></p>` : ''}</section>
+          ${disp ? `<section class="card"><h3>Their trucks<span class="grow"></span><span class="small mut">${plural(r.fleetWork.trucks.length, 'truck')}</span></h3>
+            ${r.fleetWork.trucks.length ? `<dl class="figs">${fig(r.fleetWork.overdue, 'oil overdue')}${fig(r.fleetWork.soon, 'oil due soon')}${fig(r.fleetWork.unknown, 'no oil record')}</dl><p class="tlist">${r.fleetWork.trucks.map((t) => `<a href="#/truck/${t.id}">${esc(t.unit)}</a>`).join(' ')}</p>` : '<p class="hint">No trucks are given to them yet. Pick the dispatcher on a truck\'s page.</p>'}</section>` : `<section class="card"><h3>Right now</h3><dl class="figs">${fig(p.owned, 'leads in progress')}${fig(p.due, 'follow-ups due')}${fig(p.cold, 'going cold')}</dl>
+            ${admin ? `<p class="hint foot"><a href="#/leads?owner=${p.id}&working=1">Their leads in progress</a>, <a href="#/leads?owner=${p.id}&due=1">follow-ups due</a>, <a href="#/leads?owner=${p.id}&cold=1">going cold</a></p>` : ''}</section>`}
           <section class="card"><h3>Sign-ins</h3>${r.logins.length ? `<ol class="feed">${r.logins.map((l) => `<li><time>${esc(teamWhen(l.at))}</time><span>${l.kind === 'out' ? 'Signed out' : 'Signed in'}${l.browser ? `, ${esc(l.browser)}` : ''}${l.ip ? `<span class="small mut"> from ${esc(l.ip)}</span>` : ''}</span></li>`).join('')}</ol>` : '<p class="hint">No sign-ins in this period. A sign-in lasts 30 days, so a person can be active without signing in again.</p>'}</section>
         </div>
       </div></main>`;
     chartWire();
     App.every(60000, () => viewPerson(id));
   }
+  const ROLE_NAME = { admin: 'admin', member: 'recruiter', dispatcher: 'dispatcher' };
   const reloadMe = async () => { S.me = await api('/api/me'); };
   on('personAdd', () => dialog(`<form id="personForm" class="dform"><h2>Add a person</h2><div class="grid2">
       <label class="fld">Name<input name="name" type="text" required maxlength="80" autocomplete="off"></label>
       <label class="fld">Email (they sign in with it)<input name="email" type="email" required autocomplete="off"></label>
       <label class="fld">Password<input name="password" type="text" minlength="10" required autocomplete="off" placeholder="At least 10 characters"></label>
-      <label class="fld">Role<select name="role"><option value="member">Recruiter</option><option value="admin">Admin</option></select></label></div>
-      <p class="hint">A recruiter works leads and onboarding. An admin also sees this Team page, manages people, trucks and settings, and can export and delete. Give the password to the person yourself; they can change it after signing in.</p>
+      <label class="fld">Role<select name="role"><option value="member">Recruiter</option><option value="dispatcher">Dispatcher</option><option value="admin">Admin</option></select></label></div>
+      <p class="hint">A recruiter works leads and onboarding. A dispatcher looks after the trucks (oil changes, shop visits, costs) and sees the active drivers and their Telegram groups, not the leads. An admin also sees this Team page, manages people, trucks and settings, and can export and delete. Give the password to the person yourself; they can change it after signing in.</p>
       <p class="err" id="personErr" role="alert"></p><div class="drow"><button class="btn primary">Create account</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (d) => {
     $('#personForm', d).onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/api/users', { method: 'POST', body: b }); await reloadMe(); d.close(); toast(`${b.name} can now sign in`); App.render(); } catch (err) { $('#personErr').textContent = err.message; } };
   }));
@@ -254,11 +256,13 @@
     if (shown.active && !confirm(`Remove ${shown.name}'s access? They are signed out and cannot sign in. Their leads, notes and history stay.`)) return;
     await api('/api/users/' + shown.id, { method: 'PATCH', body: { active: !shown.active } }); await reloadMe(); toast(shown.active ? 'Access removed' : 'Access given back'); App.render();
   });
-  on('personRole', async () => {
-    const to = shown.role === 'admin' ? 'member' : 'admin';
-    if (to === 'admin' && !confirm(`Make ${shown.name} an admin? Admins see everyone's activity and can manage people, settings and exports.`)) return;
-    await api('/api/users/' + shown.id, { method: 'PATCH', body: { role: to } }); await reloadMe(); toast(to === 'admin' ? 'Now an admin' : 'Now a recruiter'); App.render();
-  });
+  on('personRole', () => dialog(`<form id="roleForm" class="dform"><h2>Role for ${esc(shown.name)}</h2>
+      ${[['member', 'Recruiter', 'Works leads, onboarding and Facebook.'], ['dispatcher', 'Dispatcher', 'Looks after the trucks: oil changes, shop visits, issues and costs. Sees the active drivers and their Telegram groups, not the leads.'], ['admin', 'Admin', 'Sees everything and everyone, manages people, settings and exports.']]
+        .map(([k, l, h]) => `<label class="rolepick"><input type="radio" name="role" value="${k}" ${shown.role === k ? 'checked' : ''}><span><b>${l}</b><span class="hint">${h}</span></span></label>`).join('')}
+      <div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (d) => {
+    $('#roleForm', d).onsubmit = async (e) => { e.preventDefault(); const to = new FormData(e.target).get('role'); if (to === shown.role) return d.close();
+      try { await api('/api/users/' + shown.id, { method: 'PATCH', body: { role: to } }); await reloadMe(); d.close(); toast(`Now ${{ admin: 'an admin', member: 'a recruiter', dispatcher: 'a dispatcher' }[to]}`); App.render(); } catch (err) { fail(err); } };
+  }));
 
   App.route(/^#\/team$/, viewTeam);
   App.route(/^#\/team\/(me|\d+)$/, (id) => viewPerson(id));

@@ -11,7 +11,16 @@ async function sessionUser(req) {
   const r = await q(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1 AND s.expires_at > now() AND u.active`, [sha(t)]);
   return r.rows[0] || null;
 }
-const needUser = wrap(async (req, res, next) => { const u = await sessionUser(req); if (!u) return res.status(401).json({ error: 'Sign in first' }); req.user = u; next(); });
+// A dispatcher works with the trucks and the active drivers: the recruiting screens are not theirs.
+const DISPATCH_OK = [/^\/api\/(me|logout|beat|track)(\/|$)/, /^\/api\/notices/, /^\/api\/trucks(\/|$)/, /^\/api\/truck-events\//, /^\/api\/fleet\//,
+  /^\/api\/drivers\/\d+\/profile/, /^\/api\/team\/(\d+|me)(\/month)?$/, /^\/api\/tg\/(chats|alerts|me-code|status)(\/|$)/];
+const DISPATCH_GET = [/^\/api\/companies(\/\d+)?$/, /^\/api\/active$/];
+const dispatcherMay = (req) => { const p = req.path; return DISPATCH_OK.some((r) => r.test(p)) || (req.method === 'GET' && DISPATCH_GET.some((r) => r.test(p))); };
+const needUser = wrap(async (req, res, next) => {
+  const u = await sessionUser(req); if (!u) return res.status(401).json({ error: 'Sign in first' });
+  if (u.role === 'dispatcher' && !dispatcherMay({ method: req.method, path: (req.baseUrl || '') + req.path })) return res.status(403).json({ error: 'Dispatchers work with trucks and active drivers only' });
+  req.user = u; next();
+});
 const needAdmin = (req, res, next) => (req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Only an admin can do this' }));
 const needKey = wrap(async (req, res, next) => {
   const t = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
@@ -27,7 +36,7 @@ const gone = new Set();
 async function loadGone() { gone.clear(); for (const r of (await q(`SELECT id FROM users WHERE NOT active`)).rows) gone.add(r.id); }
 const unowned = (d) => !d.owner_id || gone.has(d.owner_id);
 const unownedSql = (alias = 'd') => `(${alias}.owner_id IS NULL OR ${alias}.owner_id IN (SELECT id FROM users WHERE NOT active))`;
-const seesAll = (u) => u.role === 'admin' || db.settings.visibility !== 'own';
+const seesAll = (u) => u.role === 'admin' || u.role === 'dispatcher' || db.settings.visibility !== 'own';
 // Adds the "only my own and unassigned leads" condition for recruiters when that setting is on.
 function visSql(u, params, alias = 'd') {
   if (seesAll(u)) return null;

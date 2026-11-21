@@ -17,7 +17,7 @@ async function standings(c = db.pool) {
       (SELECT count(*)::int FROM drivers d WHERE d.owner_id = u.id AND d.created_by IS DISTINCT FROM u.id AND d.assigned_at >= now() - interval '7 days') week,
       (SELECT max(d.assigned_at) FROM drivers d WHERE d.owner_id = u.id AND d.created_by IS DISTINCT FROM u.id) last
     FROM users u, t WHERE u.active ORDER BY lower(u.name)`, [tz]);
-  const inRotation = (u) => (Array.isArray(cfg.people) ? cfg.people.includes(u.id) : u.role !== 'admin');
+  const inRotation = (u) => (Array.isArray(cfg.people) ? cfg.people.includes(u.id) && u.role !== 'dispatcher' : u.role === 'member');
   return r.rows.filter(inRotation).map((u) => {
     const week = hours.weekOf(u);
     return { id: u.id, name: u.name, today: u.today, week: u.week, last: u.last, off: u.off, working: !u.off && !!week[u.dow] };

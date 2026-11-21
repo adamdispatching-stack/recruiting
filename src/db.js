@@ -414,6 +414,61 @@ async function migrate() {
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS call_prep JSONB;          -- AI call suggestions for this lead (optional)
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS call_prep_at TIMESTAMPTZ;
   `);
+  // ----- fleet: each truck's own profile -----
+  await q(`
+    ALTER TABLE trucks ADD COLUMN IF NOT EXISTS odometer INT;                 -- the latest mileage we know
+    ALTER TABLE trucks ADD COLUMN IF NOT EXISTS odometer_at TIMESTAMPTZ;
+    ALTER TABLE trucks ADD COLUMN IF NOT EXISTS oil_miles INT;                -- oil change every N miles (NULL = fleet setting)
+    ALTER TABLE trucks ADD COLUMN IF NOT EXISTS oil_days INT;                 -- or every N days
+    ALTER TABLE trucks ADD COLUMN IF NOT EXISTS dispatcher_id INT REFERENCES users(id) ON DELETE SET NULL; -- who looks after it
+    ALTER TABLE trucks ADD COLUMN IF NOT EXISTS vin TEXT;
+    ALTER TABLE trucks ADD COLUMN IF NOT EXISTS plate TEXT;
+    ALTER TABLE truck_events ADD COLUMN IF NOT EXISTS paid BOOLEAN;            -- the shop is paid: yes / no / not known
+    ALTER TABLE truck_events ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+    ALTER TABLE truck_events ADD COLUMN IF NOT EXISTS done_on DATE;            -- the day the work was done
+    -- who drove the truck, which company it was under, in and out of service: written by the database on every change
+    CREATE TABLE IF NOT EXISTS truck_history (
+      id SERIAL PRIMARY KEY, truck_id INT NOT NULL REFERENCES trucks(id) ON DELETE CASCADE, kind TEXT NOT NULL,
+      from_text TEXT, to_text TEXT, from_id INT, to_id INT, at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS truck_history_truck ON truck_history(truck_id, at);
+    -- an oil change reminder is sent once per truck and state (soon / overdue) per oil change
+    CREATE TABLE IF NOT EXISTS truck_reminders (truck_id INT NOT NULL REFERENCES trucks(id) ON DELETE CASCADE, key TEXT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (truck_id, key));
+    CREATE OR REPLACE FUNCTION truck_history_log() RETURNS trigger AS $$
+    DECLARE a TEXT; b TEXT;
+    BEGIN
+      IF TG_OP = 'INSERT' THEN
+        INSERT INTO truck_history (truck_id, kind, to_text) VALUES (NEW.id, 'added', NEW.unit);
+        IF NEW.company_id IS NOT NULL THEN INSERT INTO truck_history (truck_id, kind, to_id, to_text) VALUES (NEW.id, 'company', NEW.company_id, (SELECT name FROM companies WHERE id = NEW.company_id)); END IF;
+        IF NEW.driver_id IS NOT NULL OR NEW.driver_name IS NOT NULL THEN INSERT INTO truck_history (truck_id, kind, to_id, to_text) VALUES (NEW.id, 'driver', NEW.driver_id, coalesce((SELECT name FROM drivers WHERE id = NEW.driver_id), NEW.driver_name)); END IF;
+        RETURN NEW;
+      END IF;
+      IF NEW.driver_id IS DISTINCT FROM OLD.driver_id OR NEW.driver_name IS DISTINCT FROM OLD.driver_name THEN
+        a := coalesce((SELECT name FROM drivers WHERE id = OLD.driver_id), OLD.driver_name); b := coalesce((SELECT name FROM drivers WHERE id = NEW.driver_id), NEW.driver_name);
+        IF a IS DISTINCT FROM b THEN INSERT INTO truck_history (truck_id, kind, from_id, to_id, from_text, to_text) VALUES (NEW.id, 'driver', OLD.driver_id, NEW.driver_id, a, b); END IF;
+      END IF;
+      IF NEW.company_id IS DISTINCT FROM OLD.company_id THEN
+        INSERT INTO truck_history (truck_id, kind, from_id, to_id, from_text, to_text) VALUES (NEW.id, 'company', OLD.company_id, NEW.company_id, (SELECT name FROM companies WHERE id = OLD.company_id), (SELECT name FROM companies WHERE id = NEW.company_id));
+      END IF;
+      IF NEW.out_of_service IS DISTINCT FROM OLD.out_of_service THEN
+        INSERT INTO truck_history (truck_id, kind, to_text) VALUES (NEW.id, 'service', CASE WHEN NEW.out_of_service THEN 'out' ELSE 'in' END);
+      END IF;
+      IF NEW.dispatcher_id IS DISTINCT FROM OLD.dispatcher_id THEN
+        INSERT INTO truck_history (truck_id, kind, from_id, to_id, from_text, to_text) VALUES (NEW.id, 'dispatcher', OLD.dispatcher_id, NEW.dispatcher_id, (SELECT name FROM users WHERE id = OLD.dispatcher_id), (SELECT name FROM users WHERE id = NEW.dispatcher_id));
+      END IF;
+      IF NEW.unit IS DISTINCT FROM OLD.unit THEN INSERT INTO truck_history (truck_id, kind, from_text, to_text) VALUES (NEW.id, 'unit', OLD.unit, NEW.unit); END IF;
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql;
+    DROP TRIGGER IF EXISTS trucks_history ON trucks;
+    CREATE TRIGGER trucks_history AFTER INSERT OR UPDATE ON trucks FOR EACH ROW EXECUTE FUNCTION truck_history_log();
+    -- trucks from before this version start their history with what they have now
+    INSERT INTO truck_history (truck_id, kind, to_id, to_text, at)
+      SELECT t.id, 'driver', t.driver_id, coalesce(d.name, t.driver_name), t.updated_at FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id
+      WHERE (t.driver_id IS NOT NULL OR t.driver_name IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM truck_history h WHERE h.truck_id = t.id);
+    INSERT INTO truck_history (truck_id, kind, to_id, to_text, at)
+      SELECT t.id, 'company', t.company_id, c.name, t.created_at FROM trucks t JOIN companies c ON c.id = t.company_id
+      WHERE NOT EXISTS (SELECT 1 FROM truck_history h WHERE h.truck_id = t.id AND h.kind = 'company');
+  `);
   // One-time clean-up of rows from before this version. It must never run again: later, a lead added by hand
   // (say from Facebook) can also pick up an Indeed account, and must keep its own source.
   const ran = (await q(`SELECT value FROM settings WHERE key = 'upgrades'`)).rows[0];
@@ -476,6 +531,9 @@ const DEFAULTS = {
   // Facebook daily targets for each recruiter (0 = not asked for)
   // ppost / pcomment: personal activity (own profile, posts that are not about the job), so Facebook does not limit the account
   fbTargets: { picture: 5, post: 5, comment: 15, contact: 20, chat: 2, ppost: 1, pcomment: 5 },
+  // Trucks: an oil change every oilMiles or oilDays, whichever comes first; "due soon" warnMiles / warnDays before.
+  // askDriver: when it is due, the bot asks for the mileage in the driver's dispatch group.
+  fleet: { oilMiles: 25000, oilDays: 90, warnMiles: 2500, warnDays: 10, askDriver: false },
   // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
   // a second tag if nobody answers after remindMin, and the daily AI summary of each group
   tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [] },

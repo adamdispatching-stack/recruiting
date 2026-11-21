@@ -78,8 +78,11 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
   truck_events: { type: 'array', description: 'Truck problems, repairs and service mentioned in the NEW messages (not ones already listed as open, unless they changed).', items: { type: 'object', properties: {
     kind: { type: 'string', enum: ['breakdown', 'repair', 'maintenance', 'oil_change', 'tires', 'inspection', 'damage', 'warning_light', 'other'] },
     title: { type: 'string', description: 'A few words, like "Check engine light" or "Oil change at Speedco".' }, details: { type: 'string' },
-    status: { type: 'string', enum: ['open', 'scheduled', 'fixed'] }, odometer: { type: 'integer' }, cost: { type: 'number' }, shop: { type: 'string' } }, required: ['kind', 'title', 'status'] } },
-  fixed_issue_ids: { type: 'array', items: { type: 'integer' }, description: 'Ids of the open truck issues listed below that the new messages say are fixed.' },
+    status: { type: 'string', enum: ['open', 'scheduled', 'fixed'], description: 'fixed = done (an oil change that was done is fixed).' }, odometer: { type: 'integer', description: 'Truck mileage at the time, if said.' }, cost: { type: 'number', description: 'Dollars, if said.' }, shop: { type: 'string' },
+    paid: { type: 'boolean', description: 'true if they say it is paid, false if they say it still has to be paid; leave out if not said.' } }, required: ['kind', 'title', 'status'] } },
+  fixed_issue_ids: { type: 'array', items: { type: 'integer' }, description: 'Ids of the open truck issues listed below that the new messages say are fixed or done.' },
+  paid_ids: { type: 'array', items: { type: 'integer' }, description: 'Ids of the unpaid truck services listed below that the new messages say are now paid.' },
+  odometer: { type: 'integer', description: 'The truck\'s current mileage (odometer), if someone says or shows it in the new messages.' },
   driver_notes: { type: 'array', description: 'Lasting things a new dispatcher must know about the driver, from the NEW messages: routines and requests (for example "wants a wake-up call at 7 AM"), loads he likes or refuses, home time wishes, how reliable he is, how he works, how to talk to him. Facts with evidence, said respectfully. Nothing about health, family, religion, politics or private life. Empty if nothing new.', items: { type: 'object', properties: {
     kind: { type: 'string', enum: ['routine', 'request', 'likes_loads', 'dislikes_loads', 'home_time', 'reliability', 'work_style', 'communication', 'other'] }, text: { type: 'string' } }, required: ['kind', 'text'] } },
   alerts: { type: 'array', description: 'Things the managers must know now.', items: { type: 'object', properties: {
@@ -87,12 +90,14 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     severity: { type: 'string', enum: ['low', 'high'] }, text: { type: 'string', description: 'One clear sentence.' },
     ask_driver: { type: 'string', description: 'Only for container_mismatch or wrong_location: a short polite question to the driver to clear it up, for example "The photo shows container ABCU 102634 but the load is ABCU 102643. Is this the right one?"' } }, required: ['kind', 'severity', 'text'] } } },
   required: ['truck_events', 'driver_notes', 'alerts'] } };
-async function digest({ kind, driver, truck, openIssues, context, fresh, images }) {
+async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images }) {
   const system = `You read the ${kind} Telegram group of one truck driver (${driver}${truck ? `, truck ${truck}` : ''}) for a US trucking company, and pull out what the managers must know.
 Only report what the NEW messages say; the earlier ones are context. Compare container, trailer and load numbers in the messages with the ones in the pictures: a different number is a container_mismatch.
 Flag unprofessional_dispatcher only for clear rudeness, insults, or telling the driver to break rules. Appointment or pickup/delivery time changes are appointment_change.
 Never include passwords, SSN, license or account numbers. Be factual and short.
-Open truck issues (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}`;
+Oil changes, shop visits and repairs are truck_events. "Oil change done" is an oil_change with status fixed; say paid=true when they say it is paid, and give the cost, shop and mileage when said. Do not repeat an event already listed below: mark it fixed (fixed_issue_ids) or paid (paid_ids) instead.
+Open truck issues (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}
+Truck services not marked paid yet (id: title, cost): ${unpaid.length ? unpaid.map((i) => `${i.id}: ${i.title}${i.cost !== null ? ' $' + i.cost : ''}`).join('; ') : 'none'}`;
   const content = [...images.map((im) => (im.mime === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: im.data } } : { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })),
     { type: 'text', text: `EARLIER MESSAGES (context):\n${context.join('\n') || '(none)'}\n\nNEW MESSAGES:\n${fresh.join('\n')}${images.length ? `\n\n(The ${images.length} picture(s) above are the photos in the new messages, in order.)` : ''}` }];
   return ask({ model: process.env.TG_DIGEST_MODEL || SUMMARY_MODEL(), system, content, tool: DIGEST_TOOL, maxTokens: 1500 });

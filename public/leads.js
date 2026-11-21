@@ -7,7 +7,7 @@
   const ICON_SEARCH = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
   const relayTag = (v) => (v === true ? '<span class="rbtag yes">Yes</span>' : v === false ? '<span class="rbtag no">No</span>' : '<span class="none">Not asked</span>');
   const one = (mode) => (mode || '').replace(/s$/, '').replace('Owner-operator', 'Owner operator');
-  const people = () => S.me.people.filter((p) => p.active);
+  const people = () => S.me.people.filter((p) => p.active && p.role !== 'dispatcher');
 
   // ---------- the list ----------
   const FILTERS = ['q', 'status', 'account', 'mode', 'due', 'cold', 'working', 'owner', 'source', 'company'];

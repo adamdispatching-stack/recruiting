@@ -34,21 +34,25 @@ async function digestChat(chatId) {
     try { const buf = await bot.download(m.file_id, 5 * 1024 * 1024); images.push({ data: buf.toString('base64'), mime: m.media === 'pdf' ? 'application/pdf' : 'image/jpeg' }); } catch (e) { /* too big or gone */ }
   }
   const openIssues = chat.truck_id ? (await q(`SELECT id, title FROM truck_events WHERE truck_id = $1 AND status <> 'fixed' ORDER BY at DESC LIMIT 20`, [chat.truck_id])).rows : [];
+  const unpaid = chat.truck_id ? (await q(`SELECT id, title, cost FROM truck_events WHERE truck_id = $1 AND status = 'fixed' AND paid IS NOT TRUE AND at > now() - interval '45 days' ORDER BY at DESC LIMIT 15`, [chat.truck_id])).rows : [];
   let r;
-  try { r = await ai.digest({ kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, context: before.map(line), fresh: fresh.map(line), images }); }
+  try { r = await ai.digest({ kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
   catch (e) { console.error('tg digest', e.message); if (/400|invalid/i.test(e.message)) await done(); return null; } // a bad batch is skipped; a network error is tried again
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
   // truck issues
   for (const ev of r.truck_events || []) {
     if (!chat.truck_id && !ev.title) continue;
-    await q(`INSERT INTO truck_events (truck_id, driver_id, chat_id, kind, title, details, status, odometer, cost, shop, fixed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $7 = 'fixed' THEN now() END)`,
+    await q(`INSERT INTO truck_events (truck_id, driver_id, chat_id, kind, title, details, status, odometer, cost, shop, fixed_at, paid, paid_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $7 = 'fixed' THEN now() END, $11, CASE WHEN $11 THEN now() END)`,
       [chat.truck_id || null, chat.driver_id, chatId, ev.kind || 'other', String(ev.title).slice(0, 120), ev.details ? bot.redact(String(ev.details)).slice(0, 800) : null, ['open', 'scheduled', 'fixed'].includes(ev.status) ? ev.status : 'open',
-        Number.isInteger(ev.odometer) ? ev.odometer : null, typeof ev.cost === 'number' ? ev.cost : null, ev.shop ? String(ev.shop).slice(0, 120) : null]);
+        Number.isInteger(ev.odometer) ? ev.odometer : null, typeof ev.cost === 'number' ? ev.cost : null, ev.shop ? String(ev.shop).slice(0, 120) : null, typeof ev.paid === 'boolean' ? ev.paid : null]);
+    if (chat.truck_id && Number.isInteger(ev.odometer)) await require('../fleet').setOdometer(chat.truck_id, ev.odometer);
     out.truck++;
     if (['breakdown', 'damage', 'warning_light'].includes(ev.kind) && ev.status !== 'fixed') await tellTeam(chat.driver_id, chatId, `Truck ${chat.unit || '(no truck set)'} of ${chat.driver}: ${ev.title}${ev.details ? ' (' + String(ev.details).slice(0, 120) + ')' : ''}`);
   }
   if ((r.fixed_issue_ids || []).length && chat.truck_id) await q(`UPDATE truck_events SET status = 'fixed', fixed_at = now() WHERE truck_id = $1 AND id = ANY($2::int[]) AND status <> 'fixed'`, [chat.truck_id, r.fixed_issue_ids.map(Number).filter(Boolean)]);
+  if ((r.paid_ids || []).length && chat.truck_id) await q(`UPDATE truck_events SET paid = true, paid_at = now() WHERE truck_id = $1 AND id = ANY($2::int[]) AND paid IS NOT TRUE`, [chat.truck_id, r.paid_ids.map(Number).filter(Number.isInteger)]);
+  if (chat.truck_id && Number.isInteger(r.odometer)) await require('../fleet').setOdometer(chat.truck_id, r.odometer);
   // notes about the driver
   for (const n of r.driver_notes || []) {
     if (!n.text) continue;

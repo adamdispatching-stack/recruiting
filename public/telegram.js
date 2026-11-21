@@ -40,10 +40,10 @@
     const admin = S.me.role === 'admin';
     document.title = 'Telegram · FleetHire';
     const status = !st.on ? '' : st.bot ? `<p class="tgstat ${st.lastError ? 'bad' : 'ok'}"><b>@${esc(st.bot.username)}</b> is ${st.lastError ? `having trouble: ${esc(st.lastError)}` : 'on'}${st.ai ? ', AI on' : ', AI off (no ANTHROPIC_API_KEY)'}.</p>` : `<p class="tgstat bad">The bot is starting${st.lastError ? `: ${esc(st.lastError)}` : ''}.</p>`;
-    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ['knowledge', 'Knowledge'], ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
+    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Knowledge']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
     let body = '';
     if (tab === 'groups') {
-      const g = r.chats; const [qs, al] = await Promise.all([api('/api/tg/questions').then((x) => x.questions), api('/api/tg/alerts').then((x) => x.alerts)]); if (!live()) return;
+      const g = r.chats; const [qs, al] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts)]); if (!live()) return;
       body = (al.length ? `<section class="card tgal"><h3>Alerts from the groups <span class="cnt">${al.length}</span></h3><ul class="list">${al.map((a) => alertLi(a)).join('')}</ul></section>` : '') + (qs.length ? `<section class="card tgqs"><h3>Drivers' questions waiting for you <span class="cnt">${qs.length}</span></h3><ul class="list">${qs.map((x) => qBox(x, true)).join('')}</ul></section>` : '') + (g.length ? `<div class="sheet"><table class="tgt"><thead><tr><th>Driver</th><th>Group</th><th>Now</th><th>Latest summary</th><th class="n">Today</th></tr></thead><tbody>
         ${g.map((c) => `<tr data-chat="${c.chatId}" class="${c.openChecks || (c.eld && c.eld.waiting && c.eld.waiting.stuck) ? 'hot' : ''}"><th scope="row">${c.driverId ? `<a class="nml" href="#/driver/${c.driverId}"><b>${esc(c.driver)}</b></a>` : '<span class="none">Not linked</span>'}</th>
           <td>${kindTag(c.kind)}<div class="small mut clip1"><a href="#/telegram/${c.chatId}">${esc(c.title || 'Group')}</a></div>${c.botAdmin ? '' : '<div class="small latetag">Bot is not an admin</div>'}</td>
@@ -194,6 +194,13 @@
   on('profCopy', async (b) => { const h = b.closest('#dprof'); try { await navigator.clipboard.writeText(h._text || ''); toast('Copied: paste it to the new dispatcher'); } catch (e) { toast('Could not copy', true); } });
   on('profBuild', async (b) => { const h = b.closest('#dprof'); b.disabled = true; try { await api(`/api/drivers/${h.dataset.driver}/profile/build`, { method: 'POST', body: {} }); toast('Profile rebuilt'); profileCard(+h.dataset.driver, h, true); } catch (e) { fail(e); b.disabled = false; } });
   App.profileCard = profileCard;
+  // a dispatcher has no driver pages: a driver's name opens his profile for dispatchers instead
+  App.profileDialog = (id) => { App.dialog(`<div class="dform pdlg"><section class="dprof" id="dprof"><p class="hint">Loading…</p></section><div class="dact"><button type="button" class="btn plain" data-act="closeDialog">Close</button></div></div>`, (d) => profileCard(+id, d.querySelector('#dprof'), true)); };
+  document.addEventListener('click', (e) => {
+    if (!S.me || S.me.role !== 'dispatcher') return;
+    const a = e.target.closest('a[href^="#/driver/"]'); if (!a) return;
+    e.preventDefault(); App.profileDialog(a.getAttribute('href').split('/')[2]);
+  });
   on('tgLink', async (b) => {
     try {
       const r = await api(`/api/drivers/${b.dataset.driver}/tg-link`, { method: 'POST', body: { kind: b.dataset.kind } });

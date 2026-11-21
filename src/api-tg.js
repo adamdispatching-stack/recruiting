@@ -185,26 +185,6 @@ module.exports = (app) => {
   }));
 
   // ---------- truck issues and service ----------
-  app.get('/api/trucks/:id/events', needUser, wrap(async (req, res) => {
-    const r = (await q(`SELECT e.*, d.name driver FROM truck_events e LEFT JOIN drivers d ON d.id = e.driver_id WHERE e.truck_id = $1 ORDER BY (e.status <> 'fixed') DESC, e.at DESC LIMIT 200`, [+req.params.id || 0])).rows;
-    res.json({ events: r.map((e) => ({ id: e.id, kind: e.kind, title: e.title, details: e.details, status: e.status, odometer: e.odometer, cost: e.cost === null ? null : +e.cost, shop: e.shop, source: e.source, addedBy: e.added_by, at: e.at, fixedAt: e.fixed_at, driver: e.driver, chatId: e.chat_id })) });
-  }));
-  app.post('/api/trucks/:id/events', needUser, wrap(async (req, res) => {
-    const t = (await q(`SELECT * FROM trucks WHERE id = $1`, [+req.params.id || 0])).rows[0]; if (!t) return res.status(404).json({ error: 'Truck not found' });
-    const b = req.body || {}; const title = String(b.title || '').trim().slice(0, 120); if (!title) return res.status(400).json({ error: 'What happened?' });
-    const KINDS = ['breakdown', 'repair', 'maintenance', 'oil_change', 'tires', 'inspection', 'damage', 'warning_light', 'other'];
-    const st = ['open', 'scheduled', 'fixed'].includes(b.status) ? b.status : 'open';
-    await q(`INSERT INTO truck_events (truck_id, driver_id, kind, title, details, status, odometer, cost, shop, source, added_by, fixed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual', $10, CASE WHEN $6 = 'fixed' THEN now() END)`,
-      [t.id, t.driver_id, KINDS.includes(b.kind) ? b.kind : 'other', title, String(b.details || '').trim().slice(0, 800) || null, st, Number.isInteger(+b.odometer) && b.odometer !== '' && b.odometer !== undefined ? +b.odometer : null, b.cost !== undefined && b.cost !== '' && !isNaN(+b.cost) ? +b.cost : null, String(b.shop || '').trim().slice(0, 120) || null, req.user.name]);
-    res.json({ ok: true });
-  }));
-  app.patch('/api/truck-events/:id', needUser, wrap(async (req, res) => {
-    const st = (req.body || {}).status; if (!['open', 'scheduled', 'fixed'].includes(st)) return res.status(400).json({ error: 'Open, scheduled or fixed' });
-    const r = await q(`UPDATE truck_events SET status = $2, fixed_at = CASE WHEN $2 = 'fixed' THEN now() END WHERE id = $1 RETURNING id`, [+req.params.id || 0, st]);
-    if (!r.rows[0]) return res.status(404).json({ error: 'Not found' });
-    res.json({ ok: true });
-  }));
-  app.delete('/api/truck-events/:id', needUser, needAdmin, wrap(async (req, res) => { await q(`DELETE FROM truck_events WHERE id = $1`, [+req.params.id || 0]); res.json({ ok: true }); }));
   // read the waiting messages now (admin; for checking)
   app.post('/api/tg/chats/:id/digest', needUser, needAdmin, wrap(async (req, res) => { const c = await loadChat(req, res); if (!c) return; res.json({ ok: true, found: await digest.digestChat(c.chat_id) }); }));
 

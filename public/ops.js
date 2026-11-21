@@ -238,78 +238,77 @@
   // ---------- trucks ----------
   let trucks = []; let truckFilter = ''; let truckCo = '';
   const STATE = { empty: 'Empty', assigned: 'With a driver', out: 'Out of service' };
+  const money = (n) => '$' + Math.round(n).toLocaleString('en-US');
+  const oilCell = (o, out) => {
+    if (out) return '<span class="none">Out of service</span>';
+    if (o.state === 'unknown') return '<span class="oil unknown">No record</span>';
+    const parts = [];
+    if (o.milesLeft !== null) parts.push(o.milesLeft <= 0 ? `${(-o.milesLeft).toLocaleString('en-US')} mi over` : `${o.milesLeft.toLocaleString('en-US')} mi`);
+    parts.push(o.daysLeft <= 0 ? `${-o.daysLeft}d over` : `${o.daysLeft}d`);
+    return `<span class="oil ${o.state}">${o.state === 'overdue' ? 'Overdue' : o.state === 'soon' ? 'Due soon' : 'OK'}</span><div class="small mut">${parts.join(' · ')}</div>`;
+  };
   async function viewTrucks() {
-    const live = App.drawing(); const got = (await api('/api/trucks')).trucks; if (!live()) return;
-    trucks = got; const admin = S.me.role === 'admin'; const canEdit = true; // anyone adds and edits trucks; only an admin removes one
+    const live = App.drawing(); const r = await api('/api/trucks'); if (!live()) return;
+    trucks = r.trucks; const sum = r.summary; const admin = S.me.role === 'admin'; const disp = S.me.role === 'dispatcher'; const canEdit = true; // anyone adds and edits trucks; only an admin removes one
     document.title = 'Trucks · FleetHire';
     const n = (s) => trucks.filter((t) => t.state === s).length;
+    const oilDue = (t) => !t.outOfService && (t.oil.state === 'overdue' || t.oil.state === 'soon');
     const inCo = (t) => !truckCo || (truckCo === 'none' ? !t.companyId : t.companyId === +truckCo);
-    const shown = trucks.filter((t) => (!truckFilter || t.state === truckFilter) && inCo(t));
-    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck, which company it belongs to, and who drives it.', canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : '')}
-      <div class="pagebar"><div class="seg" role="group" aria-label="Show">${[['', `All ${trucks.length}`], ['empty', `Empty ${n('empty')}`], ['assigned', `With a driver ${n('assigned')}`], ['out', `Out of service ${n('out')}`]].map(([k, l]) => `<button data-act="truckFilter" data-k="${k}" class="${truckFilter === k ? 'on' : ''}" aria-pressed="${truckFilter === k}">${l}</button>`).join('')}</div>
+    const pass = (t) => !truckFilter || (truckFilter === 'oil' ? oilDue(t) : truckFilter === 'mine' ? t.dispatcherId === S.me.id : truckFilter === 'issues' ? t.openIssues > 0 : t.state === truckFilter);
+    const shown = trucks.filter((t) => pass(t) && inCo(t));
+    const mine = trucks.filter((t) => t.dispatcherId === S.me.id).length;
+    const tile = (k, v, l, cls) => `<button type="button" class="ftile ${cls || ''}" data-act="truckFilter" data-k="${k}" aria-pressed="${truckFilter === k}"><b>${v}</b><span>${l}</span></button>`;
+    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck: its company and driver, oil changes, shop visits and what it costs.', `${admin || disp ? '<button class="btn plain" data-act="fleetSettings">Oil change settings</button>' : ''}${canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : ''}`)}
+      ${trucks.length ? `<div class="ftiles">${tile('oil', sum.overdue, 'oil changes overdue', sum.overdue ? 'bad' : '')}${tile('oil', sum.soon, 'due soon', sum.soon ? 'warn' : '')}${tile('issues', sum.issues, 'open issues', sum.issues ? 'warn' : '')}
+        <div class="ftile static"><b>${money(sum.monthCost)}</b><span>spent this month</span></div><div class="ftile static${sum.unpaid ? ' warn' : ''}"><b>${money(sum.unpaid)}</b><span>not paid yet</span></div></div>` : ''}
+      <div class="pagebar"><div class="seg" role="group" aria-label="Show">${[['', `All ${trucks.length}`], ...(mine || disp ? [['mine', `Mine ${mine}`]] : []), ['oil', `Oil due ${sum.overdue + sum.soon}`], ['assigned', `With a driver ${n('assigned')}`], ['empty', `Empty ${n('empty')}`], ['out', `Out of service ${n('out')}`]].map(([k, l]) => `<button data-act="truckFilter" data-k="${k}" class="${truckFilter === k ? 'on' : ''}" aria-pressed="${truckFilter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="truckCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === truckCo ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${truckCo === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>
-      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:170px">Company</th><th>Truck</th><th>Where it is</th><th style="width:150px">Status</th><th>Driver</th><th>Issues</th><th>Notes</th>${canEdit ? '<th style="width:70px"></th>' : ''}</tr></thead><tbody>
-        ${shown.map((t) => `<tr data-truck="${t.id}"><td><b class="unit">${esc(t.unit)}</b></td><td>${App.coTag(t.companyId) || '<span class="none">None</span>'}</td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}</td><td>${esc(t.location || '') || '<span class="none">Not filled in</span>'}</td>
+      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:160px">Company</th><th>Truck</th><th style="width:130px">Status</th><th>Driver</th><th style="width:150px">Oil change</th><th style="width:110px">Issues</th><th style="width:110px">This month</th>${canEdit ? '<th style="width:60px"></th>' : ''}</tr></thead><tbody>
+        ${shown.map((t) => `<tr data-truck="${t.id}"><td><a class="unit" href="#/truck/${t.id}">${esc(t.unit)}</a></td><td>${App.coTag(t.companyId) || '<span class="none">None</span>'}</td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}${t.dispatcher ? `<div class="small mut">Dispatcher: ${esc(t.dispatcher)}</div>` : ''}</td>
           <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>
           <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="#/driver/${t.driver.id}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? esc(t.driverName) : '<span class="none">Nobody</span>'}</td>
-          <td>${t.openIssues ? `<button type="button" class="tiss open" data-act="truckIssues">${t.openIssues} open</button>${t.lastEvent ? `<div class="small mut clip1">${esc(t.lastEvent.title)}</div>` : ''}` : `<button type="button" class="tiss" data-act="truckIssues">${t.lastEvent ? 'History' : 'Log an issue'}</button>`}</td>
-          <td><div class="clamp small">${esc(t.notes || '')}</div></td>${canEdit ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${canEdit ? 9 : 8}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
-        </tbody></table></div><p class="hint foot">A truck gets its driver on the driver's onboarding card. It is freed again when that driver is rejected or drops out${admin ? ', or when you release it here' : ''}.</p>`
-        : `<div class="empty"><p>No trucks listed yet.</p>${canEdit ? 'Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.' : 'An admin adds the trucks. Empty ones can then be picked during onboarding.'}</div>`}
+          <td>${oilCell(t.oil, t.outOfService)}</td>
+          <td>${t.openIssues ? `<a class="tiss open" href="#/truck/${t.id}">${t.openIssues} open</a>` : '<span class="none">None</span>'}</td>
+          <td>${t.monthCost ? money(t.monthCost) : '<span class="none">$0</span>'}${t.unpaid ? `<div class="small bad">${money(t.unpaid)} not paid</div>` : ''}</td>
+          ${canEdit ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${canEdit ? 9 : 8}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
+        </tbody></table></div><p class="hint foot">Click a unit number for the truck's own page: oil changes, shop visits, drivers and costs. A truck gets its driver on the driver's onboarding card.</p>`
+        : `<div class="empty"><p>No trucks listed yet.</p>Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.</div>`}
     </main>`;
   }
-  on('truckFilter', (b) => { truckFilter = b.dataset.k; viewTrucks(); });
+  on('truckFilter', (b) => { truckFilter = truckFilter === b.dataset.k && b.classList.contains('ftile') ? '' : b.dataset.k; viewTrucks(); });
   onChange('truckCo', (el) => { truckCo = el.value; viewTrucks(); });
-  function truckDialog(t, preset = {}, after = viewTrucks) {
+  let dispatchers = null;
+  async function truckDialog(t, preset = {}, after = viewTrucks) {
     const has = t && (t.driver || t.driverName);
+    if (!dispatchers) dispatchers = (await api('/api/fleet/dispatchers')).people;
     dialog(`<form id="truckForm" class="dform"><h2>${t ? 'Truck ' + esc(t.unit) : 'Add a truck'}</h2><div class="grid2">
         <label class="fld">Unit number<input name="unit" type="text" required maxlength="30" value="${esc(t ? t.unit : '')}"></label>
         <label class="fld">Year, make, model<input name="details" type="text" maxlength="120" placeholder="2021 Freightliner Cascadia" value="${esc(t ? t.details || '' : '')}"></label>
         <label class="fld">Company<select name="companyId">${App.coOptions(t ? t.companyId : preset.companyId || null, 'No company')}</select></label>
+        <label class="fld">Dispatcher who looks after it<select name="dispatcherId"><option value="">Nobody yet</option>${dispatchers.map((p) => `<option value="${p.id}" ${t && t.dispatcherId === p.id ? 'selected' : ''}>${esc(p.name)}${p.role === 'admin' ? ' (admin)' : ''}</option>`).join('')}</select></label>
+        <label class="fld">VIN<input name="vin" type="text" maxlength="30" autocomplete="off" value="${esc(t ? t.vin || '' : '')}"></label>
+        <label class="fld">Plate<input name="plate" type="text" maxlength="30" autocomplete="off" value="${esc(t ? t.plate || '' : '')}"></label>
         <label class="fld">Where it is<input name="location" type="text" maxlength="120" placeholder="Newark yard" value="${esc(t ? t.location || '' : '')}"></label>
         ${t && t.driver ? `<div class="fld">Driver<div class="ownerline"><b>${esc(t.driver.name)}</b> ${badge(t.driver.status)}</div></div>`
           : `<label class="fld">Current driver, if not in the leads list<input name="driverName" type="text" maxlength="80" placeholder="Leave empty if the truck is free" value="${esc(t ? t.driverName || '' : '')}"></label>`}
       </div>
-      <label class="fld">Notes<textarea name="notes" maxlength="500" placeholder="Repairs due, plates, anything the next driver should know">${esc(t ? t.notes || '' : '')}</textarea></label>
+      <label class="fld">Notes<textarea name="notes" maxlength="500" placeholder="Anything the next driver should know">${esc(t ? t.notes || '' : '')}</textarea></label>
       <label class="chk"><input type="checkbox" name="outOfService" ${t && t.outOfService ? 'checked' : ''}><span>Out of service (in the shop, not to be assigned)</span></label>
       <p class="err" id="truckErr" role="alert"></p>
       <div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button><span class="grow"></span>
         ${has ? '<button type="button" class="btn plain" id="truckRelease">Free this truck</button>' : ''}${t && S.me.role === 'admin' ? '<button type="button" class="btn danger" id="truckDelete">Remove truck</button>' : ''}</div></form>`, (d) => {
       const f = $('#truckForm', d); const fin = async (p, msg) => { try { await p; d.close(); toast(msg); after(); } catch (e) { $('#truckErr').textContent = e.message; } };
-      f.onsubmit = (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(f)); b.outOfService = f.outOfService.checked; b.companyId = b.companyId ? +b.companyId : null; fin(api(t ? '/api/trucks/' + t.id : '/api/trucks', { method: t ? 'PATCH' : 'POST', body: b }), t ? 'Truck saved' : 'Truck added'); };
+      f.onsubmit = (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(f)); b.outOfService = f.outOfService.checked; b.companyId = b.companyId ? +b.companyId : null; b.dispatcherId = b.dispatcherId ? +b.dispatcherId : null; fin(api(t ? '/api/trucks/' + t.id : '/api/trucks', { method: t ? 'PATCH' : 'POST', body: b }), t ? 'Truck saved' : 'Truck added'); };
       if ($('#truckRelease')) $('#truckRelease').onclick = () => fin(api('/api/trucks/' + t.id, { method: 'PATCH', body: { release: true } }), 'Truck is free again');
-      if ($('#truckDelete')) $('#truckDelete').onclick = () => { if (confirm(`Remove truck ${t.unit} from the list?`)) fin(api('/api/trucks/' + t.id, { method: 'DELETE' }), 'Truck removed'); };
+      if ($('#truckDelete')) $('#truckDelete').onclick = () => { if (confirm(`Remove truck ${t.unit} from the list? Its whole history goes with it.`)) fin(api('/api/trucks/' + t.id, { method: 'DELETE' }), 'Truck removed'); };
     });
   }
-  // A truck's issues and service: from the drivers' Telegram groups, or logged by hand
-  const TK = { breakdown: 'Breakdown', repair: 'Repair', maintenance: 'Maintenance', oil_change: 'Oil change', tires: 'Tires', inspection: 'Inspection', damage: 'Damage', warning_light: 'Warning light', other: 'Other' };
-  async function truckIssues(t) {
-    const ev = (await api(`/api/trucks/${t.id}/events`)).events;
-    dialog(`<div class="dform tissues"><h2>Truck ${esc(t.unit)}: issues and service</h2>${t.details ? `<p class="hint">${esc(t.details)}${t.driver ? `, driven by ${esc(t.driver.name)}` : ''}</p>` : ''}
-      ${ev.length ? `<ul class="list tevents">${ev.map((e) => `<li data-ev="${e.id}"><div class="grow"><span class="tst ${e.status}">${e.status === 'fixed' ? 'Fixed' : e.status === 'scheduled' ? 'Scheduled' : 'Open'}</span> <b>${esc(e.title)}</b> <span class="small mut">${esc(TK[e.kind] || e.kind)}</span>
-          ${e.details ? `<div class="small">${esc(e.details)}</div>` : ''}<div class="small mut">${esc(dateText(dayOf(e.at)))}${e.source === 'telegram' ? ` · from ${e.driver ? esc(e.driver) + "'s " : 'the '}Telegram group` : e.addedBy ? ` · ${esc(e.addedBy)}` : ''}${e.odometer ? ` · ${e.odometer.toLocaleString()} mi` : ''}${e.cost !== null ? ` · $${e.cost.toLocaleString()}` : ''}${e.shop ? ` · ${esc(e.shop)}` : ''}${e.fixedAt ? ` · fixed ${esc(dateText(dayOf(e.fixedAt)))}` : ''}</div></div>
-          <select data-ch="evStatus" aria-label="Status of ${esc(e.title)}">${[['open', 'Open'], ['scheduled', 'Scheduled'], ['fixed', 'Fixed']].map(([k, l]) => `<option value="${k}" ${e.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></li>`).join('')}</ul>`
-        : '<p class="hint">Nothing yet. Issues the driver talks about in his Telegram groups show up here by themselves.</p>'}
-      <details class="tadd"><summary><b>Log an issue or a service</b></summary><form id="evForm" class="grid2">
-        <label class="fld">What<input name="title" type="text" required maxlength="120" placeholder="Oil change, check engine light, new steer tires"></label>
-        <label class="fld">Kind<select name="kind">${Object.entries(TK).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
-        <label class="fld">Status<select name="status"><option value="open">Open</option><option value="scheduled">Scheduled</option><option value="fixed">Fixed / done</option></select></label>
-        <label class="fld">Shop<input name="shop" type="text" maxlength="120"></label>
-        <label class="fld">Odometer (miles)<input name="odometer" type="number" min="0"></label>
-        <label class="fld">Cost ($)<input name="cost" type="number" min="0" step="0.01"></label>
-        <label class="fld" style="grid-column:1 / -1">Details<textarea name="details" rows="2" maxlength="800"></textarea></label>
-        <div class="drow" style="grid-column:1 / -1"><button class="btn primary">Save</button></div></form></details>
-      <div class="dact"><button type="button" class="btn plain" data-act="closeDialog">Close</button></div></div>`, (d) => {
-      d.querySelector('#evForm').onsubmit = async (e) => { e.preventDefault(); try { await api(`/api/trucks/${t.id}/events`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('Saved'); truckIssues(t); viewTrucks(); } catch (er) { fail(er); } };
-      d.querySelectorAll('select[data-ch="evStatus"]').forEach((el) => { el.onchange = async () => { try { await api('/api/truck-events/' + el.closest('[data-ev]').dataset.ev, { method: 'PATCH', body: { status: el.value } }); toast('Saved'); truckIssues(t); viewTrucks(); } catch (er) { fail(er); } }; });
-    });
-  }
-  on('truckIssues', (b) => truckIssues(trucks.find((t) => t.id === +b.closest('[data-truck]').dataset.truck)));
   on('truckAdd', () => truckDialog(null));
   on('truckEdit', (b) => truckDialog(trucks.find((t) => t.id === +b.closest('[data-truck]').dataset.truck)));
   App.showTrucks = (co) => { truckCo = co; truckFilter = ''; App.go('#/trucks'); };
-  App.truckDialog = truckDialog; // the company page adds and edits trucks with the same form
+  App.truckDialog = truckDialog;
+  App.viewTrucks = () => viewTrucks(); // the company page adds and edits trucks with the same form
 
   App.route(/^#\/$/, viewHome);
   App.route(/^#\/onboarding$/, viewOnboarding);
