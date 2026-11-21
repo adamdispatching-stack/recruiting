@@ -126,6 +126,13 @@ async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
   if (state.me && !(await isAdmin(chatId))) await log('join', 'Not an admin yet: make the bot an admin of the group so it reads every message', { chatId, driverId });
   await log('connect', `Connected as the ${KINDS[kind]} group for ${d.name}${who ? '' : ` (on the website${opts.by ? ', ' + opts.by : ''})`}`, { chatId, driverId, who });
   await doneWaiting(chatId, who ? who.name : opts.by || 'website', 'connected');
+  // an ELD or accounting group of a driver who is already working: the bot only reads along and learns (no setup, no questions)
+  if ((kind === 'eld' || kind === 'accounting') && ((await q(`SELECT status FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).status === 'Hired') {
+    await q(`UPDATE tg_chats SET mode = 'watch' WHERE chat_id = $1`, [chatId]);
+    await log('mode', `${d.name} is already active: the bot reads this ${KINDS[kind]} group quietly (no setup messages)`, { chatId, driverId });
+    return;
+  }
+  if (kind === 'eld' || kind === 'accounting') await q(`UPDATE tg_chats SET mode = 'updater' WHERE chat_id = $1`, [chatId]); // a new driver's ELD / accounting group: the setup runs
   const working = kind === 'dispatch' && (opts.big || ((await q(`SELECT member_count FROM tg_chats WHERE chat_id = $1`, [chatId])).rows[0] || {}).member_count > 10 || ((await q(`SELECT status FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).status === 'Hired');
   if (working) await q(`UPDATE tg_chats SET mode = $2 WHERE chat_id = $1`, [chatId, CMODES[(db.settings.tg || {}).workMode] ? db.settings.tg.workMode : 'watch']);
   if (kind === 'dispatch' && working && ((await q(`SELECT status FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).status !== 'Hired') return; // a working driver's group: read along and learn, nothing to start
@@ -421,7 +428,7 @@ async function handle(u) {
     if (handlers[chat.kind]) return handlers[chat.kind].status(chat);
     return send(chat.chat_id, chat.kind ? `This is the ${KINDS[chat.kind]} group.` : 'This group is not linked to a driver yet. Send the link code from the driver\'s page on the website, like /link 482913.');
   }
-  if (handlers[chat.kind] && who && !u.edited_message) await handlers[chat.kind].onMessage(chat, m, who);
+  if (handlers[chat.kind] && who && !u.edited_message && !((chat.kind === 'eld' || chat.kind === 'accounting') && chat.mode === 'watch')) await handlers[chat.kind].onMessage(chat, m, who); // a silent ELD / accounting group: read only
 }
 
 // ---------- the command list in Telegram's / menu ----------
@@ -456,8 +463,15 @@ async function modeCmd(m, chat, arg, who) {
 const CMODES = { watch: '👀 Watch and learn', updater: '🚚 Updater' };
 async function setChatMode(chatId, mode, by, who = null) {
   if (!CMODES[mode]) return false;
+  const was = (await q(`SELECT kind, driver_id, mode FROM tg_chats WHERE chat_id = $1`, [chatId])).rows[0] || {};
   await q(`UPDATE tg_chats SET mode = $2 WHERE chat_id = $1`, [chatId, mode]);
-  await log('mode', `Mode: ${CMODES[mode]}${who ? '' : ` (${by || 'website'})`}`, { chatId, who });
+  const eldish = was.kind === 'eld' || was.kind === 'accounting';
+  await log('mode', `Mode: ${eldish ? (mode === 'watch' ? '👀 Silent (reads only)' : '🛠 Runs the setup and checks') : CMODES[mode]}${who ? '' : ` (${by || 'website'})`}`, { chatId, who });
+  // an ELD / accounting group switched on: start its setup if it never ran
+  if (eldish && mode === 'updater' && was.mode === 'watch' && was.driver_id && handlers[was.kind]) {
+    const ran = was.kind === 'eld' ? (await q(`SELECT 1 FROM eld_cases WHERE chat_id = $1`, [chatId])).rows[0] : null;
+    if (!ran) await handlers[was.kind].begin(chatId, was.driver_id, {});
+  }
   return true;
 }
 // /sum: today's summary now (on the website)

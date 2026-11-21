@@ -130,7 +130,10 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   n = tg.sent.length; say(RITA, 'register accounting Hank', {}, ACHAT);
   const pick3 = await until(() => sentSince(n).find((m) => /<b>Accounting<\/b> group for\?/.test(m.text)));
   tap(RITA, pick3.reply_markup.inline_keyboard[0][0].callback_data, 1, ACHAT);
-  ok(await until(() => tg.sent.some((m) => /accounting<\/b> group for <b>Hank Hired<\/b>/.test(m.text))), 'accounting group registered for Hank');
+  ok(await until(async () => ((await R('/api/tg/chats')).chats.find((c) => c.chatId == ACHAT.id) || {}).kind === 'accounting'), 'accounting group registered for Hank');
+  await sleep(600); ok(!tg.sent.some((m) => /accounting<\/b> group for <b>Hank Hired<\/b>/.test(m.text)), 'Hank is already active: the accounting group stays silent');
+  await R(`/api/tg/chats/${ACHAT.id}/mode`, { method: 'PATCH', body: { mode: 'updater' } });
+  ok(await until(() => tg.sent.some((m) => /accounting<\/b> group for <b>Hank Hired<\/b>/.test(m.text))), 'switched to "Answer pay questions" on the group page: the bot says hello and answers');
   tap(ACC, `acc:${hank}:iam`, 1, ACHAT);
   ok(await until(() => tg.answers.some((a) => /you are with accounting/.test(a.text))), 'Amy says she is with accounting');
   n = tg.sent.length; say(HANK, 'When is payday?', {}, ACHAT);

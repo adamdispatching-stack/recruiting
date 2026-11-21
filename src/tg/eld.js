@@ -242,7 +242,7 @@ async function tick() {
   const t = db.settings.tg; const L = local(db.settings.tz);
   const quiet = !process.env.TG_NO_QUIET && (L.min < 7 * 60 || L.min >= 22 * 60); // no reminders at night (TG_NO_QUIET: tests only)
   // setup waiting on someone
-  const open = (await q(`SELECT c.*, d.name, d.owner_id, d.status FROM eld_cases c JOIN drivers d ON d.id = c.driver_id JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active
+  const open = (await q(`SELECT c.*, d.name, d.owner_id, d.status FROM eld_cases c JOIN drivers d ON d.id = c.driver_id JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active AND ch.mode <> 'watch'
     WHERE c.setup_done_at IS NULL AND c.stopped_at IS NULL AND c.wait IS NOT NULL`)).rows;
   for (const c of open) {
     const w = c.wait; const age = (Date.now() - new Date(w.at).getTime()) / 60000;
@@ -256,7 +256,7 @@ async function tick() {
   }
   // daily checks after the setup
   const live = (await q(`SELECT c.*, d.name, d.owner_id, d.status, ((now() AT TIME ZONE $1)::date - (c.setup_done_at AT TIME ZONE $1)::date + 1) dayn FROM eld_cases c JOIN drivers d ON d.id = c.driver_id
-    JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active WHERE c.setup_done_at IS NOT NULL AND c.stopped_at IS NULL AND d.status IN ('Onboarding', 'Hired') AND d.left_on IS NULL`, [db.settings.tz])).rows;
+    JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active AND ch.mode <> 'watch' WHERE c.setup_done_at IS NOT NULL AND c.stopped_at IS NULL AND d.status IN ('Onboarding', 'Hired') AND d.left_on IS NULL`, [db.settings.tz])).rows;
   for (const c of live) {
     if (t.eldDays && c.dayn > t.eldDays) {
       await q(`UPDATE eld_cases SET stopped_at = now() WHERE driver_id = $1`, [c.driver_id]);

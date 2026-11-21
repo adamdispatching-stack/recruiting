@@ -83,8 +83,9 @@ module.exports = (app) => {
       (SELECT count(*)::int FROM tg_knowledge WHERE chat_id = $1 AND kind = 'dispatch') lessons, (SELECT count(*)::int FROM tg_updates WHERE chat_id = $1) updates,
       (SELECT count(DISTINCT m.tg_id)::int FROM tg_members m JOIN tg_people p ON p.tg_id = m.tg_id WHERE m.chat_id = $1 AND p.role = 'dispatch') dispatchers`, [c.chat_id]).catch((e) => { console.error('tg learning', e.message); return { rows: [{}] }; })).rows[0];
     const working = c.kind === 'dispatch' && (c.driver_status === 'Hired' || c.member_count > 10);
+    const eldish = c.kind === 'eld' || c.kind === 'accounting';
     const updates = (await q(`SELECT id, checked, status, place, eta, load_ref, by_role, at, text FROM tg_updates WHERE chat_id = $1 ORDER BY at DESC LIMIT 15`, [c.chat_id])).rows;
-    res.json({ updates, chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, driverStatus: c.driver_status, botAdmin: c.bot_admin, linkedAt: c.linked_at, members: c.member_count, working, mode: c.mode || 'watch', learning: lr }, eld: c.kind === 'eld' ? eldView(e) : null,
+    res.json({ updates, chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, driverStatus: c.driver_status, botAdmin: c.bot_admin, linkedAt: c.linked_at, members: c.member_count, working, eldish, mode: c.mode || 'watch', learning: lr }, eld: c.kind === 'eld' ? eldView(e) : null,
       onb: c.kind === 'dispatch' && c.driver_id && c.driver_status !== 'Hired' ? await onbView(c.driver_id) : null,
       alerts: (await q(`SELECT id, kind, severity, text, at, resolved_at, resolved_by FROM tg_alerts WHERE chat_id = $1 ${req.user.role === 'admin' ? '' : "AND kind <> 'unprofessional_dispatcher'"} ORDER BY at DESC LIMIT 40`, [c.chat_id])).rows,
       truckEvents: (await q(`SELECT e.id, e.kind, e.title, e.details, e.status, e.at, t.unit FROM truck_events e LEFT JOIN trucks t ON t.id = e.truck_id WHERE e.chat_id = $1 ORDER BY e.at DESC LIMIT 30`, [c.chat_id])).rows,

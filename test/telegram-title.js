@@ -115,7 +115,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   // Rita adds the bot to "Paul Penn +1 (267) 555-0177": matched by the phone, connected, watch and learn
   let n = tg.sent.length; added(PCHAT, RITA);
   ok(await until(async () => ((await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [PCHAT.id])).rows[0] || {}).driver_id === paul), 'bot added by the team: the title\'s phone finds Paul, the group is connected, no command');
-  ok((await pg.query(`SELECT mode FROM onb_cases WHERE driver_id = $1`, [paul])).rows[0].mode === 'watch', 'it starts in Watch and learn');
+  ok(((await until(async () => (await pg.query(`SELECT mode FROM onb_cases WHERE driver_id = $1`, [paul])).rows[0])) || {}).mode === 'watch', 'it starts in Watch and learn');
   await sleep(500); ok(!inChat(n, PCHAT).length, 'silent: nothing written in the group');
   ok((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [PCHAT.id])).rows[0].driver_id === paul, 'linked to Paul on the website');
   // an ELD group: the title says ELD
@@ -331,9 +331,15 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   added(E1, X); // someone not connected; the phone is not on the website
   ok(await until(async () => ((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [E1.id])).rows[0] || {}).kind === 'eld'), '"Ella Evans - ELD team +1 215…": the ELD word is seen, Ella (active) found by name, connected as her ELD group');
   ok(((await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [E1.id])).rows[0] || {}).driver_id === ella, 'to Ella');
+  await sleep(800); ok(!tg.sent.some((m) => String(m.chat_id) === String(E1.id)) && (await pg.query(`SELECT mode FROM tg_chats WHERE chat_id = $1`, [E1.id])).rows[0].mode === 'watch', 'Ella is already active: silent, no ELD setup messages, reads only');
+  say(PAUL, 'logs look fine today', E1); await sleep(800); ok(!tg.sent.some((m) => String(m.chat_id) === String(E1.id)), 'messages there get no answer from the bot');
   const E2 = { id: -100731, type: 'supergroup', title: 'Аccounting Ella Evans' }; // Cyrillic А
   added(E2, X);
   ok(await until(async () => ((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [E2.id])).rows[0] || {}).kind === 'accounting'), '"Аccounting" typed on a Russian keyboard: her accounting group');
+  await sleep(800); ok(!tg.sent.some((m) => String(m.chat_id) === String(E2.id)), 'her accounting group: silent too');
+  // switched on from the website: the ELD setup starts
+  ok((await web(`/api/tg/chats/${E1.id}/mode`, { method: 'PATCH', body: { mode: 'updater' } })).ok && (await until(() => tg.sent.some((m) => String(m.chat_id) === String(E1.id)))), 'switched on on the group page: the ELD setup posts');
+  await web(`/api/tg/chats/${E1.id}/mode`, { method: 'PATCH', body: { mode: 'watch' } });
   // nobody fits: the card lets you pick the group type and any driver
   const E3 = { id: -100732, type: 'supergroup', title: 'Zed Zero ELD 610 555 0101' };
   added(E3, X);

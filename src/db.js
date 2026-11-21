@@ -583,6 +583,13 @@ async function migrate() {
     up.amazon = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
+  if (!up.eldMode) {
+    // ELD / accounting groups: silent ('watch') for drivers already working, the setup keeps running ('updater') for the rest
+    await q(`UPDATE tg_chats c SET mode = CASE WHEN d.status = 'Hired' THEN 'watch' ELSE 'updater' END
+      FROM drivers d WHERE d.id = c.driver_id AND c.kind IN ('eld', 'accounting')`).catch((e) => console.error('eld mode', e.message));
+    up.eldMode = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   if (!up.onbWatch) {
     // new onboarding groups start in "Watch and learn" (it was "Run")
     await q(`UPDATE settings SET value = jsonb_set(value, '{onbMode}', '"watch"') WHERE key = 'tg' AND value->>'onbMode' = 'run'`);
