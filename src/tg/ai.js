@@ -57,8 +57,8 @@ const REPLY_TOOL = { name: 'reply_plan', description: 'How to handle the driver\
   answer: { type: 'string', description: 'The answer to send, 1 to 3 short friendly sentences, plain English. Empty when not confident.' },
   progress: { type: 'string', enum: ['none', 'account_created', 'profile_done', 'background_submitted'], description: 'If the driver says they did an Amazon Relay step.' },
   mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry'] } }, required: ['is_question', 'confident', 'answer', 'progress', 'mood'] } };
-async function driverReply({ facts, knowledge, context, recent, text }) {
-  const system = `You are the onboarding assistant of a US trucking company, in a Telegram group with a new driver and the recruiters.
+async function driverReply({ facts, knowledge, context, recent, text, role }) {
+  const system = `${role || 'You are the onboarding assistant of a US trucking company, in a Telegram group with a new driver and the recruiters.'}
 Answer the driver only from the facts and knowledge below. If they do not fully answer the question, or it needs a person's decision (exceptions, pay advances, dates, personal matters, complaints), set confident=false and leave answer empty: a recruiter will answer.
 Never ask for or repeat SSN, license numbers, dates of birth or bank details; tell the driver to enter those only on Amazon's or Accurate's own website.
 Keep answers short, warm and simple. Do not promise anything that is not in the facts.
@@ -73,4 +73,47 @@ THIS DRIVER:
 ${context}`;
   return ask({ model: MODEL(), system, content: [{ type: 'text', text: `Recent messages:\n${recent.join('\n')}\n\nThe driver's new message:\n${text}` }], tool: REPLY_TOOL, maxTokens: 500 });
 }
-module.exports = { on, docKind, summarize, onbDoc, driverReply };
+// Reading a batch of new messages in a driver's group: truck issues, what to know about the driver, alerts
+const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages mean for the company.', input_schema: { type: 'object', properties: {
+  truck_events: { type: 'array', description: 'Truck problems, repairs and service mentioned in the NEW messages (not ones already listed as open, unless they changed).', items: { type: 'object', properties: {
+    kind: { type: 'string', enum: ['breakdown', 'repair', 'maintenance', 'oil_change', 'tires', 'inspection', 'damage', 'warning_light', 'other'] },
+    title: { type: 'string', description: 'A few words, like "Check engine light" or "Oil change at Speedco".' }, details: { type: 'string' },
+    status: { type: 'string', enum: ['open', 'scheduled', 'fixed'] }, odometer: { type: 'integer' }, cost: { type: 'number' }, shop: { type: 'string' } }, required: ['kind', 'title', 'status'] } },
+  fixed_issue_ids: { type: 'array', items: { type: 'integer' }, description: 'Ids of the open truck issues listed below that the new messages say are fixed.' },
+  driver_notes: { type: 'array', description: 'Lasting things a new dispatcher must know about the driver, from the NEW messages: routines and requests (for example "wants a wake-up call at 7 AM"), loads he likes or refuses, home time wishes, how reliable he is, how he works, how to talk to him. Facts with evidence, said respectfully. Nothing about health, family, religion, politics or private life. Empty if nothing new.', items: { type: 'object', properties: {
+    kind: { type: 'string', enum: ['routine', 'request', 'likes_loads', 'dislikes_loads', 'home_time', 'reliability', 'work_style', 'communication', 'other'] }, text: { type: 'string' } }, required: ['kind', 'text'] } },
+  alerts: { type: 'array', description: 'Things the managers must know now.', items: { type: 'object', properties: {
+    kind: { type: 'string', enum: ['container_mismatch', 'wrong_location', 'late_risk', 'appointment_change', 'load_refused', 'driver_upset', 'unprofessional_dispatcher', 'safety', 'other'] },
+    severity: { type: 'string', enum: ['low', 'high'] }, text: { type: 'string', description: 'One clear sentence.' },
+    ask_driver: { type: 'string', description: 'Only for container_mismatch or wrong_location: a short polite question to the driver to clear it up, for example "The photo shows container ABCU 102634 but the load is ABCU 102643. Is this the right one?"' } }, required: ['kind', 'severity', 'text'] } } },
+  required: ['truck_events', 'driver_notes', 'alerts'] } };
+async function digest({ kind, driver, truck, openIssues, context, fresh, images }) {
+  const system = `You read the ${kind} Telegram group of one truck driver (${driver}${truck ? `, truck ${truck}` : ''}) for a US trucking company, and pull out what the managers must know.
+Only report what the NEW messages say; the earlier ones are context. Compare container, trailer and load numbers in the messages with the ones in the pictures: a different number is a container_mismatch.
+Flag unprofessional_dispatcher only for clear rudeness, insults, or telling the driver to break rules. Appointment or pickup/delivery time changes are appointment_change.
+Never include passwords, SSN, license or account numbers. Be factual and short.
+Open truck issues (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}`;
+  const content = [...images.map((im) => (im.mime === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: im.data } } : { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })),
+    { type: 'text', text: `EARLIER MESSAGES (context):\n${context.join('\n') || '(none)'}\n\nNEW MESSAGES:\n${fresh.join('\n')}${images.length ? `\n\n(The ${images.length} picture(s) above are the photos in the new messages, in order.)` : ''}` }];
+  return ask({ model: process.env.TG_DIGEST_MODEL || SUMMARY_MODEL(), system, content, tool: DIGEST_TOOL, maxTokens: 1500 });
+}
+// The driver's profile for dispatchers, rebuilt from the notes
+const PROFILE_TOOL = { name: 'driver_profile', description: 'What a dispatcher needs to know about this driver.', input_schema: { type: 'object', properties: {
+  summary: { type: 'string', description: '2 to 4 sentences: who this driver is to work with.' },
+  reliability: { type: 'string', enum: ['high', 'medium', 'low', 'unknown'] },
+  supervision: { type: 'string', enum: ['self_driven', 'light_check_ins', 'needs_close_follow_up', 'unknown'] },
+  work_style: { type: 'string', description: 'For example "Runs long weeks, rarely refuses loads" or "Prefers short days".' },
+  routines: { type: 'array', items: { type: 'string' } }, requests: { type: 'array', items: { type: 'string' } },
+  likes_loads: { type: 'array', items: { type: 'string' } }, dislikes_loads: { type: 'array', items: { type: 'string' } },
+  home_time: { type: 'string' }, communication: { type: 'string' },
+  tips_for_dispatchers: { type: 'array', items: { type: 'string' }, description: 'Concrete do\'s for a new dispatcher.' },
+  watch_outs: { type: 'array', items: { type: 'string' }, description: 'Things to keep an eye on.' } },
+  required: ['summary', 'reliability', 'supervision', 'work_style', 'routines', 'requests', 'likes_loads', 'dislikes_loads', 'home_time', 'communication', 'tips_for_dispatchers', 'watch_outs'] } };
+async function profile({ driver, previous, pins, notes, summaries }) {
+  const system = `You keep the profile of one truck driver for a trucking company's dispatchers, so a new dispatcher knows how to work with him from day one.
+Base it only on the evidence below. The team's own notes (PINNED) are true and come first. Newer notes win over older ones. Say "unknown" where there is no evidence.
+Be fair and respectful: describe behaviour, not character. Nothing about health, family, religion, politics or private life.`;
+  const text = `DRIVER: ${driver}\n\nPINNED (from the team):\n${pins || '(none)'}\n\nPREVIOUS PROFILE:\n${previous ? JSON.stringify(previous) : '(none)'}\n\nNOTES FROM THE GROUPS (oldest first):\n${notes.join('\n') || '(none)'}\n\nRECENT DAILY SUMMARIES:\n${summaries.join('\n') || '(none)'}`;
+  return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: text.slice(-80000) }], tool: PROFILE_TOOL, maxTokens: 1500 });
+}
+module.exports = { on, docKind, summarize, onbDoc, driverReply, digest, profile };

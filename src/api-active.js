@@ -17,6 +17,9 @@ module.exports = (app) => {
       truck: d.truck_unit ? { unit: d.truck_unit, details: d.truck_details } : null, ownTruck: [d.truck_year, d.truck_model].filter(Boolean).join(' ') || null,
       cdlExpires: d.cdl_expires, medExpires: d.med_expires, weeksOut: d.weeks_out === null ? null : +d.weeks_out, daysHome: d.days_home, outSince: d.out_since,
       hiredAt: d.hired_at, leftOn: d.left_on, leftReason: d.left_reason });
-    res.json({ today: await lib.today(), drivers: active.rows.map(row), left: left.rows.map(row) });
+    const ids = active.rows.map((d) => d.id);
+    const groups = ids.length ? (await q(`SELECT driver_id, kind, chat_id::text FROM tg_chats WHERE active AND driver_id = ANY($1::int[]) AND kind IS NOT NULL`, [ids])).rows : [];
+    const tg = {}; for (const g of groups) (tg[g.driver_id] = tg[g.driver_id] || {})[g.kind] = g.chat_id;
+    res.json({ today: await lib.today(), drivers: active.rows.map((d) => ({ ...row(d), groups: tg[d.id] || {} })), left: left.rows.map(row) });
   }));
 };

@@ -1430,3 +1430,37 @@ kbd{padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-
 .tgreps>li{display:flex;gap:12px;align-items:flex-start}
 .tgreps ul{margin:4px 0 0;padding-left:18px}
 .linkbtn.danger{color:var(--red)}
+
+/* ---------- driver profile, truck issues, Telegram groups on active drivers ---------- */
+.dprof h3{display:flex;align-items:center;gap:8px}
+.dprof .plead{font-size:15px;line-height:1.5;margin:0 0 10px}
+.pbadges{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.pb{padding:3px 10px;border-radius:9px;background:var(--hair);font-size:12.5px}
+.pb.r-high,.pb.s-self_driven{background:var(--green-t);color:var(--green-d)}
+.pb.r-low,.pb.s-needs_close_follow_up{background:var(--red-t);color:var(--red)}
+.pb.r-medium,.pb.s-light_check_ins{background:var(--yellow-t);color:var(--yellow-ink)}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 18px}
+.pgrid h4{margin:8px 0 4px;font-size:13px}
+.pgrid ul{margin:0;padding-left:18px;font-size:13.5px;line-height:1.5}
+.dprof p{margin:6px 0}
+.pform{margin-top:12px}
+.pform textarea{width:100%}
+.pnotes{margin-top:10px}
+.pnotes summary{cursor:pointer;font-size:13px;color:var(--mut)}
+.tiss{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 9px;font:inherit;font-size:12.5px;color:var(--mut);cursor:pointer}
+.tiss.open{border-color:#E9A79C;background:var(--red-t);color:var(--red);font-weight:700}
+.tissues{max-width:100%}
+.tevents li{display:flex;gap:12px;align-items:flex-start}
+.tst{display:inline-block;padding:1px 8px;border-radius:8px;font-size:11.5px;font-weight:700}
+.tst.open{background:var(--red-t);color:var(--red)}.tst.scheduled{background:var(--yellow-t);color:var(--yellow-ink)}.tst.fixed{background:var(--green-t);color:var(--green-d)}
+.tadd{margin-top:12px}.tadd summary{cursor:pointer}.tadd form{margin-top:10px}
+.tgcell{min-width:84px}
+.tgcell .tgdot{display:block;width:max-content;margin:0 0 3px}
+.tgdot{display:inline-block;margin-right:4px;padding:1px 7px;border-radius:8px;border:1px dashed var(--line);color:var(--mut);font-size:11.5px;text-decoration:none}
+.tgdot.on{border:1px solid #9FD3B4;background:var(--green-t);color:var(--green-d);font-weight:700}
+.tgal{border-left:4px solid var(--red);margin-bottom:16px}
+.tgal li.hi .grow{font-weight:600}
+.tgk.k-hi{background:var(--red-t);color:var(--red)}
+.tgalerts li{display:flex;gap:10px;align-items:flex-start}
+.tevents li .grow{flex:1;min-width:0}
+.tevents li select{flex:none;width:auto;min-width:110px}

@@ -95,12 +95,12 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const rita = (await web('/api/users', { method: 'POST', body: { name: 'Rita Recruiter', email: 'rita@example.com', password: 'rita-pass-1234' } })).id;
   const id = (await web('/api/drivers', { method: 'POST', body: { name: 'Olga Onb', source: 'Indeed', phone: '2155550144', mode: 'Company drivers', ownerId: rita } })).id;
   const R = async (path, opts = {}) => { if (!R.c) { const o = await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'rita@example.com', password: 'rita-pass-1234' }) }); R.c = o.headers.get('set-cookie').split(';')[0]; } return web(path, { ...opts, cookie: R.c }); };
-  const code = (await R(`/api/drivers/${id}/tg-link`, { method: 'POST', body: { kind: 'onboarding' } })).code;
+  const code = (await R(`/api/drivers/${id}/tg-link`, { method: 'POST', body: { kind: 'dispatch' } })).code;
   push({ my_chat_member: { chat: CHAT, from: RITA, date: 1, old_chat_member: { status: 'left', user: BOT }, new_chat_member: { status: 'administrator', user: BOT } } });
   let n = tg.sent.length; say(RITA, '/link ' + code);
   await until(() => sentSince(n).some((m) => /Relay invite<\/b> by email soon/.test(m.text)), 8000, 'welcome');
   const w = sentSince(n).map((m) => m.text).join('\n---\n');
-  ok(/now the <b>Onboarding<\/b> group for <b>Olga Onb<\/b>/.test(w) && /Welcome, <b>Olga<\/b>/.test(w) && /with Rita Recruiter/.test(w), 'linked: the bot welcomes Olga, with her recruiter');
+  ok(/now the <b>Dispatch<\/b> group for <b>Olga Onb<\/b>/.test(w) && /Welcome, <b>Olga<\/b>/.test(w) && /with Rita Recruiter/.test(w), 'linked: the bot welcomes Olga, with her recruiter');
   ok(/Onboarding: Olga Onb/.test(w) && /⬜ Invite sent/.test(w) && /date not set yet/.test(w), 'a card with the Amazon steps and the start date');
   ok((await web('/api/drivers/' + id)).onboarding === null || true, 'card posted');
   // the website moves the Amazon step: the bot follows
@@ -161,7 +161,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   // the website
   const det = await R('/api/tg/chats/' + CHAT.id);
   ok(det.onb && det.onb.amazon.every((x) => x.done) && det.onb.reports[0].label === 'MVR' && det.onb.questions.length === 2, 'the group page: Amazon steps, the MVR, the questions');
-  ok(det.chat.kind === 'onboarding' && (await R('/api/drivers/' + id + '/tg')).groups[0].kind === 'onboarding', 'listed as the Onboarding group');
+  ok(det.chat.kind === 'dispatch' && (await R('/api/drivers/' + id + '/tg')).groups[0].kind === 'dispatch', 'listed as the Dispatch group (the onboarding group)');
   const ck = (await web('/api/drivers/' + id)).onboarding;
   ok(ck && ck.items.some((i) => i.key === 'telegram' && i.done), 'onboarding step "Telegram group created" ticks itself, though the group came first');
   ok(ck.items.some((i) => i.key === 'mvr' && i.done), 'and "MVR checked", approved in Telegram before onboarding started');

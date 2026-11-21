@@ -99,7 +99,7 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
   }
   await lib.loadGone();
   // the Telegram bot (only with TELEGRAM_BOT_TOKEN), its ELD reminders and checks, and the evening summaries
-  if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/summary').start(); }
+  if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/digest').start(); require('./tg/profile').start(); }
   require('./needed').start(); // verified drivers missing the arrival date, company or truck
   await q(`DELETE FROM sessions WHERE expires_at < now()`);
   await q(`DELETE FROM activity WHERE at < now() - interval '400 days'`); // the activity log keeps about 13 months

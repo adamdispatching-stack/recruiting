@@ -73,7 +73,8 @@ async function moveAmazon(c, key, by) {
 
 // ---------- start ----------
 async function begin(chatId, driverId) {
-  const d = (await q(`SELECT amazon_step FROM drivers WHERE id = $1`, [driverId])).rows[0];
+  const d = (await q(`SELECT amazon_step, status, name FROM drivers WHERE id = $1`, [driverId])).rows[0];
+  if (d.status === 'Hired') return send(chatId, `👋 I am the FleetHire assistant. I keep track of this group for the team: truck issues, appointments and notes, so nothing gets lost.`);
   await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon) VALUES ($1, $2, $3) ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2, last_amazon = $3, nudge = NULL`, [driverId, chatId, d.amazon_step]);
   const c = await caseOf(driverId);
   await send(chatId, `👋 Welcome, <b>${esc(c.name.split(/\s+/)[0])}</b>! This is your onboarding group${c.owner_name ? ` with ${esc(c.owner_name)}` : ''}.\nI am the FleetHire assistant: ask me anything about the job, pay, trucks or the next steps, any time. If I don't know, I'll get your recruiter.`);
@@ -133,17 +134,20 @@ function companyFacts(c) {
     'Amazon Relay steps: invite by email, create the Amazon account, finish the Relay profile, the Accurate background check, then Amazon verifies (usually 2 to 7 days).',
     'Never send SSN, license numbers or bank details in Telegram; enter them only on Amazon\'s or Accurate\'s own website.'];
 }
+// Our team (or, in the accounting group, accounting): an answer to a question the bot could not answer is learned
+async function learnFrom(chat, m, who, text) {
+  if (!text || text.startsWith('/')) return;
+  const qn = (await q(`SELECT * FROM tg_questions WHERE chat_id = $1 AND answer IS NULL AND asked_at > now() - interval '24 hours'
+    AND ($2::bigint IN (msg_id, bot_msg_id) OR ($2::bigint IS NULL AND asked_at > now() - interval '3 hours')) ORDER BY asked_at DESC LIMIT 1`, [chat.chat_id, m.reply_to_message ? m.reply_to_message.message_id : null])).rows[0];
+  if (qn) await learn(qn, bot.redact(text), who.name, chat.kind === 'accounting' ? 'accounting' : 'general');
+}
 async function onMessage(chat, m, who) {
-  const c = await caseOf(chat.driver_id); if (!c || c.chat_id !== chat.chat_id) return;
   const text = (m.text || m.caption || '').trim();
-  // our team: an answer to a question the bot could not answer is learned
-  if (isStaff(who)) {
-    if (!text || text.startsWith('/')) return;
-    const qn = (await q(`SELECT * FROM tg_questions WHERE chat_id = $1 AND answer IS NULL AND asked_at > now() - interval '24 hours'
-      AND ($2::bigint IN (msg_id, bot_msg_id) OR ($2::bigint IS NULL AND asked_at > now() - interval '3 hours')) ORDER BY asked_at DESC LIMIT 1`, [chat.chat_id, m.reply_to_message ? m.reply_to_message.message_id : null])).rows[0];
-    if (qn) await learn(qn, bot.redact(text), who.name);
-    return;
-  }
+  if (isStaff(who)) return learnFrom(chat, m, who, text);
+  const st = (await q(`SELECT status FROM drivers WHERE id = $1`, [chat.driver_id])).rows[0];
+  if (!st || st.status === 'Hired') return; // an active driver's group: the team handles it, the bot reads along (digest)
+  let c = await caseOf(chat.driver_id);
+  if (!c || c.chat_id !== chat.chat_id) { await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon) SELECT id, $2, amazon_step FROM drivers WHERE id = $1 ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2`, [chat.driver_id, chat.chat_id]); c = await caseOf(chat.driver_id); }
   if (who.role && who.role !== 'driver') return; // ELD, accounting, dispatch people: not the driver
   // a driver nobody named yet: whoever writes with the driver's first name
   if (!who.role && !(await driverPerson(c.driver_id)) && who.name.split(/\s+/)[0].toLowerCase() === c.name.split(/\s+/)[0].toLowerCase()) {
@@ -152,32 +156,37 @@ async function onMessage(chat, m, who) {
   const file = m.photo ? { id: m.photo[m.photo.length - 1].file_id, mime: 'image/jpeg' } : m.document && /^(image\/|application\/pdf)/.test(m.document.mime_type || '') ? { id: m.document.file_id, mime: m.document.mime_type } : null;
   if (file && ai.on()) return readFile(c, m, who, file);
   if (!text || !ai.on()) return;
-  // a recruiter is talking with the driver right now: let them
-  const busy = (await q(`SELECT 1 FROM tg_messages x JOIN tg_people p ON p.tg_id = x.from_id WHERE x.chat_id = $1 AND x.at > now() - interval '10 minutes' AND (p.role = 'staff' OR p.user_id IS NOT NULL) AND x.text NOT LIKE '/%' LIMIT 1`, [chat.chat_id])).rows[0];
-  if (busy) return;
-  const knowledge = (await q(`SELECT question, answer FROM tg_knowledge WHERE active ORDER BY uses DESC, created_at DESC LIMIT 80`)).rows;
-  const recent = (await q(`SELECT from_name, is_bot, text FROM tg_messages WHERE chat_id = $1 AND text IS NOT NULL ORDER BY at DESC LIMIT 12`, [chat.chat_id])).rows.reverse().map((x) => `${x.is_bot ? 'Bot' : x.from_name}: ${String(x.text).slice(0, 300)}`);
   const context = `Name: ${c.name}. ${c.mode === 'Owner-operators' ? 'Owner-operator' : 'Company driver'}. Amazon Relay step: ${c.amazon_step ? db.AMAZON.find((s) => s.key === c.amazon_step).long : 'invite not sent yet'}. Start date: ${c.arrive ? nice(c.arrive) : 'not set yet'}.${c.unit ? ` Truck: ${c.unit} ${c.details || ''}.` : ''}${c.arrival_note ? ` Travel: ${c.arrival_note}.` : ''}${c.company ? ` Company: ${c.company}.` : ''}`;
+  return qa(c, chat, m, who, text, { context, escalate: () => recruiterTag(c), kinds: ['general'], onProgress: (k) => moveAmazon(c, k, who.name) });
+}
+// Answer a driver's message from the facts and knowledge; if unsure, ask a person and remember their answer.
+// c: { name, driver_id, chat_id, owner_id, mode }; opts: { context, escalate() -> tag, kinds, onProgress(key), who: 'recruiter' }
+async function qa(c, chat, m, who, text, opts) {
+  // someone from the team is talking with the driver right now: let them
+  const busy = (await q(`SELECT 1 FROM tg_messages x JOIN tg_people p ON p.tg_id = x.from_id WHERE x.chat_id = $1 AND x.at > now() - interval '10 minutes' AND (p.role IN ('staff', 'accounting') OR p.user_id IS NOT NULL) AND x.text NOT LIKE '/%' AND x.text !~* '^register\\y' LIMIT 1`, [chat.chat_id])).rows[0];
+  if (busy) return;
+  const knowledge = (await q(`SELECT question, answer FROM tg_knowledge WHERE active AND kind = ANY($1::text[]) ORDER BY uses DESC, created_at DESC LIMIT 80`, [opts.kinds])).rows;
+  const recent = (await q(`SELECT from_name, is_bot, text FROM tg_messages WHERE chat_id = $1 AND text IS NOT NULL ORDER BY at DESC LIMIT 12`, [chat.chat_id])).rows.reverse().map((x) => `${x.is_bot ? 'Bot' : x.from_name}: ${String(x.text).slice(0, 300)}`);
   let plan;
-  try { plan = await ai.driverReply({ facts: companyFacts(c), knowledge, context, recent, text }); } catch (e) { console.error('tg onb ai', e.message); return; }
-  if (plan.progress && PROGRESS_TO[plan.progress]) await moveAmazon(c, PROGRESS_TO[plan.progress], who.name);
+  try { plan = await ai.driverReply({ facts: companyFacts(c), knowledge, context: opts.context, recent, text, role: opts.role }); } catch (e) { console.error('tg qa ai', e.message); return; }
+  if (plan.progress && PROGRESS_TO[plan.progress] && opts.onProgress) await opts.onProgress(PROGRESS_TO[plan.progress]);
   const upset = plan.mood === 'angry' || plan.mood === 'unhappy';
-  if (upset) { // a person, not the bot: tag the recruiter, nothing to learn
-    await send(chat.chat_id, `${await recruiterTag(c)}, ${esc(c.name.split(/\s+/)[0])} needs you here.`, { replyTo: m.message_id });
-    return tell(c, `${c.name} seems ${plan.mood} in the onboarding group: "${bot.redact(text).slice(0, 140)}"`);
+  if (upset) { // a person, not the bot: tag someone, nothing to learn
+    await send(chat.chat_id, `${await opts.escalate()}, ${esc(c.name.split(/\s+/)[0])} needs you here.`, { replyTo: m.message_id });
+    return tell(c, `${c.name} seems ${plan.mood} in the ${bot.KINDS[chat.kind] || ''} group: "${bot.redact(text).slice(0, 140)}"`);
   }
   if (plan.is_question) {
     if (plan.confident && plan.answer) await send(chat.chat_id, esc(plan.answer), { replyTo: m.message_id });
     else {
-      const b = await send(chat.chat_id, `Good question. Let me check with ${await recruiterTag(c)}.`, { replyTo: m.message_id });
+      const b = await send(chat.chat_id, `Good question. Let me check with ${await opts.escalate()}.`, { replyTo: m.message_id });
       await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, bot_msg_id, text) VALUES ($1, $2, $3, $4, $5)`, [chat.chat_id, c.driver_id, m.message_id, b.message_id, bot.redact(text).slice(0, 1000)]);
       await tell(c, `${c.name} asked in Telegram: "${bot.redact(text).slice(0, 160)}"`, false);
     }
   }
 }
-async function learn(qn, answer, by) {
+async function learn(qn, answer, by, kind = 'general') {
   await q(`UPDATE tg_questions SET answer = $2, answered_by = $3, answered_at = now() WHERE id = $1`, [qn.id, answer.slice(0, 1500), by]);
-  await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id) VALUES ($1, $2, 'learned', $3, $4)`, [qn.text, answer.slice(0, 1500), by, qn.chat_id]);
+  await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind) VALUES ($1, $2, 'learned', $3, $4, $5)`, [qn.text, answer.slice(0, 1500), by, qn.chat_id, kind]);
 }
 async function readFile(c, m, who, file) {
   let r;
@@ -216,8 +225,8 @@ async function tick() {
   const tz = db.settings.tz;
   const L = (await q(`SELECT extract(hour FROM now() AT TIME ZONE $1)::int h, (now() AT TIME ZONE $1)::date::text d, ((now() AT TIME ZONE $1)::date + 1)::text tmr`, [tz])).rows[0];
   const day = !!process.env.TG_NO_QUIET || (L.h >= 9 && L.h < 20); // reminders in the daytime only (TG_NO_QUIET: tests only)
-  const cases = (await q(`SELECT c.driver_id FROM onb_cases c JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active AND ch.kind = 'onboarding' AND ch.driver_id = c.driver_id
-    JOIN drivers d ON d.id = c.driver_id WHERE d.status NOT IN ('Rejected', 'Not interested', 'No CDL', 'Declined on Indeed') AND d.left_on IS NULL`)).rows;
+  const cases = (await q(`SELECT c.driver_id FROM onb_cases c JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active AND ch.kind = 'dispatch' AND ch.driver_id = c.driver_id
+    JOIN drivers d ON d.id = c.driver_id WHERE d.status NOT IN ('Hired', 'Rejected', 'Not interested', 'No CDL', 'Declined on Indeed') AND d.left_on IS NULL`)).rows;
   for (const { driver_id: id } of cases) {
     const c = await caseOf(id); if (!c) continue;
     // the Amazon step moved (here, on the website or in the extension)
@@ -260,9 +269,10 @@ async function tick() {
 async function answerFromWebsite(qid, answer, user) {
   const qn = (await q(`SELECT * FROM tg_questions WHERE id = $1`, [qid])).rows[0]; if (!qn) return null;
   await send(qn.chat_id, `${esc(answer)}\n<i>(${esc(user.name)})</i>`, { replyTo: qn.msg_id });
-  await learn(qn, answer, user.name);
+  const k = (await q(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [qn.chat_id])).rows[0];
+  await learn(qn, answer, user.name, k && k.kind === 'accounting' ? 'accounting' : 'general');
   return true;
 }
 function start() { setInterval(() => tick().catch((e) => console.error('onb tick', e.message)), +process.env.TG_TICK_MS || 60000); }
-bot.handlers.onboarding = { begin, onButton, onMessage, status };
-module.exports = { start, tick, caseOf, answerFromWebsite, REPORT, RESULT };
+bot.handlers.dispatch = { begin, onButton, onMessage, status };
+module.exports = { start, tick, caseOf, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };

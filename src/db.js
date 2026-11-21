@@ -315,6 +315,38 @@ async function migrate() {
       id SERIAL PRIMARY KEY, question TEXT NOT NULL, answer TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'added', added_by TEXT,
       chat_id BIGINT, uses INT NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    -- every message is read by the AI once (in batches); old messages count as read
+    ALTER TABLE tg_messages ADD COLUMN IF NOT EXISTS digested BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE tg_messages ALTER COLUMN digested SET DEFAULT false;
+    ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS invite_link TEXT;
+    ALTER TABLE tg_messages ADD COLUMN IF NOT EXISTS file_id TEXT;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'general';
+    -- one dispatch group per driver (it is the onboarding group too); the old kinds become dispatch
+    UPDATE tg_chats SET kind = 'dispatch' WHERE kind IN ('onboarding', 'updates');
+    UPDATE tg_links SET kind = 'dispatch' WHERE kind IN ('onboarding', 'updates');
+    -- a website user connects their Telegram with a code (/me 123456)
+    CREATE TABLE IF NOT EXISTS tg_me_codes (code TEXT PRIMARY KEY, user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), used_at TIMESTAMPTZ);
+    -- truck issues and service, from the drivers' groups or added by hand
+    CREATE TABLE IF NOT EXISTS truck_events (
+      id SERIAL PRIMARY KEY, truck_id INT REFERENCES trucks(id) ON DELETE CASCADE, driver_id INT REFERENCES drivers(id) ON DELETE SET NULL, chat_id BIGINT,
+      kind TEXT NOT NULL, title TEXT NOT NULL, details TEXT, status TEXT NOT NULL DEFAULT 'open', odometer INT, cost NUMERIC(10,2), shop TEXT,
+      source TEXT NOT NULL DEFAULT 'telegram', added_by TEXT, at TIMESTAMPTZ NOT NULL DEFAULT now(), fixed_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS truck_events_truck ON truck_events(truck_id, at);
+    -- what the team should know about a driver, noticed in the groups (habits, requests, load likes and dislikes)
+    CREATE TABLE IF NOT EXISTS driver_notes (
+      id SERIAL PRIMARY KEY, driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, chat_id BIGINT, kind TEXT, text TEXT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS driver_notes_driver ON driver_notes(driver_id, at);
+    -- the driver's profile for dispatchers, rebuilt by the AI from the notes; pins are the team's own lines, always kept
+    CREATE TABLE IF NOT EXISTS driver_profiles (
+      driver_id INT PRIMARY KEY REFERENCES drivers(id) ON DELETE CASCADE, profile JSONB, pins TEXT, notes_used INT NOT NULL DEFAULT 0, built_at TIMESTAMPTZ
+    );
+    -- things in the groups someone should look at
+    CREATE TABLE IF NOT EXISTS tg_alerts (
+      id SERIAL PRIMARY KEY, chat_id BIGINT, driver_id INT REFERENCES drivers(id) ON DELETE CASCADE, kind TEXT, severity TEXT, text TEXT NOT NULL,
+      at TIMESTAMPTZ NOT NULL DEFAULT now(), resolved_at TIMESTAMPTZ, resolved_by TEXT
+    );
     CREATE TABLE IF NOT EXISTS tg_summaries (
       id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, day DATE NOT NULL, summary TEXT, issues JSONB, mood TEXT, messages INT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (chat_id, day)
@@ -700,7 +732,7 @@ async function syncAuto(c, driverId, userId) {
   if (az && az.amazon_step) { const v = az.amazon_step === 'verified';
     await c.query(`UPDATE checklist SET done = $2, done_at = CASE WHEN $2 THEN now() END, done_by = CASE WHEN $2 THEN $3::int END WHERE driver_id = $1 AND (auto = 'amazon' OR key = 'relay') AND done <> $2`, [driverId, v, userId || null]); }
   const groups = new Set((await c.query(`SELECT kind FROM tg_chats WHERE driver_id = $1 AND active AND kind IS NOT NULL`, [driverId])).rows.map((r) => r.kind));
-  if (o.telegram_link || groups.has('onboarding')) await c.query(`UPDATE checklist SET done = TRUE, done_at = now(), done_by = $2::int WHERE driver_id = $1 AND (auto = 'telegram' OR key = 'telegram') AND NOT done`, [driverId, userId || null]);
+  if (o.telegram_link || groups.has('dispatch')) await c.query(`UPDATE checklist SET done = TRUE, done_at = now(), done_by = $2::int WHERE driver_id = $1 AND (auto = 'telegram' OR key = 'telegram') AND NOT done`, [driverId, userId || null]);
   // Telegram groups linked with the bot, maybe before onboarding started: their steps tick too
   const tick = async (key) => c.query(`UPDATE checklist SET done = TRUE, done_at = now() WHERE driver_id = $1 AND key = $2 AND NOT done`, [driverId, key]);
   if (groups.has('eld')) await tick('eld_group');

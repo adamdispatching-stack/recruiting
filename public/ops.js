@@ -249,11 +249,12 @@
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${[['', `All ${trucks.length}`], ['empty', `Empty ${n('empty')}`], ['assigned', `With a driver ${n('assigned')}`], ['out', `Out of service ${n('out')}`]].map(([k, l]) => `<button data-act="truckFilter" data-k="${k}" class="${truckFilter === k ? 'on' : ''}" aria-pressed="${truckFilter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="truckCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === truckCo ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${truckCo === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>
-      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:170px">Company</th><th>Truck</th><th>Where it is</th><th style="width:150px">Status</th><th>Driver</th><th>Notes</th>${canEdit ? '<th style="width:70px"></th>' : ''}</tr></thead><tbody>
+      ${trucks.length ? `<div class="sheet"><table class="trucks"><thead><tr><th style="width:90px">Unit</th><th style="width:170px">Company</th><th>Truck</th><th>Where it is</th><th style="width:150px">Status</th><th>Driver</th><th>Issues</th><th>Notes</th>${canEdit ? '<th style="width:70px"></th>' : ''}</tr></thead><tbody>
         ${shown.map((t) => `<tr data-truck="${t.id}"><td><b class="unit">${esc(t.unit)}</b></td><td>${App.coTag(t.companyId) || '<span class="none">None</span>'}</td><td>${esc(t.details || '') || '<span class="none">Not filled in</span>'}</td><td>${esc(t.location || '') || '<span class="none">Not filled in</span>'}</td>
           <td><span class="tstate ${t.state}">${STATE[t.state]}</span></td>
           <td>${t.driver ? `${t.driver.id ? `<a class="nml" href="#/driver/${t.driver.id}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}` : t.driverName ? esc(t.driverName) : '<span class="none">Nobody</span>'}</td>
-          <td><div class="clamp small">${esc(t.notes || '')}</div></td>${canEdit ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${canEdit ? 8 : 7}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
+          <td>${t.openIssues ? `<button type="button" class="tiss open" data-act="truckIssues">${t.openIssues} open</button>${t.lastEvent ? `<div class="small mut clip1">${esc(t.lastEvent.title)}</div>` : ''}` : `<button type="button" class="tiss" data-act="truckIssues">${t.lastEvent ? 'History' : 'Log an issue'}</button>`}</td>
+          <td><div class="clamp small">${esc(t.notes || '')}</div></td>${canEdit ? '<td><button class="linkbtn" data-act="truckEdit">Edit</button></td>' : ''}</tr>`).join('') || `<tr><td colspan="${canEdit ? 9 : 8}" class="none" style="padding:24px;text-align:center">No trucks in this group.</td></tr>`}
         </tbody></table></div><p class="hint foot">A truck gets its driver on the driver's onboarding card. It is freed again when that driver is rejected or drops out${admin ? ', or when you release it here' : ''}.</p>`
         : `<div class="empty"><p>No trucks listed yet.</p>${canEdit ? 'Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.' : 'An admin adds the trucks. Empty ones can then be picked during onboarding.'}</div>`}
     </main>`;
@@ -281,6 +282,30 @@
       if ($('#truckDelete')) $('#truckDelete').onclick = () => { if (confirm(`Remove truck ${t.unit} from the list?`)) fin(api('/api/trucks/' + t.id, { method: 'DELETE' }), 'Truck removed'); };
     });
   }
+  // A truck's issues and service: from the drivers' Telegram groups, or logged by hand
+  const TK = { breakdown: 'Breakdown', repair: 'Repair', maintenance: 'Maintenance', oil_change: 'Oil change', tires: 'Tires', inspection: 'Inspection', damage: 'Damage', warning_light: 'Warning light', other: 'Other' };
+  async function truckIssues(t) {
+    const ev = (await api(`/api/trucks/${t.id}/events`)).events;
+    dialog(`<div class="dform tissues"><h2>Truck ${esc(t.unit)}: issues and service</h2>${t.details ? `<p class="hint">${esc(t.details)}${t.driver ? `, driven by ${esc(t.driver.name)}` : ''}</p>` : ''}
+      ${ev.length ? `<ul class="list tevents">${ev.map((e) => `<li data-ev="${e.id}"><div class="grow"><span class="tst ${e.status}">${e.status === 'fixed' ? 'Fixed' : e.status === 'scheduled' ? 'Scheduled' : 'Open'}</span> <b>${esc(e.title)}</b> <span class="small mut">${esc(TK[e.kind] || e.kind)}</span>
+          ${e.details ? `<div class="small">${esc(e.details)}</div>` : ''}<div class="small mut">${esc(dateText(dayOf(e.at)))}${e.source === 'telegram' ? ` · from ${e.driver ? esc(e.driver) + "'s " : 'the '}Telegram group` : e.addedBy ? ` · ${esc(e.addedBy)}` : ''}${e.odometer ? ` · ${e.odometer.toLocaleString()} mi` : ''}${e.cost !== null ? ` · $${e.cost.toLocaleString()}` : ''}${e.shop ? ` · ${esc(e.shop)}` : ''}${e.fixedAt ? ` · fixed ${esc(dateText(dayOf(e.fixedAt)))}` : ''}</div></div>
+          <select data-ch="evStatus" aria-label="Status of ${esc(e.title)}">${[['open', 'Open'], ['scheduled', 'Scheduled'], ['fixed', 'Fixed']].map(([k, l]) => `<option value="${k}" ${e.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></li>`).join('')}</ul>`
+        : '<p class="hint">Nothing yet. Issues the driver talks about in his Telegram groups show up here by themselves.</p>'}
+      <details class="tadd"><summary><b>Log an issue or a service</b></summary><form id="evForm" class="grid2">
+        <label class="fld">What<input name="title" type="text" required maxlength="120" placeholder="Oil change, check engine light, new steer tires"></label>
+        <label class="fld">Kind<select name="kind">${Object.entries(TK).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+        <label class="fld">Status<select name="status"><option value="open">Open</option><option value="scheduled">Scheduled</option><option value="fixed">Fixed / done</option></select></label>
+        <label class="fld">Shop<input name="shop" type="text" maxlength="120"></label>
+        <label class="fld">Odometer (miles)<input name="odometer" type="number" min="0"></label>
+        <label class="fld">Cost ($)<input name="cost" type="number" min="0" step="0.01"></label>
+        <label class="fld" style="grid-column:1 / -1">Details<textarea name="details" rows="2" maxlength="800"></textarea></label>
+        <div class="drow" style="grid-column:1 / -1"><button class="btn primary">Save</button></div></form></details>
+      <div class="dact"><button type="button" class="btn plain" data-act="closeDialog">Close</button></div></div>`, (d) => {
+      d.querySelector('#evForm').onsubmit = async (e) => { e.preventDefault(); try { await api(`/api/trucks/${t.id}/events`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('Saved'); truckIssues(t); viewTrucks(); } catch (er) { fail(er); } };
+      d.querySelectorAll('select[data-ch="evStatus"]').forEach((el) => { el.onchange = async () => { try { await api('/api/truck-events/' + el.closest('[data-ev]').dataset.ev, { method: 'PATCH', body: { status: el.value } }); toast('Saved'); truckIssues(t); viewTrucks(); } catch (er) { fail(er); } }; });
+    });
+  }
+  on('truckIssues', (b) => truckIssues(trucks.find((t) => t.id === +b.closest('[data-truck]').dataset.truck)));
   on('truckAdd', () => truckDialog(null));
   on('truckEdit', (b) => truckDialog(trucks.find((t) => t.id === +b.closest('[data-truck]').dataset.truck)));
   App.showTrucks = (co) => { truckCo = co; truckFilter = ''; App.go('#/trucks'); };

@@ -131,10 +131,13 @@ module.exports = (app) => {
 
   // ---------- trucks ----------
   app.get('/api/trucks', needUser, wrap(async (req, res) => {
-    const r = await q(`SELECT t.*, d.name d_name, d.status d_status, d.owner_id d_owner FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id ORDER BY length(t.unit), t.unit`);
+    const r = await q(`SELECT t.*, d.name d_name, d.status d_status, d.owner_id d_owner,
+        (SELECT count(*)::int FROM truck_events e WHERE e.truck_id = t.id AND e.status <> 'fixed') open_issues,
+        (SELECT row_to_json(x) FROM (SELECT title, status, at FROM truck_events e WHERE e.truck_id = t.id ORDER BY at DESC LIMIT 1) x) last_event
+      FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id ORDER BY length(t.unit), t.unit`);
     res.json({ trucks: r.rows.map((t) => ({ id: t.id, unit: t.unit, details: t.details, location: t.location, notes: t.notes, outOfService: t.out_of_service, driverName: t.driver_name, companyId: t.company_id,
       driver: t.driver_id ? { id: canSee(req.user, { owner_id: t.d_owner }) ? t.driver_id : null, name: t.d_name, status: t.d_status } : null,
-      state: t.out_of_service ? 'out' : t.driver_id || t.driver_name ? 'assigned' : 'empty', updatedAt: t.updated_at })) });
+      state: t.out_of_service ? 'out' : t.driver_id || t.driver_name ? 'assigned' : 'empty', updatedAt: t.updated_at, openIssues: t.open_issues, lastEvent: t.last_event })) });
   }));
   const truckFields = (b) => {
     const set = {};

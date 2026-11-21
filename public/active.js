@@ -28,6 +28,7 @@
   }
 
   let filter = '', coFilter = '', data = null;
+  const TGK = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Acct' };
   async function viewActive() {
     const live = App.drawing(); const r = await api('/api/active'); if (!live()) return; data = r;
     document.title = 'Active drivers · FleetHire';
@@ -47,6 +48,7 @@
       <td>${esc(periodText(d)) || '<span class="none">Not entered</span>'}</td>
       <td>${rd.html}</td>
       <td class="small">${d.hiredAt ? esc(dateText(dayOf(d.hiredAt), { year: 'numeric' })) : ''}${d.ownerId ? `<div class="mut">${esc(person(d.ownerId))}</div>` : ''}</td>
+      <td class="tgcell">${['dispatch', 'eld', 'accounting'].map((k) => (d.groups && d.groups[k] ? `<a class="tgdot on" href="#/telegram/${d.groups[k]}" title="${TGK[k]} group">${TGK[k]}</a>` : `<span class="tgdot" title="No ${TGK[k]} group yet: in Telegram, type register ${k} in it">${TGK[k]}</span>`)).join('')}</td>
       <td><button class="linkbtn" data-act="activeEdit">Edit</button></td></tr>`;
     const seg = [['', `All ${n(() => true)}`], ['expiring', `Expiring ${n(bad)}`], ['missing', `Dates missing ${n(missing)}`], ['home', `Due home ${n(due)}`]];
     view.innerHTML = header('active') + `<main>${App.pageHead('Active drivers', 'Hired drivers on the road: their documents, working period and home time.')}
@@ -58,9 +60,9 @@
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${seg.map(([k, l]) => `<button data-act="activeFilter" data-k="${k}" class="${filter === k ? 'on' : ''}" aria-pressed="${filter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="activeCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === coFilter ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${coFilter === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>
-      ${r.drivers.length ? `<div class="sheet"><table class="active"><colgroup><col><col style="width:140px"><col style="width:160px"><col style="width:160px"><col style="width:140px"><col style="width:180px"><col style="width:110px"><col style="width:50px"></colgroup>
-        <thead><tr><th>Driver</th><th>Company</th><th>CDL expires</th><th>Medical card expires</th><th>Working period</th><th>On the road</th><th>Hired</th><th></th></tr></thead>
-        <tbody>${shown.map(row).join('') || '<tr><td colspan="8" class="none" style="padding:24px;text-align:center">No drivers in this group.</td></tr>'}</tbody></table></div>
+      ${r.drivers.length ? `<div class="sheet"><table class="active"><colgroup><col><col style="width:140px"><col style="width:140px"><col style="width:140px"><col style="width:130px"><col style="width:160px"><col style="width:110px"><col style="width:100px"><col style="width:50px"></colgroup>
+        <thead><tr><th>Driver</th><th>Company</th><th>CDL expires</th><th>Medical card expires</th><th>Working period</th><th>On the road</th><th>Hired</th><th>Telegram</th><th></th></tr></thead>
+        <tbody>${shown.map(row).join('') || '<tr><td colspan="9" class="none" style="padding:24px;text-align:center">No drivers in this group.</td></tr>'}</tbody></table></div>
         <p class="hint foot">Dates turn yellow ${SOON} days before they expire and red once expired. Enter only the expiry dates here, never license numbers. A driver is listed here once marked hired.</p>`
         : '<div class="empty"><p>No active drivers yet.</p>Drivers appear here once they are marked hired at the end of onboarding.</div>'}
       ${r.left.length ? `<section class="card" style="margin-top:14px"><h3>Left in the last 6 months</h3><ul class="list">${r.left.map((d) => `<li data-id="${d.id}"><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> ${App.coTag(d.companyId)}

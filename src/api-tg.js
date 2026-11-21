@@ -6,6 +6,9 @@ const lib = require('./lib');
 const bot = require('./tg/bot');
 const eld = require('./tg/eld');
 const onb = require('./tg/onboard');
+require('./tg/acct');
+const profile = require('./tg/profile');
+const digest = require('./tg/digest');
 const summary = require('./tg/summary');
 const ai = require('./tg/ai');
 const { q } = db;
@@ -37,22 +40,24 @@ module.exports = (app) => {
   // groups, with what needs attention first
   app.get('/api/tg/chats', needUser, wrap(async (req, res) => {
     const params = [db.settings.tz]; const vis = visSql(req.user, params);
-    const rows = (await q(`SELECT c.*, d.name driver, d.owner_id, e.steps, e.wait, e.setup_done_at, e.stopped_at,
+    const rows = (await q(`SELECT c.*, d.name driver, d.owner_id, d.status driver_status, e.steps, e.wait, e.setup_done_at, e.stopped_at,
         (SELECT row_to_json(s) FROM (SELECT day::text, summary, issues, mood FROM tg_summaries WHERE chat_id = c.chat_id ORDER BY day DESC LIMIT 1) s) last_summary,
         (SELECT count(*)::int FROM tg_messages m WHERE m.chat_id = c.chat_id AND (m.at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date) today_msgs,
         (SELECT count(*)::int FROM eld_checks k WHERE k.chat_id = c.chat_id AND ((k.answer = 'problem' AND k.fixed_at IS NULL) OR (k.answer IS NULL AND k.escalated_at IS NOT NULL))) open_checks,
         (SELECT row_to_json(k) FROM (SELECT slot, answer, answered_by FROM eld_checks WHERE chat_id = c.chat_id ORDER BY asked_at DESC LIMIT 1) k) last_check,
         d.amazon_step, (SELECT count(*)::int FROM tg_questions x WHERE x.chat_id = c.chat_id AND x.answer IS NULL AND x.asked_at > now() - interval '7 days') open_questions,
-        (SELECT count(*)::int FROM tg_reports r WHERE r.chat_id = c.chat_id AND r.review IS NULL) reports_to_review
+        (SELECT count(*)::int FROM tg_reports r WHERE r.chat_id = c.chat_id AND r.review IS NULL) reports_to_review,
+        (SELECT count(*)::int FROM tg_alerts a WHERE a.chat_id = c.chat_id AND a.resolved_at IS NULL AND a.at > now() - interval '14 days' ${req.user.role === 'admin' ? '' : "AND a.kind <> 'unprofessional_dispatcher'"}) open_alerts
       FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id LEFT JOIN eld_cases e ON e.driver_id = c.driver_id AND e.chat_id = c.chat_id
       WHERE c.active ${req.user.role === 'admin' ? '' : `AND c.driver_id IS NOT NULL${vis ? ' AND ' + vis : ''}`} ORDER BY c.kind IS NULL, c.last_at DESC NULLS LAST`, params)).rows;
     res.json({ chats: rows.map((c) => ({ chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, ownerId: c.owner_id, botAdmin: c.bot_admin, lastAt: c.last_at, todayMsgs: c.today_msgs,
       eld: c.kind === 'eld' && c.steps ? eldView(c) : null, openChecks: c.open_checks, lastCheck: c.last_check, lastSummary: c.last_summary,
-      onb: c.kind === 'onboarding' ? { amazonStep: c.amazon_step, amazonLabel: c.amazon_step ? db.AMAZON.find((x) => x.key === c.amazon_step).label : null, openQuestions: c.open_questions, reportsToReview: c.reports_to_review } : null })) });
+      onb: c.kind === 'dispatch' && c.driver_status !== 'Hired' ? { amazonStep: c.amazon_step, amazonLabel: c.amazon_step ? db.AMAZON.find((x) => x.key === c.amazon_step).label : null, openQuestions: c.open_questions, reportsToReview: c.reports_to_review } : null,
+      active: c.driver_status === 'Hired', openAlerts: c.open_alerts, openQuestions: c.open_questions })) });
   }));
 
   async function loadChat(req, res) {
-    const c = (await q(`SELECT c.*, d.name driver, d.owner_id FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.chat_id = $1`, [req.params.id])).rows[0];
+    const c = (await q(`SELECT c.*, d.name driver, d.owner_id, d.status driver_status FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.chat_id = $1`, [req.params.id])).rows[0];
     if (!c) { res.status(404).json({ error: 'Group not found' }); return null; }
     if (req.user.role !== 'admin') { if (!c.driver_id) { res.status(404).json({ error: 'Group not found' }); return null; } if (!(await loadDriver(req, res, c.driver_id))) return null; }
     return c;
@@ -66,7 +71,10 @@ module.exports = (app) => {
     const msgs = (await q(`SELECT m.msg_id, m.from_name, m.is_bot, m.text, m.media, m.media_note, m.at, p.role FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 ORDER BY m.at DESC LIMIT 300`, [c.chat_id])).rows.reverse();
     const people = (await q(`SELECT p.tg_id::text tg_id, p.name, p.username, p.role, p.driver_id, d.name driver FROM tg_members m JOIN tg_people p ON p.tg_id = m.tg_id LEFT JOIN drivers d ON d.id = p.driver_id WHERE m.chat_id = $1 ORDER BY p.name`, [c.chat_id])).rows;
     res.json({ chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, botAdmin: c.bot_admin, linkedAt: c.linked_at }, eld: c.kind === 'eld' ? eldView(e) : null,
-      onb: c.kind === 'onboarding' && c.driver_id ? await onbView(c.driver_id) : null, checks, summaries: sums, messages: msgs, people, ai: ai.on() });
+      onb: c.kind === 'dispatch' && c.driver_id && c.driver_status !== 'Hired' ? await onbView(c.driver_id) : null,
+      alerts: (await q(`SELECT id, kind, severity, text, at, resolved_at, resolved_by FROM tg_alerts WHERE chat_id = $1 ${req.user.role === 'admin' ? '' : "AND kind <> 'unprofessional_dispatcher'"} ORDER BY at DESC LIMIT 40`, [c.chat_id])).rows,
+      truckEvents: (await q(`SELECT e.id, e.kind, e.title, e.details, e.status, e.at, t.unit FROM truck_events e LEFT JOIN trucks t ON t.id = e.truck_id WHERE e.chat_id = $1 ORDER BY e.at DESC LIMIT 30`, [c.chat_id])).rows,
+      notes: (await q(`SELECT kind, text, at FROM driver_notes WHERE chat_id = $1 ORDER BY at DESC LIMIT 30`, [c.chat_id])).rows, checks, summaries: sums, messages: msgs, people, ai: ai.on() });
   }));
   app.post('/api/tg/chats/:id/summary', needUser, wrap(async (req, res) => {
     const c = await loadChat(req, res); if (!c) return;
@@ -130,6 +138,75 @@ module.exports = (app) => {
     res.json({ ok: true });
   }));
   app.delete('/api/tg/knowledge/:id', needUser, needAdmin, wrap(async (req, res) => { await q(`DELETE FROM tg_knowledge WHERE id = $1`, [+req.params.id || 0]); res.json({ ok: true }); }));
+
+  // ---------- a website user connects their Telegram (/me 123456) ----------
+  app.post('/api/tg/me-code', needUser, wrap(async (req, res) => {
+    const code = String(crypto.randomInt(100000, 1000000));
+    await q(`INSERT INTO tg_me_codes (code, user_id) VALUES ($1, $2)`, [code, req.user.id]);
+    const me = (await q(`SELECT name, username FROM tg_people WHERE user_id = $1 ORDER BY seen_at DESC LIMIT 1`, [req.user.id])).rows[0];
+    res.json({ code, bot: bot.state.me ? bot.state.me.username : null, connected: me || null });
+  }));
+
+  // ---------- alerts from the groups ----------
+  app.get('/api/tg/alerts', needUser, wrap(async (req, res) => {
+    const params = []; const vis = visSql(req.user, params);
+    const r = (await q(`SELECT a.*, d.name driver FROM tg_alerts a JOIN drivers d ON d.id = a.driver_id WHERE a.resolved_at IS NULL AND a.at > now() - interval '14 days'
+      ${req.user.role === 'admin' ? '' : `AND a.kind <> 'unprofessional_dispatcher'${vis ? ' AND ' + vis : ''}`} ORDER BY (a.severity = 'high') DESC, a.at DESC LIMIT 100`, params)).rows;
+    res.json({ alerts: r.map((a) => ({ id: a.id, chatId: a.chat_id, driverId: a.driver_id, driver: a.driver, kind: a.kind, severity: a.severity, text: a.text, at: a.at })) });
+  }));
+  app.patch('/api/tg/alerts/:id', needUser, wrap(async (req, res) => {
+    const a = (await q(`SELECT * FROM tg_alerts WHERE id = $1`, [+req.params.id || 0])).rows[0];
+    if (!a) return res.status(404).json({ error: 'Alert not found' });
+    if (!(await loadDriver(req, res, a.driver_id))) return;
+    await q(`UPDATE tg_alerts SET resolved_at = now(), resolved_by = $2 WHERE id = $1`, [a.id, req.user.name]);
+    res.json({ ok: true });
+  }));
+
+  // ---------- the driver's profile for dispatchers ----------
+  app.get('/api/drivers/:id/profile', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const p = (await q(`SELECT * FROM driver_profiles WHERE driver_id = $1`, [d.id])).rows[0];
+    const notes = (await q(`SELECT kind, text, at FROM driver_notes WHERE driver_id = $1 ORDER BY at DESC LIMIT 40`, [d.id])).rows;
+    const count = +(await q(`SELECT count(*)::int n FROM driver_notes WHERE driver_id = $1`, [d.id])).rows[0].n;
+    res.json({ profile: p ? p.profile : null, pins: p ? p.pins : null, builtAt: p ? p.built_at : null, notes, notesCount: count, ai: ai.on(), text: await profile.profileText(d.id, false) });
+  }));
+  app.put('/api/drivers/:id/profile', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const pins = String((req.body || {}).pins || '').trim().slice(0, 3000) || null;
+    await q(`INSERT INTO driver_profiles (driver_id, pins) VALUES ($1, $2) ON CONFLICT (driver_id) DO UPDATE SET pins = $2`, [d.id, pins]);
+    await lib.history(d.id, pins ? 'Dispatcher notes updated' : 'Dispatcher notes cleared', req.user.name);
+    res.json({ ok: true });
+  }));
+  app.post('/api/drivers/:id/profile/build', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    if (!ai.on()) return res.status(400).json({ error: 'AI is off: add ANTHROPIC_API_KEY on Railway' });
+    await profile.build(d.id);
+    res.json({ ok: true });
+  }));
+
+  // ---------- truck issues and service ----------
+  app.get('/api/trucks/:id/events', needUser, wrap(async (req, res) => {
+    const r = (await q(`SELECT e.*, d.name driver FROM truck_events e LEFT JOIN drivers d ON d.id = e.driver_id WHERE e.truck_id = $1 ORDER BY (e.status <> 'fixed') DESC, e.at DESC LIMIT 200`, [+req.params.id || 0])).rows;
+    res.json({ events: r.map((e) => ({ id: e.id, kind: e.kind, title: e.title, details: e.details, status: e.status, odometer: e.odometer, cost: e.cost === null ? null : +e.cost, shop: e.shop, source: e.source, addedBy: e.added_by, at: e.at, fixedAt: e.fixed_at, driver: e.driver, chatId: e.chat_id })) });
+  }));
+  app.post('/api/trucks/:id/events', needUser, wrap(async (req, res) => {
+    const t = (await q(`SELECT * FROM trucks WHERE id = $1`, [+req.params.id || 0])).rows[0]; if (!t) return res.status(404).json({ error: 'Truck not found' });
+    const b = req.body || {}; const title = String(b.title || '').trim().slice(0, 120); if (!title) return res.status(400).json({ error: 'What happened?' });
+    const KINDS = ['breakdown', 'repair', 'maintenance', 'oil_change', 'tires', 'inspection', 'damage', 'warning_light', 'other'];
+    const st = ['open', 'scheduled', 'fixed'].includes(b.status) ? b.status : 'open';
+    await q(`INSERT INTO truck_events (truck_id, driver_id, kind, title, details, status, odometer, cost, shop, source, added_by, fixed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual', $10, CASE WHEN $6 = 'fixed' THEN now() END)`,
+      [t.id, t.driver_id, KINDS.includes(b.kind) ? b.kind : 'other', title, String(b.details || '').trim().slice(0, 800) || null, st, Number.isInteger(+b.odometer) && b.odometer !== '' && b.odometer !== undefined ? +b.odometer : null, b.cost !== undefined && b.cost !== '' && !isNaN(+b.cost) ? +b.cost : null, String(b.shop || '').trim().slice(0, 120) || null, req.user.name]);
+    res.json({ ok: true });
+  }));
+  app.patch('/api/truck-events/:id', needUser, wrap(async (req, res) => {
+    const st = (req.body || {}).status; if (!['open', 'scheduled', 'fixed'].includes(st)) return res.status(400).json({ error: 'Open, scheduled or fixed' });
+    const r = await q(`UPDATE truck_events SET status = $2, fixed_at = CASE WHEN $2 = 'fixed' THEN now() END WHERE id = $1 RETURNING id`, [+req.params.id || 0, st]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
+  }));
+  app.delete('/api/truck-events/:id', needUser, needAdmin, wrap(async (req, res) => { await q(`DELETE FROM truck_events WHERE id = $1`, [+req.params.id || 0]); res.json({ ok: true }); }));
+  // read the waiting messages now (admin; for checking)
+  app.post('/api/tg/chats/:id/digest', needUser, needAdmin, wrap(async (req, res) => { const c = await loadChat(req, res); if (!c) return; res.json({ ok: true, found: await digest.digestChat(c.chat_id) }); }));
 
   // people the bot has seen, and their role
   app.get('/api/tg/people', needUser, needAdmin, wrap(async (req, res) => {

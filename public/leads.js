@@ -397,6 +397,8 @@
       <div class="cols">
         <div>
           ${d.status === 'Onboarding' ? onb : ''}
+          ${d.status === 'Hired' ? '<section class="card"><div class="tggroups" aria-live="polite"></div></section>' : ''}
+          <section class="card dprof" id="dprof" hidden></section>
           ${amazonCard(d)}
           ${callGuide(d, ob, r.notes)}
           <section class="card"><h3>Notes and contact log</h3>
@@ -438,6 +440,7 @@
         expYears: f.get('expYears'), experience: f.get('experience'), relayBefore: f.get('relayBefore'), weeksOut: f.get('weeksOut'), daysHome: f.get('daysHome'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
     };
     const tgh = document.querySelector('.tggroups'); if (tgh && App.tgLeadGroups) App.tgLeadGroups(d.id, tgh);
+    const dp = document.getElementById('dprof'); if (dp && App.profileCard) App.profileCard(d.id, dp, d.status === 'Hired' || d.status === 'Onboarding');
     const sf = $('#stepForm'); if (sf) sf.onsubmit = async (e) => { e.preventDefault(); const v = sf.label.value.trim(); if (!v) return; try { await api(`/api/drivers/${d.id}/checklist`, { method: 'POST', body: { label: v } }); toast('Step added'); again(); } catch (err) { fail(err); } };
   }
   const again = () => redraw(() => viewDriver(cur.driver.id));
