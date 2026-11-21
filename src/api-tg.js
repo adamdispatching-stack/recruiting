@@ -289,7 +289,7 @@ module.exports = (app) => {
     const stepAcc = judged ? right / judged : null; const botShare = qa.total ? qa.bot / qa.total : null;
     const ready = judged >= 15 && stepAcc >= 0.9 && qa.total >= 20 && botShare >= 0.7;
     res.json({ steps: { confirmed: right, rejected: c('rejected') + c('undone'), auto: c('auto'), waiting: c('suggested'), accuracy: stepAcc }, knowledge: kn, questions: { byBot: qa.bot, total: qa.total, share: botShare },
-      modes: Object.fromEntries(modes.map((m) => [m.mode, m.n])), ready, settings: { onbMode: (db.settings.tg || {}).onbMode || 'run', autoTick: !!(db.settings.tg || {}).autoTick } });
+      modes: Object.fromEntries(modes.map((m) => [m.mode, m.n])), ready, settings: { onbMode: (db.settings.tg || {}).onbMode || 'watch', autoTick: !!(db.settings.tg || {}).autoTick } });
   }));
   app.put('/api/tg/autopilot', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const v = { ...(db.settings.tg || {}) };

@@ -76,7 +76,7 @@ const MODES = { watch: 'Watch and learn', assist: 'Answer questions', run: 'Run 
 async function begin(chatId, driverId, opts = {}) {
   const d = (await q(`SELECT amazon_step, status, name FROM drivers WHERE id = $1`, [driverId])).rows[0];
   if (d.status === 'Hired') return send(chatId, `👋 I am the FleetHire assistant. I keep track of this group for the team: truck issues, appointments and notes, so nothing gets lost.`);
-  const mode = MODES[opts.mode] ? opts.mode : MODES[(db.settings.tg || {}).onbMode] ? db.settings.tg.onbMode : 'run';
+  const mode = MODES[opts.mode] ? opts.mode : MODES[(db.settings.tg || {}).onbMode] ? db.settings.tg.onbMode : 'watch';
   await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon, mode) VALUES ($1, $2, $3, $4) ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2, last_amazon = $3, nudge = NULL, mode = $4`, [driverId, chatId, d.amazon_step, mode]);
   if (mode === 'watch') return; // reads along silently: summaries, notes and learning on the website
   if (mode === 'assist') return send(chatId, `👋 Hi <b>${esc(d.name.split(/\s+/)[0])}</b>! I am the FleetHire assistant. Ask me anything about the job, pay, trucks or the next steps; what I don't know, I ask the team.`);

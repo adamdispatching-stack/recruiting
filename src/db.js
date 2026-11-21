@@ -418,7 +418,8 @@ async function migrate() {
   await q(`
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS share_moves INT NOT NULL DEFAULT 0;
     -- how the bot works in an onboarding group: watch (reads, sums up, learns; never writes), assist (answers questions), run (the whole onboarding)
-    ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'run';
+    ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'watch';
+    ALTER TABLE onb_cases ALTER COLUMN mode SET DEFAULT 'watch';
     ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS ai_status JSONB;     -- the AI's view of where the onboarding stands
     ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS ai_status_at TIMESTAMPTZ;
     -- onboarding steps the AI saw done in the conversation: suggested until a person confirms or rejects (or done by itself when trusted)
@@ -548,6 +549,12 @@ async function migrate() {
     up.amazon = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
+  if (!up.onbWatch) {
+    // new onboarding groups start in "Watch and learn" (it was "Run")
+    await q(`UPDATE settings SET value = jsonb_set(value, '{onbMode}', '"watch"') WHERE key = 'tg' AND value->>'onbMode' = 'run'`);
+    up.onbWatch = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   await loadSettings();
 }
 
@@ -582,7 +589,7 @@ const DEFAULTS = {
   // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
   // a second tag if nobody answers after remindMin, and the daily AI summary of each group
   // onbMode: how the bot starts in a new onboarding group (watch / assist / run); autoTick: the AI ticks onboarding steps itself
-  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], onbMode: 'run', autoTick: false },
+  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], onbMode: 'watch', autoTick: false },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },

@@ -97,6 +97,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const R = async (path, opts = {}) => { if (!R.c) { const o = await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'rita@example.com', password: 'rita-pass-1234' }) }); R.c = o.headers.get('set-cookie').split(';')[0]; } return web(path, { ...opts, cookie: R.c }); };
   const code = (await R(`/api/drivers/${id}/tg-link`, { method: 'POST', body: { kind: 'dispatch' } })).code;
   push({ my_chat_member: { chat: CHAT, from: RITA, date: 1, old_chat_member: { status: 'left', user: BOT }, new_chat_member: { status: 'administrator', user: BOT } } });
+  ok((await web('/api/tg/readiness')).settings.onbMode === 'watch', 'new onboarding groups start in Watch and learn by default');
+  await web('/api/tg/autopilot', { method: 'PUT', body: { onbMode: 'run', autoTick: false } }); // this test runs the onboarding
   let n = tg.sent.length; say(RITA, '/link ' + code);
   await until(() => sentSince(n).some((m) => /Relay invite<\/b> by email soon/.test(m.text)), 8000, 'welcome');
   const w = sentSince(n).map((m) => m.text).join('\n---\n');

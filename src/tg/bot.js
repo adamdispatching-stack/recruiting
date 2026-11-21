@@ -103,6 +103,9 @@ async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
   await require('../lib').history(driverId, `${KINDS[kind]} Telegram group linked`, who ? who.name : 'Telegram', 'telegram').catch(() => {});
   await send(chatId, `✅ This is now the <b>${KINDS[kind]}</b> group for <b>${esc(d.name)}</b>.${state.me && !(await isAdmin(chatId)) ? '\n\nPlease make me an admin of this group, so I can read every message (Group settings → Administrators → Add admin).' : ''}`);
   if (handlers[kind]) await handlers[kind].begin(chatId, driverId, opts);
+  // an onboarding group starts in 👀 Watch and learn (the default): say so once, and how to change it
+  if (kind === 'dispatch' && (await q(`SELECT 1 FROM onb_cases WHERE driver_id = $1 AND chat_id = $2 AND mode = 'watch'`, [driverId, chatId])).rows[0])
+    await send(chatId, '👀 Watch and learn: I read along, sum it up on the website and learn from the team. I won\'t write here.\nTo change: /mode');
 }
 // "register dispatch watch": how the bot works in an onboarding group
 const MODE_WORD = { watch: 'watch', learn: 'watch', quiet: 'watch', silent: 'watch', assist: 'assist', help: 'assist', answer: 'assist', answers: 'assist', run: 'run', auto: 'run', full: 'run' };
@@ -145,14 +148,8 @@ async function registerButton(cq, who) {
     await require('../lib').history(driverId, 'Added as an active driver from Telegram', who.name, 'telegram').catch(() => {});
   }
   await dropButtons(chatId, cq.message.message_id);
-  // a driver still onboarding: the team picks how the bot works here (unless "register dispatch watch" said so)
+  // a driver still onboarding: the bot starts in the default mode (👀 Watch and learn); the team changes it with /mode
   const st = ((await q(`SELECT value FROM tg_state WHERE key = $1`, ['reg:' + chatId])).rows[0] || {}).value || {};
-  const dv = (await q(`SELECT status, name FROM drivers WHERE id = $1`, [driverId])).rows[0];
-  if (kind === 'dispatch' && dv && dv.status !== 'Hired' && !st.mode) {
-    await send(chatId, `<b>${esc(dv.name)}</b> is still onboarding. How should I work in this group?\n👀 <b>Watch and learn</b>: I read everything, sum it up on the website and learn from the team, and never write here.\n💬 <b>Answer questions</b>: I also answer the driver's questions I know; the rest I ask the team.\n🚀 <b>Run the onboarding</b>: I guide the driver through every step and remind him.`,
-      { buttons: MODES.map(([m, l]) => [[l, `regm:${driverId}:${m}`]]) });
-    return 'Pick how I should work';
-  }
   await linkChat(chatId, kind, driverId, who.user_id || null, who, { mode: st.mode });
   return 'Registered ✓';
 }
