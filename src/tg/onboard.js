@@ -164,7 +164,7 @@ async function onMessage(chat, m, who) {
   const text = (m.text || m.caption || '').trim();
   if (isStaff(who)) return learnFrom(chat, m, who, text);
   const st = (await q(`SELECT status FROM drivers WHERE id = $1`, [chat.driver_id])).rows[0];
-  if (!st || st.status === 'Hired') return; // an active driver's group: the team handles it, the bot reads along (digest)
+  if (!st || st.status === 'Hired' || chat.member_count > 10) return; // an active driver's group (or more than 10 people): the team handles it, the bot reads along (digest)
   let c = await caseOf(chat.driver_id);
   if (!c || c.chat_id !== chat.chat_id) { await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon) SELECT id, $2, amazon_step FROM drivers WHERE id = $1 ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2`, [chat.driver_id, chat.chat_id]); c = await caseOf(chat.driver_id); }
   if (who.role && who.role !== 'driver') return; // ELD, accounting, dispatch people: not the driver

@@ -26,6 +26,7 @@ http.createServer((req, res) => {
     if (method === 'sendMessage') { const m = { message_id: ++tg.nextMsg, date: Math.floor(Date.now() / 1000), chat: { id: p.chat_id }, text: p.text, reply_markup: p.reply_markup }; tg.sent.push({ ...p, message_id: m.message_id }); return out(m); }
     if (method === 'editMessageText' || method === 'editMessageReplyMarkup') { tg.edits.push({ method, ...p }); return out(true); }
     if (method === 'setMessageReaction') { (tg.reactions = tg.reactions || []).push(p); return out(true); }
+    if (method === 'getChatMemberCount') return out((tg.counts || {})[p.chat_id] || 3);
     if (method === 'answerCallbackQuery') { tg.answers.push(p); return out(true); }
     if (method === 'getChatMember') return out({ status: 'administrator', user: BOT });
     if (method === 'getFile') return out({ file_id: p.file_id, file_path: 'f/' + p.file_id, file_size: 10 });
@@ -48,6 +49,13 @@ http.createServer((req, res) => {
       if (/actually Wednesday/.test(fresh)) o.start_date = day(3);
       AI.seen = (AI.seen || 0) + 1;
       res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts: [], learned: [], onboarding: o } }] }));
+    }
+    if (tool === 'group_digest') { // a working group: who is who, and a container mix-up
+      const fresh = ((j.messages[0].content.find((c) => c.type === 'text') || {}).text || '').split('NEW MESSAGES:')[1] || '';
+      const unk = (/People whose role is not known yet: (.*)\./.exec(j.system) || [])[1];
+      const people = unk ? unk.split('; ').map((n) => ({ name: n, role: /Dispatch/.test(n) ? 'dispatcher' : /Hank/.test(n) ? 'driver' : 'other' })) : [];
+      const alerts = /CONTAINER ABCU9/.test(fresh) ? [{ kind: 'container_mismatch', severity: 'high', text: 'Container number does not match', ask_driver: 'is ABCU9 the right container?' }] : [];
+      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], people } }] }));
     }
     const input = tool === 'group_digest' ? { truck_events: [], driver_notes: [], alerts: [], learned: [] } : tool === 'reply_plan' ? { is_question: false, confident: false, answer: '', progress: 'none', mood: 'neutral' } : { summary: 'A day.', issues: [], mood: 'good' };
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input }] }));
@@ -213,6 +221,60 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(async () => !(await pg.query(`SELECT ssn4 FROM drivers WHERE id = $1`, [paul])).rows[0].ssn4, 5000), 'the last 4 are deleted after 30 days');
   ok((await web(`/api/drivers/${paul}/mvr`, { method: 'PATCH', body: { zip: '123' } })).status === 400, 'a wrong ZIP is refused');
 
+  // ---------- working drivers' groups: more than 10 people ----------
+  tg.counts = {};
+  const hank = (await web('/api/drivers', { method: 'POST', body: { name: 'Hank Hired', source: 'Referral', phone: '2155550177' } })).id;
+  await pg.query(`UPDATE drivers SET status = 'Hired' WHERE id = $1`, [hank]);
+  const HCHAT = { id: -100720, type: 'supergroup', title: 'Hank Hired' }; tg.counts[HCHAT.id] = 14;
+  n = tg.sent.length; added(HCHAT, UPD);
+  ok(await until(async () => ((await pg.query(`SELECT driver_id, member_count, mode FROM tg_chats WHERE chat_id = $1`, [HCHAT.id])).rows[0] || {}).driver_id === hank), '14 people, "Hank Hired": the one active driver with that name, connected');
+  ok((await pg.query(`SELECT member_count, mode FROM tg_chats WHERE chat_id = $1`, [HCHAT.id])).rows[0].mode === 'watch' && !inChat(n, HCHAT).length, 'watch and learn, nothing written');
+  // a truck number in the title
+  const t140 = (await web('/api/trucks', { method: 'POST', body: { unit: '140', details: '2023 Freightliner Cascadia' } })).id;
+  const walt = (await web('/api/drivers', { method: 'POST', body: { name: 'Walt Worker', source: 'Referral' } })).id;
+  await pg.query(`UPDATE drivers SET status = 'Hired' WHERE id = $1`, [walt]); await pg.query(`UPDATE trucks SET driver_id = $2 WHERE id = $1`, [t140, walt]);
+  const TRK = { id: -100721, type: 'supergroup', title: 'Truck #140 updates' }; tg.counts[TRK.id] = 22;
+  added(TRK, UPD);
+  ok(await until(async () => ((await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [TRK.id])).rows[0] || {}).driver_id === walt), '"Truck #140 updates": the driver on truck 140');
+  // a big group, but the website has the driver in onboarding: connected, no onboarding started, admins asked to check
+  const ona = (await web('/api/drivers', { method: 'POST', body: { name: 'Ona Old', source: 'Indeed', phone: '6105550444' } })).id;
+  await web('/api/drivers/' + ona, { method: 'PATCH', body: { status: 'Onboarding' } });
+  const OCHAT = { id: -100722, type: 'supergroup', title: 'Ona Old 610 555 0444' }; tg.counts[OCHAT.id] = 12;
+  n = tg.sent.length; added(OCHAT, UPD);
+  ok(await until(async () => ((await pg.query(`SELECT driver_id FROM tg_chats WHERE chat_id = $1`, [OCHAT.id])).rows[0] || {}).driver_id === ona), 'Ona (in onboarding) by phone, 12 people: connected');
+  await sleep(500);
+  ok(!(await pg.query(`SELECT 1 FROM onb_cases WHERE driver_id = $1`, [ona])).rows.length && !inChat(n, OCHAT).length, 'no onboarding started there, nothing written');
+  ok((await pg.query(`SELECT 1 FROM notices WHERE text LIKE '%has 12 people, so it looks like a working driver''s group, but Ona Old is "Onboarding"%'`)).rows.length >= 1, 'the admins are asked to check her status');
+  say(PAUL, 'hello', OCHAT); await sleep(600); ok(!(await pg.query(`SELECT 1 FROM onb_cases WHERE driver_id = $1`, [ona])).rows.length, 'messages there do not start onboarding either');
+  // nobody found in a big group: "Add as an active driver"
+  const GCHAT = { id: -100723, type: 'supergroup', title: 'Gary Gone 484 555 0999' }; tg.counts[GCHAT.id] = 15;
+  added(GCHAT, UPD);
+  const gw = await until(async () => (await web('/api/tg/waiting')).waiting.find((w) => w.chatId == GCHAT.id));
+  ok(gw && gw.big && gw.members === 15 && gw.newName === 'Gary Gone', 'nobody found, 15 people: waiting, offered as a new active driver');
+  // learning who is who; how fast dispatchers answer
+  const HANK = { id: 61, is_bot: false, first_name: 'Hank', last_name: 'Hired' }, DAN = { id: 62, is_bot: false, first_name: 'Dan', last_name: 'Dispatch' };
+  say(HANK, 'Arrived at the shipper, door 12', HCHAT); await sleep(300); say(DAN, 'Thanks Hank, send the BOL when loaded', HCHAT);
+  ok(await until(async () => ((await pg.query(`SELECT role FROM tg_people WHERE tg_id = 62`)).rows[0] || {}).role === 'dispatch', 15000), 'learned: Dan is a dispatcher');
+  ok(((await pg.query(`SELECT role, driver_id FROM tg_people WHERE tg_id = 61`)).rows[0] || {}).driver_id === hank, 'learned: Hank is the driver of this group');
+  await pg.query(`UPDATE tg_messages SET at = now() - interval '20 minutes' WHERE chat_id = $1 AND from_id = 61`, [HCHAT.id]);
+  const ppl = (await web('/api/tg/people')).people;
+  const dan = ppl.find((x) => x.tg_id === '62');
+  ok(ppl[0].role === 'dispatch' && dan.msgs7 === 1 && dan.reply_min >= 19 && dan.reply_min <= 21, 'People: dispatchers first, Dan answers the driver in about 20 min');
+  // the group page; updater mode
+  const gp = await web('/api/tg/chats/' + HCHAT.id);
+  ok(gp.chat.working && gp.chat.members === 14 && gp.chat.mode === 'watch' && gp.chat.learning.msgs === 2 && gp.chat.learning.dispatchers === 1, 'the group page: working group, 14 people, 2 messages read, 1 dispatcher known');
+  n = tg.sent.length; say(HANK, 'loaded CONTAINER ABCU9', HCHAT);
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_alerts WHERE chat_id = $1`, [HCHAT.id])).rows.length, 15000), 'watch: the container mix-up is an alert on the website');
+  await sleep(500); ok(!inChat(n, HCHAT).length, 'and nothing is written in the group');
+  ok((await web(`/api/tg/chats/${HCHAT.id}/mode`, { method: 'PATCH', body: { mode: 'updater' } })).ok, 'switch to 🚚 Updater on the website');
+  n = tg.sent.length; say(HANK, 'second one CONTAINER ABCU9', HCHAT);
+  ok(await until(() => inChat(n, HCHAT).some((m) => /is ABCU9 the right container\?/.test(m.text)), 15000), 'updater: the bot asks the driver about the container');
+  n = tg.sent.length; say(RITA, '/mode', HCHAT);
+  const mb = await until(() => inChat(n, HCHAT).find((m) => /Now: 🚚 Updater/.test(m.text)));
+  ok(mb && /^✓ 🚚/.test(mb.reply_markup.inline_keyboard[1][0].text), '/mode in a working group: Watch and learn / Updater');
+  say(RITA, '/mode watch', HCHAT);
+  ok(await until(async () => (await pg.query(`SELECT mode FROM tg_chats WHERE chat_id = $1`, [HCHAT.id])).rows[0].mode === 'watch'), '/mode watch: back to watching');
+
   // the bot's history: reactions and replies to the bot
   const bm = tg.sent.filter((m) => String(m.chat_id) === String(PCHAT.id)).pop();
   push({ message_reaction: { chat: PCHAT, message_id: bm.message_id, user: PAUL, date: Math.floor(Date.now() / 1000), old_reaction: [], new_reaction: [{ type: 'emoji', emoji: '👍' }] } });
@@ -233,6 +295,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
     await p.goto(BASE + '/#/telegram?tab=groups'); await p.waitForSelector('.tgwait'); await p.locator('.tgwait').screenshot({ path: '/tmp/shot/wait.png' });
     await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist.png', fullPage: false });
     await p.click('[data-act=tgLogF][data-k="tap,reaction,reply"]'); await p.waitForTimeout(500); await p.screenshot({ path: '/tmp/shot/hist2.png' });
+    await p.goto(BASE + '/#/telegram/' + HCHAT.id); await p.waitForSelector('.tgwork'); await p.locator('.tgwork').screenshot({ path: '/tmp/shot/work.png' });
+    await p.goto(BASE + '/#/telegram?tab=people'); await p.waitForSelector('table.tgt'); await p.locator('table.tgt').screenshot({ path: '/tmp/shot/people.png' });
     await p.goto(BASE + '/#/telegram/' + PCHAT.id); await p.waitForSelector('#tgLogBox li.tglog'); await p.locator('.tglogc').screenshot({ path: '/tmp/shot/histc.png' });
     await p.setViewportSize({ width: 390, height: 900 }); await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist-m.png' });
     ok(!errs.length, 'no page errors ' + errs.join(' | ')); await b.close();

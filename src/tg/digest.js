@@ -36,7 +36,8 @@ async function digestChat(chatId) {
   const openIssues = chat.truck_id ? (await q(`SELECT id, title FROM truck_events WHERE truck_id = $1 AND status <> 'fixed' ORDER BY at DESC LIMIT 20`, [chat.truck_id])).rows : [];
   const unpaid = chat.truck_id ? (await q(`SELECT id, title, cost FROM truck_events WHERE truck_id = $1 AND status = 'fixed' AND paid IS NOT TRUE AND at > now() - interval '45 days' ORDER BY at DESC LIMIT 15`, [chat.truck_id])).rows : [];
   // a driver still onboarding: the open steps, so the AI can say where it stands and what is done
-  const onboarding = chat.kind === 'dispatch' && chat.driver_status !== 'Hired';
+  const cm = (await q(`SELECT member_count, mode FROM tg_chats WHERE chat_id = $1`, [chatId])).rows[0] || {};
+  const onboarding = chat.kind === 'dispatch' && chat.driver_status !== 'Hired' && !(cm.member_count > 10); // more than 10 people: a working driver's group
   let onb = null;
   if (onboarding) {
     const steps = (await q(`SELECT id, label FROM checklist WHERE driver_id = $1 AND NOT done AND auto IS NULL ORDER BY position, id`, [chat.driver_id])).rows;
@@ -49,7 +50,8 @@ async function digestChat(chatId) {
   // messages brought in from an export (before the bot joined): read and learned from, never acted on
   const quiet = fresh.every((m) => m.imported);
   let r;
-  try { r = await ai.digest({ onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
+  const unknown = [...new Set(fresh.filter((m) => !m.is_bot && !m.role && m.from_id && m.from_name).map((m) => m.from_name))].slice(0, 12);
+  try { r = await ai.digest({ unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
   catch (e) { console.error('tg digest', e.message); if (/400|invalid/i.test(e.message)) await done(); return null; } // a bad batch is skipped; a network error is tried again
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
@@ -80,12 +82,21 @@ async function digestChat(chatId) {
     out.alerts++;
     if (quiet) continue; // history: kept, nobody asked or told
     const driver = (await q(`SELECT * FROM tg_people WHERE role = 'driver' AND driver_id = $1 ORDER BY seen_at DESC LIMIT 1`, [chat.driver_id])).rows[0];
-    const mode = onboarding ? ((await q(`SELECT mode FROM onb_cases WHERE driver_id = $1`, [chat.driver_id])).rows[0] || {}).mode : null;
+    const mode = onboarding ? ((await q(`SELECT mode FROM onb_cases WHERE driver_id = $1`, [chat.driver_id])).rows[0] || {}).mode : chat.kind === 'dispatch' ? (cm.mode === 'updater' ? 'updater' : 'watch') : null;
     if (mode === 'watch') { if (a.severity === 'high' || ['driver_upset', 'safety'].includes(a.kind)) await tellTeam(chat.driver_id, chatId, `${chat.driver}: ${text}`); continue; } // watch: tells the team, never writes in the group
     if (['container_mismatch', 'wrong_location'].includes(a.kind) && a.ask_driver) await send(chatId, `🔎 ${driver ? tag(driver) : `<b>${esc(chat.driver.split(/\s+/)[0])}</b>`}, ${esc(a.ask_driver)}`).catch(() => {});
     else if (a.kind === 'appointment_change' && chat.kind === 'dispatch') await send(chatId, `📌 Noted: ${esc(text)}`).catch(() => {});
     if (a.kind === 'unprofessional_dispatcher') await tellTeam(chat.driver_id, chatId, `Dispatcher conduct in ${chat.driver}'s group: ${text}`, false); // admins only
     else if (a.severity === 'high' || ['driver_upset', 'safety', 'container_mismatch', 'wrong_location'].includes(a.kind)) await tellTeam(chat.driver_id, chatId, `${chat.driver}: ${text}`);
+  }
+  // who is who: the AI says which unknown people are the driver, a dispatcher, ELD or accounting (never "our team": that unlocks buttons)
+  const ROLEMAP = { driver: 'driver', dispatcher: 'dispatch', eld: 'eld', accounting: 'accounting' };
+  for (const p of (r.people || []).slice(0, 12)) {
+    const role = ROLEMAP[p.role]; if (!role || !unknown.includes(p.name)) continue;
+    const m = fresh.find((x) => x.from_name === p.name && x.from_id); if (!m) continue;
+    if (role === 'driver' && (chat.kind !== 'dispatch' || (await q(`SELECT 1 FROM tg_people WHERE driver_id = $1 AND role = 'driver'`, [chat.driver_id])).rows[0])) continue;
+    const u = await q(`UPDATE tg_people SET role = $2, driver_id = $3 WHERE tg_id = $1 AND role IS NULL AND user_id IS NULL RETURNING name`, [m.from_id, role, role === 'driver' ? chat.driver_id : null]);
+    if (u.rows[0]) await bot.log('fact', `Learned: ${p.name} is ${role === 'driver' ? 'the driver' : role === 'dispatch' ? 'a dispatcher' : role === 'eld' ? 'with the ELD team' : 'with accounting'}`, { chatId, driverId: chat.driver_id });
   }
   // what the team answered: suggested knowledge, used by the bot once an admin approves it
   for (const k of (r.learned || []).slice(0, 5)) {

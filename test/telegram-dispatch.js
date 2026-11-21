@@ -115,6 +115,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   let n = tg.sent.length; say(RITA, 'register dispatch');
   ok(await until(async () => ((await R('/api/tg/chats')).chats.find((c) => c.chatId == DCHAT.id) || {}).kind === 'dispatch'), 'register dispatch: the group name says Hank Hired: linked as Hank\'s dispatch group');
   await sleep(800); ok(!sentSince(n).some((m) => String(m.chat_id) === String(DCHAT.id)), 'an active driver\'s group: silent, nothing written');
+  ok((await pg.query(`SELECT mode FROM tg_chats WHERE chat_id = $1`, [DCHAT.id])).rows[0].mode === 'watch', 'a working driver\'s group starts in Watch and learn');
+  ok((await web(`/api/tg/chats/${DCHAT.id}/mode`, { method: 'PATCH', body: { mode: 'updater' } })).ok, 'switched to 🚚 Updater for the checks below');
   // a fleet driver who is not on the website yet: added from Telegram
   n = tg.sent.length; say(RITA, 'register eld', {}, ECHAT);
   const pick2 = await until(() => sentSince(n).find((m) => /Which driver is this <b>ELD<\/b> group for\?/.test(m.text)));

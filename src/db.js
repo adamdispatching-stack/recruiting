@@ -436,6 +436,9 @@ async function migrate() {
     ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS asked JSONB NOT NULL DEFAULT '{}'::jsonb;
     -- who set the start date and travel details: 'ai' (from the Telegram group; the AI may change it again) or NULL (the team)
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS arrival_by TEXT;
+    -- a working driver's group: how many people are in it, and how the bot works there (watch = learn quietly; updater = also writes)
+    ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS member_count INTEGER;
+    ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'watch';
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS note_by TEXT;
     -- the bot's history: what it did, and how people reacted (buttons, emoji, replies)
     CREATE TABLE IF NOT EXISTS tg_log (id SERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), chat_id BIGINT, driver_id INTEGER, kind TEXT NOT NULL, text TEXT NOT NULL, who_tg BIGINT, who TEXT);

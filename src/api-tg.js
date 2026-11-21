@@ -70,7 +70,12 @@ module.exports = (app) => {
     const sums = (await q(`SELECT day::text, summary, issues, mood, messages, created_at FROM tg_summaries WHERE chat_id = $1 ORDER BY day DESC LIMIT 30`, [c.chat_id])).rows;
     const msgs = (await q(`SELECT m.msg_id, m.from_name, m.is_bot, m.text, m.media, m.media_note, m.at, p.role FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 ORDER BY m.at DESC LIMIT 300`, [c.chat_id])).rows.reverse();
     const people = (await q(`SELECT p.tg_id::text tg_id, p.name, p.username, p.role, p.driver_id, d.name driver FROM tg_members m JOIN tg_people p ON p.tg_id = m.tg_id LEFT JOIN drivers d ON d.id = p.driver_id WHERE m.chat_id = $1 ORDER BY p.name`, [c.chat_id])).rows;
-    res.json({ chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, driverStatus: c.driver_status, botAdmin: c.bot_admin, linkedAt: c.linked_at }, eld: c.kind === 'eld' ? eldView(e) : null,
+    const lr = (await q(`SELECT (SELECT count(*)::int FROM tg_messages WHERE chat_id = $1 AND NOT is_bot) msgs, (SELECT min(at) FROM tg_messages WHERE chat_id = $1) since,
+      (SELECT count(*)::int FROM driver_notes WHERE chat_id = $1) notes, (SELECT count(*)::int FROM truck_events WHERE chat_id = $1) truck,
+      (SELECT count(*)::int FROM tg_alerts WHERE chat_id = $1) alerts, (SELECT count(*)::int FROM tg_knowledge WHERE chat_id = $1) learned,
+      (SELECT count(DISTINCT m.tg_id)::int FROM tg_members m JOIN tg_people p ON p.tg_id = m.tg_id WHERE m.chat_id = $1 AND p.role = 'dispatch') dispatchers`, [c.chat_id]).catch((e) => { console.error('tg learning', e.message); return { rows: [{}] }; })).rows[0];
+    const working = c.kind === 'dispatch' && (c.driver_status === 'Hired' || c.member_count > 10);
+    res.json({ chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, driverStatus: c.driver_status, botAdmin: c.bot_admin, linkedAt: c.linked_at, members: c.member_count, working, mode: c.mode || 'watch', learning: lr }, eld: c.kind === 'eld' ? eldView(e) : null,
       onb: c.kind === 'dispatch' && c.driver_id && c.driver_status !== 'Hired' ? await onbView(c.driver_id) : null,
       alerts: (await q(`SELECT id, kind, severity, text, at, resolved_at, resolved_by FROM tg_alerts WHERE chat_id = $1 ${req.user.role === 'admin' ? '' : "AND kind <> 'unprofessional_dispatcher'"} ORDER BY at DESC LIMIT 40`, [c.chat_id])).rows,
       truckEvents: (await q(`SELECT e.id, e.kind, e.title, e.details, e.status, e.at, t.unit FROM truck_events e LEFT JOIN trucks t ON t.id = e.truck_id WHERE e.chat_id = $1 ORDER BY e.at DESC LIMIT 30`, [c.chat_id])).rows,
@@ -199,16 +204,23 @@ module.exports = (app) => {
     res.json({ log: r.rows.map((x) => ({ id: x.id, at: x.at, chatId: x.chat_id, driverId: x.driver_id, driver: x.driver, hired: x.status === 'Hired', kind: x.kind, text: x.text, who: x.who, title: x.title })),
       week: Object.fromEntries(counts.map((c) => [c.kind, c.n])), more: r.rows.length === 100 });
   }));
+  // a working driver's group: watch and learn, or updater
+  app.patch('/api/tg/chats/:id/mode', needUser, wrap(async (req, res) => {
+    if (req.user.role === 'dispatcher') return res.status(403).json({ error: 'Not for dispatchers' });
+    if (!bot.CMODES[(req.body || {}).mode]) return res.status(400).json({ error: 'Pick watch or updater' });
+    await bot.setChatMode(req.params.id, req.body.mode, req.user.name);
+    res.json({ ok: true });
+  }));
   // ---------- waiting for someone to connect their Telegram ----------
   app.get('/api/tg/waiting', needUser, wrap(async (req, res) => {
-    const r = await q(`SELECT w.*, ch.title, ch.invite_link, d.name driver, d.status FROM tg_waiting w JOIN tg_chats ch ON ch.chat_id = w.chat_id LEFT JOIN drivers d ON d.id = w.driver_id
+    const r = await q(`SELECT w.*, ch.title, ch.invite_link, ch.member_count, d.name driver, d.status FROM tg_waiting w JOIN tg_chats ch ON ch.chat_id = w.chat_id LEFT JOIN drivers d ON d.id = w.driver_id
       WHERE w.done_at IS NULL AND ch.active ORDER BY w.created_at DESC`);
     const out = [];
     for (const w of r.rows) {
       const f = await bot.findDrivers(bot.titleInfo(w.title));
       if (!f.list.length) f.list = (await q(`SELECT id, name, status FROM drivers WHERE status IN ('Onboarding', 'Hired') AND left_on IS NULL ORDER BY (status = 'Onboarding') DESC, updated_at DESC LIMIT 60`)).rows; // nothing in the title: drivers in onboarding, then active
       const ti = bot.titleInfo(w.title);
-      out.push({ newName: ti.name || null, newPhone: ti.phone || null, id: w.id, chatId: w.chat_id, title: w.title, who: w.who, what: w.what, kind: w.kind || bot.titleInfo(w.title).kind, driverId: w.driver_id, driver: w.driver, at: w.created_at, link: w.invite_link,
+      out.push({ big: w.member_count > 10, members: w.member_count, newName: ti.name || null, newPhone: ti.phone || null, id: w.id, chatId: w.chat_id, title: w.title, who: w.who, what: w.what, kind: w.kind || bot.titleInfo(w.title).kind, driverId: w.driver_id, driver: w.driver, at: w.created_at, link: w.invite_link,
         options: f.list.filter((d) => d.id !== w.driver_id).map((d) => ({ id: d.id, name: d.name, status: d.status })) });
     }
     res.json({ waiting: out });
@@ -245,8 +257,15 @@ module.exports = (app) => {
     res.json({ ok: true });
   }));
   app.get('/api/tg/people', needUser, needAdmin, wrap(async (req, res) => {
-    const r = (await q(`SELECT p.tg_id::text tg_id, p.name, p.username, p.role, p.driver_id, d.name driver, p.user_id, u.name user_name, p.seen_at,
-      (SELECT count(*)::int FROM tg_members m WHERE m.tg_id = p.tg_id) groups FROM tg_people p LEFT JOIN drivers d ON d.id = p.driver_id LEFT JOIN users u ON u.id = p.user_id ORDER BY p.seen_at DESC NULLS LAST LIMIT 500`)).rows;
+    // last 7 days: messages, and how fast each person answers a driver (median minutes from the driver's first message to the first reply, within 12 hours)
+    const r = (await q(`WITH dm AS (SELECT m.chat_id, m.at FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE p.role = 'driver' AND m.at > now() - interval '7 days' AND NOT m.imported
+        AND NOT EXISTS (SELECT 1 FROM tg_messages b JOIN tg_people bp ON bp.tg_id = b.from_id WHERE b.chat_id = m.chat_id AND bp.role = 'driver' AND b.at < m.at AND b.at > m.at - interval '10 minutes')),
+      rep AS (SELECT x.from_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM x.at - dm.at) / 60) med, count(*)::int n FROM dm
+        CROSS JOIN LATERAL (SELECT m2.from_id, m2.at FROM tg_messages m2 LEFT JOIN tg_people p2 ON p2.tg_id = m2.from_id WHERE m2.chat_id = dm.chat_id AND m2.at > dm.at AND m2.at < dm.at + interval '12 hours' AND NOT m2.is_bot AND coalesce(p2.role, '') <> 'driver' ORDER BY m2.at LIMIT 1) x GROUP BY x.from_id),
+      cnt AS (SELECT from_id, count(*)::int n FROM tg_messages WHERE at > now() - interval '7 days' AND NOT is_bot AND NOT imported GROUP BY from_id)
+      SELECT p.tg_id::text tg_id, p.name, p.username, p.role, p.driver_id, d.name driver, p.user_id, u.name user_name, p.seen_at, coalesce(cnt.n, 0) msgs7, round(rep.med::numeric, 0)::int reply_min, rep.n replies,
+      (SELECT count(*)::int FROM tg_members m WHERE m.tg_id = p.tg_id) groups FROM tg_people p LEFT JOIN drivers d ON d.id = p.driver_id LEFT JOIN users u ON u.id = p.user_id
+      LEFT JOIN cnt ON cnt.from_id = p.tg_id LEFT JOIN rep ON rep.from_id = p.tg_id ORDER BY (p.role = 'dispatch') DESC NULLS LAST, coalesce(cnt.n, 0) DESC, p.seen_at DESC NULLS LAST LIMIT 500`)).rows;
     res.json({ people: r, roles: ROLES });
   }));
   app.patch('/api/tg/people/:id', needUser, needAdmin, wrap(async (req, res) => {

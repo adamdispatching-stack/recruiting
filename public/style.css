@@ -1661,3 +1661,4 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .tgwait li{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .tgwait .inrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 @media (max-width:640px){.tglog .lgt{display:block}.tgloglist li.tglog{flex-wrap:wrap}.tglog .lgt{margin-left:32px}}
+.tgwork .seg{margin:6px 0}
