@@ -8,7 +8,7 @@ const { q } = db;
 const API = () => (process.env.TG_API_BASE || 'https://api.telegram.org').replace(/\/+$/, '');
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || '';
 const state = { running: false, me: null, lastError: null, lastUpdateAt: null, startedAt: null };
-const handlers = { eld: null }; // set by the job modules
+const handlers = { eld: null, onboarding: null }; // set by the job modules
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function call(method, params = {}) {
@@ -85,7 +85,7 @@ async function chatOf(c) {
   const r = await q(`INSERT INTO tg_chats (chat_id, title) VALUES ($1, $2) ON CONFLICT (chat_id) DO UPDATE SET title = coalesce($2, tg_chats.title) RETURNING *`, [c.id, c.title || null]);
   return r.rows[0];
 }
-const KINDS = { eld: 'ELD', accounting: 'Accounting', updates: 'Updates', dispatch: 'Dispatch' };
+const KINDS = { onboarding: 'Onboarding', eld: 'ELD', accounting: 'Accounting', updates: 'Updates', dispatch: 'Dispatch' };
 async function link(m, code, who) {
   const L = (await q(`SELECT l.*, d.name FROM tg_links l JOIN drivers d ON d.id = l.driver_id WHERE l.code = $1 AND l.used_at IS NULL AND l.created_at > now() - interval '7 days'`, [code])).rows[0];
   if (!L) return send(m.chat.id, 'That link code is not valid (or already used). Make a new one on the driver\'s page on the website.', { replyTo: m.message_id });
@@ -94,11 +94,11 @@ async function link(m, code, who) {
   await q(`UPDATE tg_chats SET kind = $2, driver_id = $3, linked_by = $4, linked_at = now(), active = true WHERE chat_id = $1`, [m.chat.id, L.kind, L.driver_id, L.user_id]);
   await q(`UPDATE tg_links SET used_at = now() WHERE code = $1`, [code]);
   await q(`UPDATE tg_people SET role = coalesce(role, 'staff'), user_id = coalesce(user_id, $2) WHERE tg_id = $1`, [who.tg_id, L.user_id]);
-  const step = { eld: 'eld_group', accounting: 'acct_group' }[L.kind];
+  const step = { eld: 'eld_group', accounting: 'acct_group', onboarding: 'telegram' }[L.kind];
   if (step) await q(`UPDATE checklist SET done = true, done_at = coalesce(done_at, now()), done_by = coalesce(done_by, $3) WHERE driver_id = $1 AND key = $2 AND NOT done`, [L.driver_id, step, L.user_id]);
   await q(`UPDATE drivers SET updated_at = now() WHERE id = $1`, [L.driver_id]);
   await send(m.chat.id, `✅ This is now the <b>${KINDS[L.kind]}</b> group for <b>${esc(L.name)}</b>.${state.me && !(await isAdmin(m.chat.id)) ? '\n\nPlease make me an admin of this group, so I can read every message (Group settings → Administrators → Add admin).' : ''}`);
-  if (L.kind === 'eld' && handlers.eld) await handlers.eld.begin(m.chat.id, L.driver_id);
+  if (handlers[L.kind]) await handlers[L.kind].begin(m.chat.id, L.driver_id);
 }
 async function isAdmin(chatId) {
   try { const cm = await call('getChatMember', { chat_id: chatId, user_id: state.me.id }); const a = cm.status === 'administrator' || cm.status === 'creator'; await q(`UPDATE tg_chats SET bot_admin = $2 WHERE chat_id = $1`, [chatId, a]); return a; } catch (e) { return false; }
@@ -121,7 +121,7 @@ async function handle(u) {
     const chat = cq.message ? (await q(`SELECT * FROM tg_chats WHERE chat_id = $1`, [cq.message.chat.id])).rows[0] : null;
     if (chat && who) await q(`INSERT INTO tg_members (chat_id, tg_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [chat.chat_id, who.tg_id]);
     let answer = '';
-    try { if (chat && chat.kind === 'eld' && handlers.eld && /^eld:/.test(cq.data)) answer = (await handlers.eld.onButton(chat, cq, who)) || ''; }
+    try { const job = chat && handlers[chat.kind]; if (job && cq.data.startsWith((chat.kind === 'onboarding' ? 'onb' : chat.kind) + ':')) answer = (await job.onButton(chat, cq, who)) || ''; }
     catch (e) { console.error('tg button', e.message); answer = 'Something went wrong. Try again.'; }
     await call('answerCallbackQuery', { callback_query_id: cq.id, text: answer.slice(0, 190) }).catch(() => {});
     return;
@@ -132,7 +132,9 @@ async function handle(u) {
     return;
   }
   if (m.chat.type === 'private') {
-    if (/^\/start/.test(m.text || '')) await send(m.chat.id, 'Hi! I work in the driver groups. Add me to a group and send the link code from the website there.');
+    // kept, so the Chrome extension (same bot) can read your replies to its alerts through the website
+    if (m.text) await saveMessage(m);
+    if (/^\/start/.test(m.text || '')) await send(m.chat.id, 'Hi! I work in the driver groups. Add me to a group and send the link code from the website there. Alerts from the Indeed extension also come here.');
     return;
   }
   const chat = await chatOf(m.chat); const who = m.from && !m.from.is_bot ? await person(m.from) : null;
@@ -144,10 +146,10 @@ async function handle(u) {
   const cmd = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || '');
   if (cmd && cmd[1] === 'link') return link(m, cmd[2].trim(), who);
   if (cmd && (cmd[1] === 'status' || cmd[1] === 'help')) {
-    if (chat.kind === 'eld' && handlers.eld) return handlers.eld.status(chat);
+    if (handlers[chat.kind]) return handlers[chat.kind].status(chat);
     return send(chat.chat_id, chat.kind ? `This is the ${KINDS[chat.kind]} group.` : 'This group is not linked to a driver yet. Send the link code from the driver\'s page on the website, like /link 482913.');
   }
-  if (chat.kind === 'eld' && handlers.eld && who && !u.edited_message) await handlers.eld.onMessage(chat, m, who);
+  if (handlers[chat.kind] && who && !u.edited_message) await handlers[chat.kind].onMessage(chat, m, who);
 }
 
 // ---------- running ----------

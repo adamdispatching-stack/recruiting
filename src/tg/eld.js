@@ -240,7 +240,7 @@ const minOf = (hm) => +hm.slice(0, 2) * 60 + +hm.slice(3);
 async function tick() {
   if (!bot.state.me) return;
   const t = db.settings.tg; const L = local(db.settings.tz);
-  const quiet = L.min < 7 * 60 || L.min >= 22 * 60; // no reminders at night
+  const quiet = !process.env.TG_NO_QUIET && (L.min < 7 * 60 || L.min >= 22 * 60); // no reminders at night (TG_NO_QUIET: tests only)
   // setup waiting on someone
   const open = (await q(`SELECT c.*, d.name, d.owner_id, d.status FROM eld_cases c JOIN drivers d ON d.id = c.driver_id JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active
     WHERE c.setup_done_at IS NULL AND c.stopped_at IS NULL AND c.wait IS NOT NULL`)).rows;

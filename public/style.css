@@ -1414,3 +1414,19 @@ kbd{padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-
 @media (max-width:1000px){ .tgcols{grid-template-columns:minmax(0,1fr)} }
 .tgt th[scope=row]{text-align:left}
 .tgform .tgsave{grid-column:1 / -1}
+.tgk.k-onboarding{background:var(--yellow-t);color:var(--yellow-ink)}
+.tgqs{border-left:4px solid var(--yellow);margin-bottom:16px}
+.tgq{display:block}
+.tgqf{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-top:6px}
+.tgqf textarea{width:100%}
+.tgkadd{margin-bottom:12px}
+.tgkadd summary{cursor:pointer}
+.tgkf{display:grid;gap:10px;margin-top:10px}
+.tgkf textarea,.tgkf input{width:100%}
+.tgk-list{margin:0;padding:0;list-style:none;display:grid;gap:10px}
+.tgk-list li{padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.tgk-list li.off{opacity:.55}
+.tgk-list .kq,.tgk-list .ka{margin-bottom:3px;line-height:1.45}
+.tgreps>li{display:flex;gap:12px;align-items:flex-start}
+.tgreps ul{margin:4px 0 0;padding-left:18px}
+.linkbtn.danger{color:var(--red)}

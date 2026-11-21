@@ -36,4 +36,41 @@ async function summarize({ kind, driver, lines }) {
   const system = `You read the ${kind} Telegram group of a trucking company for one driver (${driver || 'unknown driver'}) and write the day's summary for the managers. Be short and concrete. Never include passwords, login details, license or account numbers.`;
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: lines.join('\n').slice(-60000) }], tool: SUM_TOOL, maxTokens: 900 });
 }
-module.exports = { on, docKind, summarize };
+// Onboarding: a screenshot or report the driver sent
+const ONB_TOOL = { name: 'onboarding_doc', description: 'What this picture or PDF from a new driver shows.', input_schema: { type: 'object', properties: {
+  kind: { type: 'string', enum: ['relay_screen', 'background_report', 'mvr', 'psp', 'drug_test', 'clearinghouse', 'cdl', 'medical_card', 'other'],
+    description: 'relay_screen = Amazon Relay app, website or email about the Relay account or approval; background_report = a background check (for example from Accurate); mvr = motor vehicle record; psp = FMCSA Pre-employment Screening Program report; drug_test = drug test result; clearinghouse = FMCSA Drug and Alcohol Clearinghouse; cdl = driver license; medical_card = DOT medical card' },
+  relay_stage: { type: 'string', enum: ['invite_email', 'account_created', 'profile_incomplete', 'background_check_pending', 'approved', 'not_approved', 'unknown'], description: 'Only for relay_screen: where the driver is with Amazon Relay.' },
+  result: { type: 'string', enum: ['clear', 'issues', 'pending', 'unknown'], description: 'For reports and tests: clear = nothing against the driver; issues = something to review; pending = not finished.' },
+  findings: { type: 'array', items: { type: 'string' }, description: 'For reports: what a hiring manager must know (for example "1 speeding ticket, 2024", "no accidents", "license valid"). NO names, numbers, addresses, dates of birth or IDs.' },
+  expires: { type: 'string', description: 'Only for cdl or medical_card: the expiry date as YYYY-MM-DD, or empty.' },
+  note: { type: 'string', description: 'A few words on what it is, without personal details.' } }, required: ['kind', 'note'] } };
+async function onbDoc(buf, mime) {
+  const block = mime === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } }
+    : { type: 'image', source: { type: 'base64', media_type: /png/.test(mime) ? 'image/png' : /webp/.test(mime) ? 'image/webp' : 'image/jpeg', data: buf.toString('base64') } };
+  return ask({ model: MODEL(), system: 'You help a trucking company onboard a new driver. You read what the driver sent and report only what matters for hiring. Never repeat any personal detail: no names, SSN, license or ID numbers, dates of birth, addresses.', content: [block, { type: 'text', text: 'What is this?' }], tool: ONB_TOOL, maxTokens: 500 });
+}
+// Onboarding: a message from the driver. Answer it if the facts cover it; otherwise say so.
+const REPLY_TOOL = { name: 'reply_plan', description: 'How to handle the driver\'s message.', input_schema: { type: 'object', properties: {
+  is_question: { type: 'boolean', description: 'The driver asks the company something or needs an answer.' },
+  confident: { type: 'boolean', description: 'True only if the facts and knowledge below fully answer it.' },
+  answer: { type: 'string', description: 'The answer to send, 1 to 3 short friendly sentences, plain English. Empty when not confident.' },
+  progress: { type: 'string', enum: ['none', 'account_created', 'profile_done', 'background_submitted'], description: 'If the driver says they did an Amazon Relay step.' },
+  mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry'] } }, required: ['is_question', 'confident', 'answer', 'progress', 'mood'] } };
+async function driverReply({ facts, knowledge, context, recent, text }) {
+  const system = `You are the onboarding assistant of a US trucking company, in a Telegram group with a new driver and the recruiters.
+Answer the driver only from the facts and knowledge below. If they do not fully answer the question, or it needs a person's decision (exceptions, pay advances, dates, personal matters, complaints), set confident=false and leave answer empty: a recruiter will answer.
+Never ask for or repeat SSN, license numbers, dates of birth or bank details; tell the driver to enter those only on Amazon's or Accurate's own website.
+Keep answers short, warm and simple. Do not promise anything that is not in the facts.
+
+COMPANY FACTS:
+${facts.map((f) => '- ' + f).join('\n')}
+
+KNOWLEDGE (questions the team answered before):
+${knowledge.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n') || '(none yet)'}
+
+THIS DRIVER:
+${context}`;
+  return ask({ model: MODEL(), system, content: [{ type: 'text', text: `Recent messages:\n${recent.join('\n')}\n\nThe driver's new message:\n${text}` }], tool: REPLY_TOOL, maxTokens: 500 });
+}
+module.exports = { on, docKind, summarize, onbDoc, driverReply };

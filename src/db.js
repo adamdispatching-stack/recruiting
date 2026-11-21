@@ -295,6 +295,26 @@ async function migrate() {
       asked_at TIMESTAMPTZ NOT NULL DEFAULT now(), msg_id BIGINT, reminded INT NOT NULL DEFAULT 0, escalated_at TIMESTAMPTZ,
       answer TEXT, problem TEXT, answered_by TEXT, answered_at TIMESTAMPTZ, fixed_at TIMESTAMPTZ, UNIQUE (driver_id, slot)
     );
+    -- Onboarding group: the bot follows the Amazon Relay steps with the driver, reads reports, answers questions
+    CREATE TABLE IF NOT EXISTS onb_cases (
+      driver_id INT PRIMARY KEY REFERENCES drivers(id) ON DELETE CASCADE, chat_id BIGINT, last_amazon TEXT, nudge JSONB, sent JSONB NOT NULL DEFAULT '{}',
+      card_msg_id BIGINT, started_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    -- background reports and screenshots the bot read (only the result and findings, never personal details)
+    CREATE TABLE IF NOT EXISTS tg_reports (
+      id SERIAL PRIMARY KEY, driver_id INT REFERENCES drivers(id) ON DELETE CASCADE, chat_id BIGINT, msg_id BIGINT, kind TEXT, result TEXT,
+      findings JSONB, note TEXT, from_name TEXT, at TIMESTAMPTZ NOT NULL DEFAULT now(), review TEXT, reviewed_by TEXT, reviewed_at TIMESTAMPTZ
+    );
+    -- questions from drivers the bot could not answer, until someone does
+    CREATE TABLE IF NOT EXISTS tg_questions (
+      id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INT REFERENCES drivers(id) ON DELETE CASCADE, msg_id BIGINT, bot_msg_id BIGINT,
+      text TEXT NOT NULL, asked_at TIMESTAMPTZ NOT NULL DEFAULT now(), answer TEXT, answered_by TEXT, answered_at TIMESTAMPTZ
+    );
+    -- what the bot knows, beyond the company facts: added on the website or learned from the team's answers
+    CREATE TABLE IF NOT EXISTS tg_knowledge (
+      id SERIAL PRIMARY KEY, question TEXT NOT NULL, answer TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'added', added_by TEXT,
+      chat_id BIGINT, uses INT NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS tg_summaries (
       id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, day DATE NOT NULL, summary TEXT, issues JSONB, mood TEXT, messages INT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (chat_id, day)
@@ -679,7 +699,14 @@ async function syncAuto(c, driverId, userId) {
   const az = (await c.query(`SELECT amazon_step FROM drivers WHERE id = $1`, [driverId])).rows[0];
   if (az && az.amazon_step) { const v = az.amazon_step === 'verified';
     await c.query(`UPDATE checklist SET done = $2, done_at = CASE WHEN $2 THEN now() END, done_by = CASE WHEN $2 THEN $3::int END WHERE driver_id = $1 AND (auto = 'amazon' OR key = 'relay') AND done <> $2`, [driverId, v, userId || null]); }
-  if (o.telegram_link) await c.query(`UPDATE checklist SET done = TRUE, done_at = now(), done_by = $2::int WHERE driver_id = $1 AND auto = 'telegram' AND NOT done`, [driverId, userId || null]);
+  const groups = new Set((await c.query(`SELECT kind FROM tg_chats WHERE driver_id = $1 AND active AND kind IS NOT NULL`, [driverId])).rows.map((r) => r.kind));
+  if (o.telegram_link || groups.has('onboarding')) await c.query(`UPDATE checklist SET done = TRUE, done_at = now(), done_by = $2::int WHERE driver_id = $1 AND (auto = 'telegram' OR key = 'telegram') AND NOT done`, [driverId, userId || null]);
+  // Telegram groups linked with the bot, maybe before onboarding started: their steps tick too
+  const tick = async (key) => c.query(`UPDATE checklist SET done = TRUE, done_at = now() WHERE driver_id = $1 AND key = $2 AND NOT done`, [driverId, key]);
+  if (groups.has('eld')) await tick('eld_group');
+  if (groups.has('accounting')) await tick('acct_group');
+  if ((await c.query(`SELECT 1 FROM eld_cases WHERE driver_id = $1 AND setup_done_at IS NOT NULL`, [driverId])).rows[0]) await tick('eld_profile');
+  if ((await c.query(`SELECT 1 FROM tg_reports WHERE driver_id = $1 AND kind = 'mvr' AND review = 'ok'`, [driverId])).rows[0]) await tick('mvr');
 }
 async function releaseTruck(c, driverId) {
   const r = await c.query(`UPDATE trucks SET driver_id = NULL, updated_at = now() WHERE driver_id = $1 RETURNING unit`, [driverId]);
