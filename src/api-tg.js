@@ -123,7 +123,9 @@ module.exports = (app) => {
       tz: D.TZS[s.tz] ? s.tz : db.settings.tz, people: [...new Set((s.people || []).map(Number).filter(Boolean))],
       groups: D.groupsOf(s).filter((g) => /^-?\d+$/.test(String(g.chatId || ''))).slice(0, 6).map((g) => ({ chatId: String(g.chatId), companies: [...new Set((g.companies || []).map(Number).filter(Boolean))] })) }));
     if (shifts.some((s) => !hm(s.start) || !hm(s.end))) return res.status(400).json({ error: 'Write the shift times like 06:00 and 14:00' });
-    const v = { on: b.on === undefined ? cur.on : !!b.on, where: ['group', 'shift'].includes(b.where) ? b.where : 'private', answerMin: Math.max(5, Math.min(120, Math.round(+b.answerMin || cur.answerMin))), shifts };
+    const hubs = Array.isArray(b.hubs) ? [...new Set(b.hubs.map((h) => String(h).trim().slice(0, 40)).filter(Boolean))].slice(0, 10) : cur.hubs;
+    const R = { ...(cur.routines || {}), ...(b.routines || {}) }; const routines = { board: R.board !== false, boardMin: Math.max(10, Math.min(240, Math.round(+R.boardMin || 45))), notes: R.notes !== false, notesMin: Math.max(10, Math.min(180, Math.round(+R.notesMin || 45))) };
+    const v = { ...cur, hubs, routines, on: b.on === undefined ? cur.on : !!b.on, where: ['group', 'shift'].includes(b.where) ? b.where : 'private', answerMin: Math.max(5, Math.min(120, Math.round(+b.answerMin || cur.answerMin))), shifts };
     await db.saveSetting('tg', { ...db.settings.tg, desk: v });
     // the shift groups: marked as such (not a driver's group); a group no longer used for a shift is let go
     const ids = [...new Set(shifts.flatMap((s) => s.groups.map((g) => g.chatId)))];
@@ -132,6 +134,32 @@ module.exports = (app) => {
     for (const id of ids) await q(`UPDATE tg_waiting SET done_at = now() WHERE chat_id = $1 AND done_at IS NULL`, [id]).catch(() => {});
     res.json({ ok: true, desk: v });
   }));
+  // the shift routines: today's booking lists, the update notes of each shift, the words our team uses
+  app.get('/api/tg/routines', needUser, needAdmin, wrap(async (req, res) => {
+    const R = require('./tg/routines'); const D = require('./tg/desk');
+    const shifts = [];
+    for (const s of D.cfg().shifts) {
+      const st = await R.notesStatus(s);
+      shifts.push({ name: s.name, start: st.window.start, end: st.window.end, drivers: await Promise.all(st.drivers.map(async (d) => ({ ...d, suggest: d.note ? null : await R.suggestNote(d.id, s.name) }))) });
+    }
+    res.json({ boards: await R.boards(), shifts, now: ((await D.shiftNow()) || {}).name || null, terms: (await q(`SELECT id, term, meaning, active, source FROM tg_terms ORDER BY id`)).rows });
+  }));
+  app.post('/api/tg/notes/:driverId', needUser, wrap(async (req, res) => {
+    const d = (await q(`SELECT d.id, d.name, c.chat_id FROM drivers d JOIN tg_chats c ON c.driver_id = d.id AND c.kind = 'dispatch' AND c.active WHERE d.id = $1 ORDER BY c.last_at DESC NULLS LAST LIMIT 1`, [+req.params.driverId || 0])).rows[0];
+    if (!d) return res.status(404).json({ error: 'No dispatch group for this driver' });
+    const text = String((req.body || {}).text || '').trim().slice(0, 1500); if (!text) return res.status(400).json({ error: 'Write the note first' });
+    try { await bot.send(d.chat_id, `${bot.esc(text)}\n<i>(${bot.esc(req.user.name)})</i>`); } catch (e) { return res.status(502).json({ error: 'Telegram did not take it: ' + e.message }); }
+    await require('./tg/routines').noteFromGroup({ chat_id: d.chat_id, driver_id: d.id }, req.user.name);
+    await bot.log('reply', `${req.user.name} posted the shift update note`, { chatId: d.chat_id, driverId: d.id, who: req.user.name });
+    res.json({ ok: true });
+  }));
+  app.post('/api/tg/terms', needUser, needAdmin, wrap(async (req, res) => {
+    const term = String((req.body || {}).term || '').trim().slice(0, 60), meaning = String((req.body || {}).meaning || '').trim().slice(0, 400);
+    if (!term || !meaning) return res.status(400).json({ error: 'Write the words and what they mean' });
+    await q(`INSERT INTO tg_terms (term, meaning) VALUES ($1, $2) ON CONFLICT (lower(term)) DO UPDATE SET meaning = EXCLUDED.meaning, active = true`, [term, meaning]);
+    res.json({ ok: true });
+  }));
+  app.delete('/api/tg/terms/:id', needUser, needAdmin, wrap(async (req, res) => { await q(`DELETE FROM tg_terms WHERE id = $1`, [+req.params.id || 0]); res.json({ ok: true }); }));
   // every group the bot is in, connected or not, with a guess from the title for the ones not connected (admins: All groups tab)
   app.get('/api/tg/all-groups', needUser, needAdmin, wrap(async (req, res) => {
     const rows = (await q(`SELECT c.chat_id::text chat_id, c.title, c.kind, c.driver_id, d.name driver, d.status driver_status, c.member_count, c.bot_admin, c.active, c.mode, c.linked_at, c.last_at, u.name linked_by,

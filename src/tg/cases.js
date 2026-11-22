@@ -204,5 +204,5 @@ async function tick() {
     if (Date.now() - new Date(c.last_at || c.opened_at) > 72 * 3600e3) await q(`UPDATE tg_cases SET status = 'stale', closed_at = now() WHERE id = $1`, [c.id]);
   }
 }
-function start() { seed().catch((e) => console.error('playbook seed', e.message)); setInterval(() => { tick().catch((e) => console.error('case tick', e.message)); require('../hometime').tick().catch((e) => console.error('home time tick', e.message)); require('./desk').tick().catch((e) => console.error('desk tick', e.message)); }, +process.env.TG_CASE_MS || 60000); }
+function start() { seed().catch((e) => console.error('playbook seed', e.message)); require('./routines').seed().catch((e) => console.error('terms seed', e.message)); setInterval(() => { tick().catch((e) => console.error('case tick', e.message)); require('../hometime').tick().catch((e) => console.error('home time tick', e.message)); require('./desk').tick().catch((e) => console.error('desk tick', e.message)); require('./routines').tick().catch((e) => console.error('routines tick', e.message)); }, +process.env.TG_CASE_MS || 60000); }
 module.exports = { STARTERS, seed, list, forAi, openFor, apply, tick, start, nextStep };

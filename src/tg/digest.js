@@ -66,7 +66,8 @@ async function digestChat(chatId) {
   const orOpen = chat.kind === 'dispatch' ? await require('../orientation').openFor(chat.driver_id) : [];
   const orientation = orOpen.length ? `ORIENTATION DAY steps still open (key: step): ${orOpen.map((x) => `${x.key}: ${x.label}`).join('; ')}\n` : '';
   const today = working ? (await q(`SELECT to_char(now() AT TIME ZONE $1, 'Dy YYYY-MM-DD') t`, [db.settings.tz])).rows[0].t : '';
-  try { r = await ai.digest({ today, orientation, playbook, cases, promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
+  const words = await require('./routines').forAi();
+  try { r = await ai.digest({ words, today, orientation, playbook, cases, promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
   catch (e) { console.error('tg digest', e.message); if (e.kind === 'bad' && (badTries[chatId + ':' + fresh[0].id] = (badTries[chatId + ':' + fresh[0].id] || 0) + 1) >= 3) await done(); return null; } // a bad batch is skipped; key, credit, network or busy: the messages wait and are read later
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
@@ -148,6 +149,8 @@ async function digestChat(chatId) {
     await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', $5, $3, $4, false, true)`, [qn, an, chatId, chat.kind === 'accounting' ? 'accounting' : 'general', "AI, from the team's replies"]);
     out.learned = (out.learned || 0) + 1;
   }
+  // an update note for the next shift
+  if (working && r.shift_note && !imported) await require('./routines').noteFromGroup({ ...chat, chat_id: chatId }, r.shift_note.by).catch((e) => console.error('shift note', e.message));
   // the shift desk: confirm with the dispatcher on shift (privately)
   if (working && (r.desk_asks || []).length && !quiet) await require('./desk').fromGroup({ ...chat, chat_id: chatId }, r.desk_asks).catch((e) => console.error('desk', e.message));
   // signs he may leave

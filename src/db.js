@@ -388,6 +388,13 @@ async function migrate() {
     ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS place_id INTEGER;
     ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS city TEXT;
     ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS state TEXT;
+    -- the words our team uses (for the AI); the booking lists the shifts post; update notes in the driver groups; routines done once a shift
+    CREATE TABLE IF NOT EXISTS tg_terms (id SERIAL PRIMARY KEY, term TEXT NOT NULL, meaning TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT true, source TEXT NOT NULL DEFAULT 'team', created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE UNIQUE INDEX IF NOT EXISTS tg_terms_term ON tg_terms (lower(term));
+    CREATE TABLE IF NOT EXISTS tg_boards (id SERIAL PRIMARY KEY, chat_id BIGINT, shift TEXT, posted_by TEXT, at TIMESTAMPTZ NOT NULL DEFAULT now(), items JSONB NOT NULL);
+    CREATE TABLE IF NOT EXISTS tg_shift_notes (id SERIAL PRIMARY KEY, chat_id BIGINT, driver_id INTEGER, by_name TEXT, at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE INDEX IF NOT EXISTS tg_shift_notes_driver ON tg_shift_notes(driver_id, at DESC);
+    CREATE TABLE IF NOT EXISTS tg_routine (id SERIAL PRIMARY KEY, shift TEXT NOT NULL, day DATE NOT NULL, kind TEXT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (shift, day, kind));
     -- the shift desk: what the bot asked the dispatchers on shift (privately) and what they answered
     CREATE TABLE IF NOT EXISTS tg_checks (id SERIAL PRIMARY KEY, chat_id BIGINT, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, kind TEXT NOT NULL, quote TEXT, until_at TIMESTAMPTZ, until_text TEXT, place TEXT, ask TEXT,
       state TEXT NOT NULL DEFAULT 'open', asked_at TIMESTAMPTZ, asked_n INTEGER NOT NULL DEFAULT 0, answered_at TIMESTAMPTZ, answered_by TEXT, answer TEXT, escalated INTEGER NOT NULL DEFAULT 0, followed_up BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
@@ -736,7 +743,7 @@ const DEFAULTS = {
   // onbMode: how the bot starts in a new onboarding group (watch / assist / run); autoTick: the AI ticks onboarding steps itself
   tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, workMode: 'watch', onbMode: 'watch', autoTick: false, readEvery: 25, autoAccounts: true,
     // the shift desk: who is on shift (team time zone), where the bot asks (private chat with the bot, or the group), minutes before asking the others
-    desk: { on: true, where: 'private', answerMin: 15, shifts: [{ name: 'Day', start: '06:00', end: '14:00', people: [] }, { name: 'Evening', start: '14:00', end: '22:00', people: [] }, { name: 'Night', start: '22:00', end: '06:00', people: [] }] } },
+    desk: { on: true, where: 'private', answerMin: 15, hubs: ['Chambersburg', 'Baltimore', 'Hazleton', 'Kearny'], routines: { board: true, boardMin: 45, notes: true, notesMin: 45 }, shifts: [{ name: 'Day', start: '06:00', end: '14:00', people: [] }, { name: 'Evening', start: '14:00', end: '22:00', people: [] }, { name: 'Night', start: '22:00', end: '06:00', people: [] }] } },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },

@@ -83,6 +83,8 @@ http.createServer((req, res) => {
       }
       // shops, home time, leaving signs, the orientation day
       const places = [], leaving_signs = [], orientation_done = [], desk_asks = []; let home_time;
+      if (working) AI.words = /didn't catch/.test(j.system);
+      const shift_note = working && /Update for next shift/.test(fresh) ? { by: 'Dan Dispatch' } : undefined;
       if (working && /wake up at 10:30/.test(fresh)) desk_asks.push({ kind: 'rest', until: '10:30', quote: 'I will wake up at 10:30' });
       if (working && /I am empty in Harrisburg/.test(fresh)) desk_asks.push({ kind: 'needs_load', place: 'Harrisburg, PA', quote: 'I am empty, need a load' });
       if (working) {
@@ -96,7 +98,7 @@ http.createServer((req, res) => {
         if (/ELD works, I am logged in/.test(fresh) && /or_eld:/.test(j.system)) orientation_done.push('or_eld');
       }
       AI.working = (AI.working || 0) + (working ? 1 : 0);
-      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], desk_asks, places, leaving_signs, orientation_done, ...(home_time ? { home_time } : {}), cases_opened, case_updates, people, load_updates, dispatch_lessons, promises, promise_results } }] }));
+      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], ...(shift_note ? { shift_note } : {}), desk_asks, places, leaving_signs, orientation_done, ...(home_time ? { home_time } : {}), cases_opened, case_updates, people, load_updates, dispatch_lessons, promises, promise_results } }] }));
     }
     if (tool === 'dispatcher_profile') { AI.disp = (AI.disp || 0) + 1; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { summary: 'Short, clear messages.', tone: 'friendly', clarity: 'clear', professionalism: 'high', update_habits: ['Asks for the BOL photo once loaded'], phrases: ['Send me the BOL once loaded'], strengths: ['Answers fast'], improve: ['Ask for the ETA earlier'],
       scores: [{ area: 'speed', score: 4, seen: 'Answers within 20 minutes.', example: 'Send me the ETA please' }, { area: 'driver_care', score: 2, seen: 'Pushed a tired driver.' }],
@@ -640,6 +642,27 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const tk = (await pg.query(`SELECT extract(hour FROM now() AT TIME ZONE 'Asia/Tashkent')::int h`)).rows[0].h; const hh = (x) => String((x + 24) % 24).padStart(2, '0') + ':00';
   ok((await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ name: 'Tashkent day', start: hh(tk), end: hh(tk + 1), tz: 'Asia/Tashkent', people: [danU.id], groups: [] }] } })).ok
     && (await web('/api/tg/desk')).now === 'Tashkent day', 'a shift set in Tashkent time is on shift now by Tashkent hours');
+  await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ ...sh0, groups: [] }] } });
+
+  // ---------- shift routines: the words, the booking list, the update notes ----------
+  const rt0 = await web('/api/tg/routines');
+  ok(rt0.terms.some((t) => t.term === "didn't catch" && /could not book/.test(t.meaning)) && AI.words, 'the words our team uses ("didn\'t catch", "post truck"...) go to the AI with its instructions');
+  const nyNow = (await pg.query(`SELECT extract(hour FROM now() AT TIME ZONE 'America/New_York')::int * 60 + extract(minute FROM now() AT TIME ZONE 'America/New_York')::int m`)).rows[0].m;
+  const hm2 = (m) => { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+  ok((await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, routines: { board: true, boardMin: 45, notes: true, notesMin: 45 },
+    shifts: [{ name: 'Test shift', start: hm2(nyNow - 50), end: hm2(nyNow + 30), tz: 'America/New_York', people: [danU.id], groups: [] }] } })).ok, 'a shift that started 50 min ago and ends in 30');
+  dn = tg.sent.length;
+  ok(await until(() => sentSince(dn).some((m) => String(m.chat_id) === String(DAN.id) && /please post the booking list/.test(m.text) && /Chambersburg/.test(m.text)), 40000), 'no booking list yet: the shift is reminded, with the locations');
+  ok(await until(() => sentSince(dn).some((m) => String(m.chat_id) === String(DAN.id) && /shift ends soon/.test(m.text) && /Hank Hired/.test(m.text)), 40000), '30 min before the end: the groups still without an update note (Hank)');
+  push({ message: { message_id: mid++, from: DAN, chat: { id: DAN.id, type: 'private' }, date: Math.floor(Date.now() / 1000), text: 'Chambersburg:\nHank Hired\nBaltimore: Dora*\nHazleton\nKearney: none' } });
+  const bd = await until(async () => ((await web('/api/tg/routines')).boards || {}).latest, 15000);
+  ok(bd && bd.items.some((x) => x.hub === 'Chambersburg' && x.driverId === hank && !x.star) && bd.items.some((x) => x.hub === 'Baltimore' && x.star) && bd.posted_by === 'Dan Dispatch', 'the booking list is read: Hank ready in Chambersburg, Dora* finishing near Baltimore');
+  say(DAN, 'Update for next shift: Hank rolling to Newark, ETA 6 PM, next load not booked yet', HCHAT);
+  ok(await until(async () => ((((await web('/api/tg/routines')).shifts || [])[0] || { drivers: [] }).drivers.find((d) => d.id === hank) || {}).note, 15000), 'Dan writes the update note in Hank\'s group: seen');
+  dn = tg.sent.length; ok((await web('/api/tg/notes/' + hank, { method: 'POST', body: { text: '📝 Test shift update\nNow: rolling' } })).ok && sentSince(dn).some((m) => String(m.chat_id) === String(HCHAT.id) && /Test shift update/.test(m.text)), 'a suggested note posted in his group from the website');
+  await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ name: 'Late shift', start: hm2(nyNow - 120), end: hm2(nyNow - 10), tz: 'America/New_York', people: [danU.id], groups: [] }] } });
+  dn = tg.sent.length;
+  ok(await until(() => sentSince(dn).some((m) => String(m.chat_id) === String(DAN.id) && /Late shift shift notes: \d+ of \d+ groups/.test(m.text)), 40000), 'after the shift: who has an update note');
   await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ ...sh0, groups: [] }] } });
 
   // ---------- the contract and the Clearinghouse ----------

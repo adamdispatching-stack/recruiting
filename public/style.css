@@ -1809,3 +1809,7 @@ table.active.compact tbody th{text-align:left;background:inherit}
 .okt{color:#1E6B3A;font-weight:600}.cwarn{color:#8A6100;font-weight:600}.cbad{color:#A3261B;font-weight:600}
 .sgroups{margin:8px 0 4px;display:flex;flex-direction:column;gap:6px}.sgrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#F7F5EF;border-radius:8px;padding:6px 8px}
 .sgrow select{font:inherit;padding:5px 8px;border:1px solid #D8D3C8;border-radius:6px;max-width:280px}.sgrow .cos{display:flex;gap:6px;flex-wrap:wrap}
+.hubs{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}.hub h4{margin:4px 0;border-bottom:2px solid #1F6F43;padding-bottom:3px}.hub ul{list-style:none;padding:0;margin:0}.hub li{padding:3px 0}.hub .star{color:#B7791F}
+.notes{list-style:none;padding:0}.notes li{padding:8px 0;border-top:1px solid #F0ECE4}.notes textarea{width:100%;font:inherit;font-size:13px;padding:6px;border:1px solid #D8D3C8;border-radius:6px;margin-top:4px}
+.terms td{vertical-align:top;padding:5px 8px 5px 0}
+#termForm .fld input{width:100%}

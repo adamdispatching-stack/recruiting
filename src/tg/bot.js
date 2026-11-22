@@ -442,6 +442,7 @@ async function handle(u) {
     if ((pc && pc[1] === 'onboard') || /^\s*onboard(ing)?\s*$/i.test(m.text || '')) return require('./team').onboardCmd(m.chat.id, me);
     if ((pc && pc[1] === 'empty') || /^\s*empty( trucks)?\s*$/i.test(m.text || '')) return emptyCmd(m.chat.id, me);
     if (pc && pc[1] === 'help') return send(m.chat.id, helpText(false));
+    if (me && isStaff(me) && await require('./routines').fromMessage(null, m, me)) return; // a booking list sent to the bot
     if (me && isStaff(me) && await require('./desk').privateText(m, me)) return; // an answer to the shift desk (a load option and why...)
     if (/^\/start/.test(m.text || '')) await send(m.chat.id, 'Hi! I work in the driver groups. Add me to a group and send the link code from the website there. Alerts from the Indeed extension also come here.');
     return;
@@ -456,6 +457,7 @@ async function handle(u) {
   if (who && m.reply_to_message && m.reply_to_message.from && state.me && m.reply_to_message.from.id === state.me.id && !u.edited_message)
     await log('reply', `Replied to the bot ("${clip(m.reply_to_message.text, 50)}"): ${clip(redact(m.text || m.caption || '[' + (m.photo ? 'photo' : 'file') + ']').replace(/\d{4,}/g, '••••'), 90)}`, { chatId: chat.chat_id, who });
   const cmd = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || '');
+  if ((chat.kind === 'shift' || chat.kind === 'management') && who && isStaff(who) && !cmd && await require('./routines').fromMessage(chat, m, who)) return; // a booking list
   if (chat.kind === 'shift' && who && isStaff(who) && !cmd) { await require('./desk').privateText(m, who); return; } // a shift group: only answers to the bot's questions
   if ((cmd && cmd[1] === 'oil') || (chat.kind === 'management' && /^\s*oil( change| changes)?\s*$/i.test(m.text || ''))) {
     if (!isStaff(who)) return;

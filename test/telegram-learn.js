@@ -155,7 +155,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await sleep(300);
   n = tg.sent.length; say(OLGA, 'Is payday on Friday?');
   ok(await until(() => sentSince(n).some((m) => /Every Friday, by direct deposit/.test(m.text))), 'answering: the bot answers the driver');
-  ok((await web('/api/tg/readiness')).questions.byBot === 1, 'counted as answered by the bot');
+  ok(await until(async () => (await web('/api/tg/readiness')).questions.byBot === 1), 'counted as answered by the bot');
   // run: the full welcome goes out
   n = tg.sent.length;
   await web(`/api/drivers/${olga}/tg-mode`, { method: 'PATCH', body: { mode: 'run' } });
