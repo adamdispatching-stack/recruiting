@@ -73,7 +73,11 @@ http.createServer((req, res) => {
       AI.working = (AI.working || 0) + (working ? 1 : 0);
       res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], people, load_updates, dispatch_lessons, promises, promise_results } }] }));
     }
-    if (tool === 'dispatcher_profile') { AI.disp = (AI.disp || 0) + 1; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { summary: 'Short, clear messages.', tone: 'friendly', clarity: 'clear', professionalism: 'high', update_habits: ['Asks for the BOL photo once loaded'], phrases: ['Send me the BOL once loaded'], strengths: ['Answers fast'], improve: ['Ask for the ETA earlier'] } }] })); }
+    if (tool === 'dispatcher_profile') { AI.disp = (AI.disp || 0) + 1; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { summary: 'Short, clear messages.', tone: 'friendly', clarity: 'clear', professionalism: 'high', update_habits: ['Asks for the BOL photo once loaded'], phrases: ['Send me the BOL once loaded'], strengths: ['Answers fast'], improve: ['Ask for the ETA earlier'],
+      scores: [{ area: 'speed', score: 4, seen: 'Answers within 20 minutes.', example: 'Send me the ETA please' }, { area: 'driver_care', score: 2, seen: 'Pushed a tired driver.' }],
+      issues: [{ situation: 'Driver late to the receiver', what_he_did: 'Asked for a new ETA', verdict: 'ok', better_way: 'Call the receiver first' }], thinking: 'Reacts more than he plans.', drivers_view: 'Drivers trust him.',
+      red_flags: AI.disp > 1 ? ['Told a driver to keep driving past his hours'] : [], feedback: { praise_first: 'You answer fast.', main_point: 'Ask for the ETA before the driver is late.', how_to_say_it: 'Dan, you answer fast. Ask for the ETA earlier.', goal: 'ETA asked at every pickup', check_how: 'Look for ETA questions after loaded' },
+      trend: { direction: AI.disp > 1 ? 'better' : 'first', what_changed: '' }, confidence: 'low' } }] })); }
     const input = tool === 'group_digest' ? { truck_events: [], driver_notes: [], alerts: [], learned: [] } : tool === 'reply_plan' ? { is_question: false, confident: false, answer: '', progress: 'none', mood: 'neutral' } : { summary: 'A day.', issues: [], mood: 'good' };
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input }] }));
   });
@@ -303,6 +307,27 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(async () => ((await web('/api/tg/dispatch-readiness')).dispatchers.find((x) => x.name === 'Dan Dispatch') || {}).profile, 15000), 'Dan\'s dispatcher profile is written');
   const dd = (await web('/api/tg/dispatch-readiness')).dispatchers.find((x) => x.name === 'Dan Dispatch');
   ok(dd.profile.tone === 'friendly' && dd.profile.update_habits.length && dd.msgs30 >= 1, 'with tone, how he runs updates, messages');
+  // a dispatcher the bot learned gets a website account (no login yet), the admins are told
+  const danU = await until(async () => (await pg.query(`SELECT u.id, u.email, u.role, u.from_tg FROM tg_people p JOIN users u ON u.id = p.user_id WHERE p.tg_id = $1`, [DAN.id])).rows[0], 15000);
+  ok(danU && danU.role === 'dispatcher' && /@no-login\.fleethire$/.test(danU.email) && +danU.from_tg === DAN.id, 'Dan gets a dispatcher account made by the bot, nobody can sign in with it yet');
+  ok((await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Dan Dispatch writes as a dispatcher%'`)).rows.length >= 1, 'the admins are told to give him a login');
+  ok((await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: danU.email, password: 'whatever-123' }) })).status !== 200, 'no sign in with the made-up email');
+  // his work review
+  const rv = await web('/api/tg/dispatchers/u' + danU.id);
+  ok(rv.profile && rv.profile.feedback.goal && rv.profile.scores.length === 2 && rv.stats.msgs >= 2 && rv.user.noLogin && rv.history.length === 1, 'work review: scores, feedback to give, his numbers, linked account');
+  ok((await web('/api/tg/dispatchers/' + DAN.id + '/review', { method: 'POST' })).ok, 'Review again now');
+  const rv2 = await web('/api/tg/dispatchers/' + DAN.id);
+  ok(rv2.history.length === 2 && rv2.profile.trend.direction === 'better', 'two reviews: the trend shows');
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Dispatcher Dan Dispatch: Told a driver%'`)).rows.length === 1), 'a red flag: the admins are told (once)');
+  // the admin gives him a login; he sees his own coaching with the goal
+  ok((await web('/api/users/' + danU.id, { method: 'PATCH', body: { email: 'dan@example.com', password: 'dan-pass-12345' } })).ok, 'the admin gives Dan an email and password');
+  const dnl = await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'dan@example.com', password: 'dan-pass-12345' }) });
+  const dco = dnl.status === 200 ? await web('/api/me/coaching', { cookie: dnl.headers.get('set-cookie').split(';')[0] }) : {};
+  ok(dco.coaching && dco.coaching.goal === 'ETA asked at every pickup' && dco.coaching.improve.length, 'Dan signs in and sees his own coaching and goal');
+  ok((await web('/api/tg/dispatchers/' + DAN.id, { cookie: dnl.headers.get('set-cookie').split(';')[0] })).status === 403, 'but not the admin review');
+  // someone with an account already: linked by name, no second account
+  await pg.query(`INSERT INTO tg_people (tg_id, name, role) VALUES (64, 'Dee Dispatch', 'dispatch') ON CONFLICT (tg_id) DO UPDATE SET role = 'dispatch', user_id = NULL`);
+  ok(await until(async () => +((await pg.query(`SELECT user_id FROM tg_people WHERE tg_id = 64`)).rows[0] || {}).user_id === disp.id, 15000) && (await pg.query(`SELECT 1 FROM users WHERE from_tg = 64`)).rows.length === 0, 'Dee writes as a dispatcher: linked to her account, none made');
   ok((await web('/api/tg/autopilot', { method: 'PUT', body: { workMode: 'updater' } })).ok && (await web('/api/tg/dispatch-readiness')).settings.workMode === 'updater', 'new working groups can start in Updater');
   const U2 = { id: -100724, type: 'supergroup', title: 'Walt Worker 2' }; tg.counts[U2.id] = 11;
   added(U2, UPD);

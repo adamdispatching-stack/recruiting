@@ -49,6 +49,12 @@ module.exports = (app) => {
       await act(req.user, 'admin', null, b.active ? `Gave ${target.name} access again` : `Removed ${target.name}'s access`);
     }
     if (b.role && ROLE(b.role) !== target.role) { await q(`UPDATE users SET role = $2 WHERE id = $1`, [id, ROLE(b.role)]); await act(req.user, 'admin', null, `Made ${target.name} ${{ admin: 'an admin', member: 'a recruiter', dispatcher: 'a dispatcher' }[ROLE(b.role)]}`); }
+    if (b.email !== undefined && String(b.email).trim().toLowerCase() !== target.email) {
+      const em = String(b.email).trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || em.endsWith(require('./tg/accounts').NOLOGIN)) return res.status(400).json({ error: 'Enter a real email address' });
+      if ((await q(`SELECT 1 FROM users WHERE email = $1 AND id <> $2`, [em, id])).rows[0]) return res.status(400).json({ error: 'Someone already uses this email' });
+      await q(`UPDATE users SET email = $2 WHERE id = $1`, [id, em]); await act(req.user, 'admin', null, `Set ${target.name}'s email to ${em}`);
+    }
     if (b.name !== undefined && String(b.name).trim()) await q(`UPDATE users SET name = $2 WHERE id = $1`, [id, String(b.name).trim().slice(0, 80)]);
     res.json({ ok: true });
   }));

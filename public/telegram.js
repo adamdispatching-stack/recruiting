@@ -129,7 +129,7 @@
         <p class="small mut">Ready when 3 or more groups were watched 14+ days, 10 practices are approved, and it read 90% of 20 or more checked load updates right (check them with ✓ / ✗ on a group's page).</p>
         ${admin ? `<form id="workForm" class="autof"><label class="fld">New working drivers' groups start in<select name="workMode">${[['watch', '👀 Watch and learn'], ['updater', '🚚 Updater']].map(([m, l]) => `<option value="${m}" ${dr.settings.workMode === m ? 'selected' : ''}>${l}</option>`).join('')}</select></label><button class="btn primary sm">Save</button></form>` : ''}
         ${dr.dispatchers.length ? `<h4 class="sub">Dispatchers</h4><div class="dcards">${dr.dispatchers.map((x) => { const p = x.profile || {}; const chip = (v, map) => (v ? `<span class="dchip d-${esc(v)}">${esc(map[v] || v)}</span>` : '');
-          return `<article class="dcard"><header><b>${esc(x.name)}</b><span class="small mut">${plural(x.msgs30, 'message')}, ${plural(x.groups, 'group')}, 30 days${x.reply_min !== null && x.reply_min !== undefined ? ` · answers drivers in ${x.reply_min < 60 ? x.reply_min + ' min' : (x.reply_min / 60).toFixed(1) + ' h'}` : ''}</span></header>
+          return `<article class="dcard"><header><a href="#/dispatcher/${x.tg_id}"><b>${esc(x.name)}</b></a> <a class="small" href="#/dispatcher/${x.tg_id}">Full review →</a><span class="small mut">${plural(x.msgs30, 'message')}, ${plural(x.groups, 'group')}, 30 days${x.reply_min !== null && x.reply_min !== undefined ? ` · answers drivers in ${x.reply_min < 60 ? x.reply_min + ' min' : (x.reply_min / 60).toFixed(1) + ' h'}` : ''}</span></header>
             ${x.profile ? `<div class="dchips">${chip(p.tone, { friendly: 'Friendly', neutral: 'Neutral', firm: 'Firm', harsh: 'Harsh' })}${chip(p.clarity, { clear: 'Clear', mostly_clear: 'Mostly clear', unclear: 'Unclear' })}${chip(p.professionalism, { high: 'Very professional', medium: 'Professional', low: 'Not professional' })}</div>
             <p>${esc(p.summary || '')}</p>${[['How he runs updates', p.update_habits], ['Typical messages', p.phrases], ['Strengths', p.strengths], ['To improve', p.improve]].filter(([, a]) => a && a.length).map(([t, a]) => `<div class="small"><b>${t}</b><ul>${a.map((y) => `<li>${esc(y)}</li>`).join('')}</ul></div>`).join('')}
             <p class="small mut">Written by the AI from the messages, ${esc(when(x.profile_at))}.</p>` : '<p class="small mut">The profile is written once the bot has read 20 or more of this dispatcher\'s messages.</p>'}</article>`; }).join('')}</div>` : '<p class="small mut">No dispatchers known yet: the bot learns who they are from the working groups (or set them under People).</p>'}</section>
@@ -409,6 +409,49 @@
         <div class="dact"><button type="button" class="btn primary" data-act="closeDialog">Done</button></div></div>`);
     } catch (e) { fail(e); }
   });
+  // ---------- one dispatcher's work review (admins) ----------
+  const AREA = { communication: 'Talking to drivers', clarity: 'Clear instructions', speed: 'Answering fast', problem_solving: 'Solving problems', follow_through: 'Doing what he says',
+    updates: 'Running updates', driver_care: 'Caring for the driver', professionalism: 'Professional' };
+  const VERDICT = { good: ['Handled well', 'v-good'], ok: ['OK', 'v-ok'], poor: ['Handled badly', 'v-poor'] };
+  const TREND = { first: 'First review', better: '↑ Better than last time', same: '→ About the same', worse: '↓ Worse than last time' };
+  const dots = (n) => `<span class="sdots" aria-label="${n} of 5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? 'on s' + n : ''}"></i>`).join('')}</span>`;
+  const avg = (sc) => (sc && sc.length ? sc.reduce((a, x) => a + (+x.score || 0), 0) / sc.length : null);
+  let dispRefNow = null;
+  async function viewDispatcher(ref) {
+    if (S.me.role !== 'admin') { location.hash = '#/'; return; }
+    dispRefNow = ref; const live = App.drawing(); let r;
+    try { r = await api('/api/tg/dispatchers/' + ref); } catch (e) { if (live()) view.innerHTML = header('telegram') + `<main><a class="back" href="#/telegram">← Telegram manager</a><p class="hint">${esc(e.message)}</p></main>`; return; }
+    if (!live()) return;
+    const p = r.profile || {}, st = r.stats || {}, fb = p.feedback || {}, li = (a) => (a || []).map((x) => `<li>${esc(x)}</li>`).join('');
+    const fmtMin = (m) => (m === null || m === undefined ? '—' : m < 60 ? m + ' min' : (m / 60).toFixed(1) + ' h');
+    document.title = `${r.person.name} · review · FleetHire`;
+    const fig = (v, l) => `<div><dd>${v}</dd><dt>${l}</dt></div>`;
+    view.innerHTML = header('telegram') + `<main class="dreview"><a class="back" href="${r.user ? '#/team/' + r.user.id : '#/telegram'}">← ${r.user ? esc(r.user.name) : 'Telegram manager'}</a>
+      <div class="pagehead"><h1>${esc(r.person.name)}: work review</h1>
+        <p class="hint">What the AI sees in the driver groups: how he works, how he writes, how he handles problems, and the feedback to give him. Only admins see this page.${r.at ? ` Reviewed ${when(r.at)}.` : ''}</p>
+        <div class="acts"><button class="btn plain" data-act="dispReview">Review again now</button>${r.user ? (r.user.noLogin ? ` <a class="btn plain" href="#/team/${r.user.id}">Give him a login</a>` : '') : ''}</div></div>
+      <section class="card"><dl class="figs">${fig(st.msgs || 0, 'messages, 30 days')}${fig(st.groups || 0, 'driver groups')}${fig(fmtMin(st.med), 'half his answers within')}${fig(st.his ? Math.round((st.fast / st.his) * 100) + '%' : '—', 'answered within 15 min')}${fig(st.slow || 0, 'driver messages waited 2 h+ (his groups)')}${fig(st.night || 0, 'messages 10 PM–6 AM')}</dl></section>
+      ${!r.profile ? '<section class="card"><p class="hint">No review yet. It is written once he has 20 messages in the groups (or press Review again now).</p></section>' : `
+      ${(p.red_flags || []).length ? `<section class="card flagcard"><h3>Act on this</h3><ul>${li(p.red_flags)}</ul></section>` : ''}
+      <section class="card"><div class="dchips">${p.trend ? `<span class="dchip">${esc(TREND[p.trend.direction] || '')}</span>` : ''}${p.confidence ? `<span class="dchip">${p.confidence === 'low' ? 'Few messages: a first impression' : p.confidence === 'medium' ? 'Fair picture' : 'Clear picture'}</span>` : ''}</div>
+        <p class="lead">${esc(p.summary || '')}</p>${p.trend && p.trend.what_changed ? `<p class="small"><b>Since last time:</b> ${esc(p.trend.what_changed)}</p>` : ''}</section>
+      ${p.feedback ? `<section class="card fbcard"><div class="row sb"><h3>Feedback to give him</h3><button class="btn sm plain" data-act="dispCopy">Copy</button></div>
+        <dl class="fb">${[['Start with', fb.praise_first], ['The main point', fb.main_point], ['Show him', fb.show_example], ['What to say', fb.how_to_say_it], ['Goal for the next 2 weeks', fb.goal], ['How to check', fb.check_how]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section>` : ''}
+      ${(p.scores || []).length ? `<section class="card"><h3>Area by area</h3><table class="mini scoretab"><tbody>${p.scores.map((x) => `<tr><td><b>${esc(AREA[x.area] || x.area)}</b><div>${dots(+x.score || 0)}</div></td><td>${esc(x.seen || '')}${x.example ? `<div class="quote">“${esc(x.example)}”</div>` : ''}</td></tr>`).join('')}</tbody></table></section>` : ''}
+      ${(p.issues || []).length ? `<section class="card"><h3>Real situations from the groups</h3><table class="mini issuetab"><thead><tr><th>What happened</th><th>What he did</th><th></th><th>Better</th></tr></thead><tbody>${p.issues.map((x) => { const v = VERDICT[x.verdict] || ['', ''];
+          return `<tr><td>${esc(x.situation)}</td><td>${esc(x.what_he_did)}</td><td><span class="vbadge ${v[1]}">${v[0]}</span></td><td>${esc(x.better_way || '')}</td></tr>`; }).join('')}</tbody></table></section>` : ''}
+      <div class="twocol"><section class="card"><h3>How he thinks</h3><p>${esc(p.thinking || '—')}</p><h3>How drivers react to him</h3><p>${esc(p.drivers_view || '—')}</p></section>
+        <section class="card">${[['Keep doing', p.strengths], ['To improve', p.improve], ['How he runs updates', p.update_habits], ['His typical messages', p.phrases]].filter(([, a]) => a && a.length).map(([t, a]) => `<h4>${t}</h4><ul>${li(a)}</ul>`).join('')}</section></div>`}
+      ${r.history.length > 1 ? `<section class="card"><h3>Past reviews</h3><table class="mini"><thead><tr><th>Date</th><th class="n">Average</th><th>Goal given</th><th>Trend</th></tr></thead><tbody>${r.history.map((h) => `<tr><td>${when(h.at)}</td><td class="n">${avg(h.scores) === null ? '—' : avg(h.scores).toFixed(1) + ' / 5'}</td><td>${esc(h.goal || '')}</td><td>${esc((TREND[(h.trend || {}).direction] || ''))}</td></tr>`).join('')}</tbody></table></section>` : ''}
+      ${r.groups.length ? `<section class="card"><h3>His groups, last 30 days</h3><ul class="glist">${r.groups.map((g) => `<li><a href="#/telegram/${g.chat_id}">${esc(g.title || 'Group')}</a> <span class="small mut">${plural(g.n, 'message')}</span></li>`).join('')}</ul></section>` : ''}
+    </main>`;
+    App.lastReview = r;
+  }
+  on('dispReview', async (btn) => { btn.disabled = true; btn.textContent = 'Reviewing… (up to a minute)'; try { await api(`/api/tg/dispatchers/${dispRefNow}/review`, { method: 'POST' }); toast('Review updated'); viewDispatcher(dispRefNow); } catch (e) { fail(e); btn.disabled = false; btn.textContent = 'Review again now'; } });
+  on('dispCopy', async () => { const fb = ((App.lastReview || {}).profile || {}).feedback || {};
+    const t = [fb.praise_first, fb.main_point, fb.show_example, fb.how_to_say_it, fb.goal && 'Goal for the next 2 weeks: ' + fb.goal].filter(Boolean).join('\n\n');
+    try { await navigator.clipboard.writeText(t); toast('Copied'); } catch { toast('Could not copy'); } });
+  App.route(/^#\/dispatcher\/(u?\d+)$/, viewDispatcher);
   App.route(/^#\/telegram$/, viewList);
   App.route(/^#\/telegram\/(-?\d+)$/, viewChat);
   App.tgLeadGroups = leadGroups;

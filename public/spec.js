@@ -57,6 +57,8 @@
         ] },
         { title: 'Onboarding', items: [
           P('Onboarding board', 'built', 'Drivers in onboarding, Amazon verified first, arrival, truck, checklist progress, recruiter.', 'Onboarding', '#/onboarding'),
+          P('Dispatcher accounts from Telegram', 'built', 'Someone the bot learns is a dispatcher gets a dispatcher account (or is linked to his account by name). No login until an admin gives an email and password; admins are told.', 'Team'),
+          P('Dispatcher work review', 'built', 'Admin page per dispatcher: his numbers (answer speed, waits, nights), 8 areas scored with examples, real situations and the better way, how he thinks, how drivers react, red flags, the feedback to give with a 2-week goal, the trend and past reviews. Rebuilt every 3 days.', 'Telegram → dispatcher, Team → person'),
           P('Coaching for dispatchers', 'built', 'On a dispatcher\'s Trucks page: How you write to drivers (keep doing / try this), from the driver groups. Only he and the admins see it.', 'Trucks (dispatcher)'),
           P('AI health', 'built', 'AI usage page: Is the AI working? with a Test AI now button and why calls failed, in plain words (wrong key, no credit, model not allowed, busy). Busy or network errors are tried again; a model the key cannot use is swapped; on key or credit problems the bot pauses 10 minutes and admins are told; messages missed meanwhile are read later.', 'AI usage'),
           P('Dropped out', 'built', 'One button on the onboarding list, the lead page and the dashboard: saves the driver as Rejected with why. When a driver writes he is not coming, the AI flags him (Dropped out / Still with us) and tells the recruiter.', 'Onboarding, lead page, dashboard'),

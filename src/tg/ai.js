@@ -155,18 +155,37 @@ Be fair and respectful: describe behaviour, not character. Nothing about health,
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: text.slice(-80000) }], tool: PROFILE_TOOL, maxTokens: 1500 });
 }
 // How one of our dispatchers works, from his messages in the drivers' groups (for the managers, and for the future updater)
-const DISP_TOOL = { name: 'dispatcher_profile', description: 'How this dispatcher works with drivers.', input_schema: { type: 'object', properties: {
-  summary: { type: 'string', description: '2 or 3 sentences.' },
+// how one dispatcher works: a review the managers use to coach him (the old short fields stay for the cards and his own coaching)
+const AREAS = ['communication', 'clarity', 'speed', 'problem_solving', 'follow_through', 'updates', 'driver_care', 'professionalism'];
+const DISP_TOOL = { name: 'dispatcher_profile', description: 'A detailed, fair review of how this dispatcher works with the drivers, for coaching.', input_schema: { type: 'object', properties: {
+  summary: { type: 'string', description: '3 to 5 sentences: how he works, what he is good at, the one thing that matters most to fix.' },
   tone: { type: 'string', enum: ['friendly', 'neutral', 'firm', 'harsh'] }, clarity: { type: 'string', enum: ['clear', 'mostly_clear', 'unclear'] },
   professionalism: { type: 'string', enum: ['high', 'medium', 'low'] },
+  scores: { type: 'array', description: 'One per area. communication = how he talks to drivers; clarity = instructions easy to follow; speed = how fast he answers; problem_solving = breakdowns, delays, wrong locations, upset drivers; follow_through = does what he says, calls back, closes issues; updates = ETA, BOL, check calls, keeps loads tracked; driver_care = respect, home time, hours of service, safety, the driver\'s mood; professionalism = language, calm, no blame.',
+    items: { type: 'object', properties: { area: { type: 'string', enum: AREAS }, score: { type: 'integer', description: '1 poor, 2 weak, 3 OK, 4 good, 5 excellent' }, seen: { type: 'string', description: 'What the messages show, one or two sentences.' },
+      example: { type: 'string', description: 'A short example of his own words (under 20 words), without names, phone, load or truck numbers. Empty if none.' } }, required: ['area', 'score', 'seen'] } },
+  issues: { type: 'array', description: 'Up to 8 real situations from the messages (a breakdown, a late load, a lost driver, an upset driver, a question left open...).', items: { type: 'object', properties: {
+    situation: { type: 'string' }, what_he_did: { type: 'string' }, verdict: { type: 'string', enum: ['good', 'ok', 'poor'] }, better_way: { type: 'string', description: 'What a great dispatcher would have done or written. Empty when he did well.' } }, required: ['situation', 'what_he_did', 'verdict'] } },
+  thinking: { type: 'string', description: 'How he thinks and decides: plans ahead or reacts, what he puts first, how he weighs the driver against the load.' },
+  drivers_view: { type: 'string', description: 'How the drivers react to him: trust, mood, complaints, ignoring him.' },
   update_habits: { type: 'array', items: { type: 'string' }, description: 'How he runs updates: what he asks for and when (ETA, BOL photo, seal, check calls...).' },
   phrases: { type: 'array', items: { type: 'string' }, description: 'Typical short messages he sends, as patterns, without names or numbers (for example "Send me the BOL once loaded").' },
-  strengths: { type: 'array', items: { type: 'string' } }, improve: { type: 'array', items: { type: 'string' }, description: 'What would make him better, concrete and respectful.' } },
-  required: ['summary', 'tone', 'clarity', 'professionalism', 'update_habits', 'phrases', 'strengths', 'improve'] } };
-async function dispatcherProfile({ name, stats, lines }) {
-  const system = `You review how one dispatcher of a US trucking company works with the drivers in their Telegram groups, so the managers can coach the team and a bot can learn to run updates the same way. Be fair and factual, from the messages only. Never include phone numbers, addresses or load numbers.`;
-  return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: `Dispatcher: ${name}\n${stats}\nMESSAGES (with the driver's message before when it was a reply):\n${lines.join('\n').slice(-60000)}` }], tool: DISP_TOOL, maxTokens: 1200 });
+  strengths: { type: 'array', items: { type: 'string' } }, improve: { type: 'array', items: { type: 'string' }, description: 'What would make him better, concrete and respectful.' },
+  red_flags: { type: 'array', items: { type: 'string' }, description: 'Only serious things a manager must act on: rude or insulting, misleading a driver, pushing a driver past hours of service or to drive unsafe, ignoring a breakdown or safety problem. Empty if none.' },
+  feedback: { type: 'object', description: 'How the manager should give him feedback this time.', properties: {
+    praise_first: { type: 'string', description: 'A real thing to praise, to open with.' }, main_point: { type: 'string', description: 'The one most important thing to change.' },
+    show_example: { type: 'string', description: 'The situation from the messages to show him, and the better message he could have written.' },
+    how_to_say_it: { type: 'string', description: 'What the manager can say, 2 to 4 sentences, respectful and direct.' },
+    goal: { type: 'string', description: 'One goal for the next 2 weeks that can be checked in the groups.' }, check_how: { type: 'string', description: 'How to see in the groups if he reached it.' } },
+    required: ['praise_first', 'main_point', 'how_to_say_it', 'goal'] },
+  trend: { type: 'object', properties: { direction: { type: 'string', enum: ['first', 'better', 'same', 'worse'] }, what_changed: { type: 'string' } }, required: ['direction'] },
+  confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'low when there are few messages or few real situations.' } },
+  required: ['summary', 'tone', 'clarity', 'professionalism', 'scores', 'issues', 'thinking', 'drivers_view', 'update_habits', 'phrases', 'strengths', 'improve', 'red_flags', 'feedback', 'trend', 'confidence'] } };
+async function dispatcherProfile({ name, stats, lines, previous }) {
+  const system = `You review how one dispatcher of a US trucking company works with the drivers in their Telegram groups, so the managers can coach him and a bot can learn to run updates the same way. Be fair, specific and factual: everything must come from the messages and numbers given, never invented. Give credit where it is due. When there is little to go on, say so and set confidence low. Never include phone numbers, addresses, load or truck numbers, or anyone's full name.`;
+  const prev = previous ? `\nTHE LAST REVIEW (${previous.at}): ${previous.summary || ''}\nScores then: ${(previous.scores || []).map((s) => `${s.area} ${s.score}`).join(', ')}\nGoal given then: ${(previous.feedback || {}).goal || 'none'}\nSay in trend whether he got better, and whether he reached that goal.\n` : '\nThis is his first review: trend.direction = first.\n';
+  return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: `Dispatcher: ${name}\n${stats}${prev}\nMESSAGES (oldest first; with the driver's message before when it was a reply):\n${lines.join('\n').slice(-90000)}` }], tool: DISP_TOOL, maxTokens: 4000 });
 }
 // every job the bot does, with its model (for the Test button: one real call each)
 const jobs = () => [[DOC_TOOL, MODEL()], [SUM_TOOL, SUMMARY_MODEL()], [ONB_TOOL, MODEL()], [REPLY_TOOL, MODEL()], [DIGEST_TOOL, process.env.TG_DIGEST_MODEL || SUMMARY_MODEL()], [PROFILE_TOOL, SUMMARY_MODEL()], [DISP_TOOL, SUMMARY_MODEL()]];
-module.exports = { jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile };
+module.exports = { AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile };

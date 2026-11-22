@@ -215,6 +215,25 @@ module.exports = (app) => {
       week: Object.fromEntries(counts.map((c) => [c.kind, c.n])), more: r.rows.length === 100 });
   }));
   // ---------- the dispatch autopilot: how far the bot is with learning dispatching and updates ----------
+  // one dispatcher's work review (admins): by Telegram id, or u<user id> from the Team page
+  const dispRef = async (ref) => (await q(String(ref).startsWith('u') ? `SELECT * FROM tg_people WHERE user_id = $1 ORDER BY profile_at DESC NULLS LAST LIMIT 1` : `SELECT * FROM tg_people WHERE tg_id = $1`, [String(ref).replace(/^u/, '')])).rows[0];
+  app.get('/api/tg/dispatchers/:ref', needUser, needAdmin, wrap(async (req, res) => {
+    const p = await dispRef(req.params.ref);
+    if (!p) return res.status(404).json({ error: String(req.params.ref).startsWith('u') ? 'His Telegram is not known to the bot yet. He links it by sending /me with his code to the bot, or the bot learns him from the driver groups.' : 'Not found' });
+    const D = require('./tg/dispatchers');
+    const st = await D.stats(p.tg_id);
+    const user = p.user_id ? (await q(`SELECT id, name, email, active FROM users WHERE id = $1`, [p.user_id])).rows[0] : null;
+    const history = (await q(`SELECT at, profile->'scores' scores, profile->>'summary' summary, profile->'trend' trend, profile->'feedback'->>'goal' goal FROM tg_disp_reviews WHERE tg_id = $1 ORDER BY at DESC LIMIT 12`, [p.tg_id])).rows;
+    const groups = (await q(`SELECT c.chat_id::text chat_id, c.title, count(*)::int n, max(m.at) last FROM tg_messages m JOIN tg_chats c ON c.chat_id = m.chat_id WHERE m.from_id = $1 AND m.at > now() - interval '30 days' GROUP BY 1, 2 ORDER BY n DESC LIMIT 30`, [p.tg_id])).rows;
+    res.json({ person: { tg_id: String(p.tg_id), name: p.name, username: p.username, role: p.role }, user: user && { ...user, noLogin: require('./tg/accounts').noLogin(user.email) }, profile: p.profile, at: p.profile_at, stats: st, history, groups });
+  }));
+  app.post('/api/tg/dispatchers/:ref/review', needUser, needAdmin, wrap(async (req, res) => {
+    const p = await dispRef(req.params.ref); if (!p) return res.status(404).json({ error: 'Not found' });
+    if (!ai.on()) return res.status(400).json({ error: 'AI is off: add ANTHROPIC_API_KEY on Railway' });
+    let prof; try { prof = await require('./tg/dispatchers').build(p.tg_id, { force: true }); } catch (e) { return res.status(502).json({ error: e.why || e.message }); }
+    if (!prof) return res.status(400).json({ error: 'Too few messages from him in the last 30 days to review.' });
+    res.json({ ok: true });
+  }));
   app.get('/api/tg/dispatch-readiness', needUser, wrap(async (req, res) => {
     const W = `c.active AND c.kind = 'dispatch' AND c.driver_id IS NOT NULL AND (d.status = 'Hired' OR c.member_count > 10)`;
     const g = (await q(`SELECT count(*)::int groups, count(*) FILTER (WHERE (SELECT min(at) FROM tg_messages m WHERE m.chat_id = c.chat_id) < now() - interval '14 days')::int watched,
@@ -228,7 +247,7 @@ module.exports = (app) => {
     let dispatchers = [];
     if (req.user.role === 'admin') {
       dispatchers = (await q(`${REPLY_SQL} SELECT p.tg_id::text tg_id, p.name, p.profile, p.profile_at, coalesce(cnt.n, 0) msgs30, (SELECT count(DISTINCT m.chat_id)::int FROM tg_messages m WHERE m.from_id = p.tg_id AND m.at > now() - interval '30 days') groups,
-        round(rep.med::numeric, 0)::int reply_min, rep.n replies FROM tg_people p LEFT JOIN cnt ON cnt.from_id = p.tg_id LEFT JOIN rep ON rep.from_id = p.tg_id WHERE p.role = 'dispatch' ORDER BY coalesce(cnt.n, 0) DESC`, ['30 days'])).rows;
+        round(rep.med::numeric, 0)::int reply_min, rep.n replies FROM tg_people p LEFT JOIN cnt ON cnt.from_id = p.tg_id LEFT JOIN rep ON rep.from_id = p.tg_id WHERE (p.role = 'dispatch' OR EXISTS (SELECT 1 FROM users du WHERE du.id = p.user_id AND du.role = 'dispatcher')) ORDER BY coalesce(cnt.n, 0) DESC`, ['30 days'])).rows;
     }
     res.json({ groups: g, messages30: m, updates: { ...u, accuracy }, practices: k, promises: p, ready, dispatchers, settings: { workMode: (db.settings.tg || {}).workMode || 'watch' } });
   }));

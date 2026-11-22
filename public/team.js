@@ -202,16 +202,19 @@
     const live = App.drawing();
     const [r, m] = await Promise.all([api(`/api/team/${id}?period=${period}`), api(`/api/team/${id}/month?m=${month}`)]); if (!live()) return;
     const p = r.person; shown = p; shownMonth = m; month = m.month;
+    const noLogin = /@no-login\.fleethire$/.test(p.email || '');
     const admin = S.me.role === 'admin', self = p.id === S.me.id, day = r.days === 1, disp = p.role === 'dispatcher' && !!r.fleetWork;
     document.title = `${p.name} · FleetHire`;
     const fig = (v, l, hint) => `<div${hint ? ` title="${esc(hint)}"` : ''}><dd>${v}</dd><dt>${l}</dt></div>`;
     view.innerHTML = header('team') + `<main>
       ${admin ? '<a class="back" href="#/team">← Team</a>' : ''}
       <section class="dhead"><div class="top"><div class="who"><h2>${esc(p.name)}</h2>
-          <div class="sub">${esc(p.email)}, ${ROLE_NAME[p.role] || 'recruiter'}${p.active ? '' : ', no access'}</div>
+          <div class="sub">${noLogin ? 'No email yet' : esc(p.email)}, ${ROLE_NAME[p.role] || 'recruiter'}${p.active ? '' : ', no access'}</div>
           <div class="contact">${p.active ? presenceHtml(p, r.now) : ''}</div></div>
         ${admin && !self ? `<div class="acts"><button class="btn plain" data-act="personPw">Set password</button><button class="btn plain" data-act="personRole">Change role</button><button class="btn ${p.active ? 'danger' : 'plain'}" data-act="personAccess">${p.active ? 'Remove access' : 'Give access back'}</button></div>` : ''}
       </div></section>
+      ${admin && noLogin ? `<p class="warnline">The bot made this account because ${esc(p.name)} writes as a dispatcher in the driver groups. He cannot sign in yet. <button class="btn sm primary" data-act="personLogin">Give him a login</button> or remove his access if he is not a dispatcher.</p>` : ''}
+      ${admin && p.role === 'dispatcher' ? `<p><a class="btn plain sm" href="#/dispatcher/u${p.id}">Work review: how he works and writes, feedback to give</a></p>` : ''}
       ${reportHtml(m, admin)}
       <h2 class="sect">Activity</h2>
       ${periodBar()}</div>
@@ -249,6 +252,14 @@
       <p class="hint">A recruiter works leads and onboarding. A dispatcher looks after the trucks (oil changes, shop visits, costs) and sees the active drivers and their Telegram groups, not the leads. An admin also sees this Team page, manages people, trucks and settings, and can export and delete. Give the password to the person yourself; they can change it after signing in.</p>
       <p class="err" id="personErr" role="alert"></p><div class="drow"><button class="btn primary">Create account</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (d) => {
     $('#personForm', d).onsubmit = async (e) => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); try { await api('/api/users', { method: 'POST', body: b }); await reloadMe(); d.close(); toast(`${b.name} can now sign in`); App.render(); } catch (err) { $('#personErr').textContent = err.message; } };
+  }));
+  on('personLogin', () => dialog(`<form id="loginSet" class="dform"><h2>Login for ${esc(shown.name)}</h2>
+      <label class="fld">Email<input name="email" type="email" required autocomplete="off"></label>
+      <label class="fld">Password<input name="password" type="text" minlength="10" required autocomplete="off" placeholder="At least 10 characters"></label>
+      <p class="hint">Send him the email and password. He sees the trucks, the active drivers and their Telegram groups.</p><p class="err" id="lgErr" role="alert"></p>
+      <div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (d) => {
+    $('#loginSet', d).onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target);
+      try { await api('/api/users/' + shown.id, { method: 'PATCH', body: { email: f.get('email'), password: f.get('password') } }); d.close(); toast('Login saved'); App.render(); } catch (err) { $('#lgErr').textContent = err.message; } };
   }));
   on('personPw', () => dialog(`<form id="pwSet" class="dform"><h2>New password for ${esc(shown.name)}</h2>
       <label class="fld">Password<input name="password" type="text" minlength="10" required autocomplete="off" placeholder="At least 10 characters"></label>

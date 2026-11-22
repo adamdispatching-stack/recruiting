@@ -1739,3 +1739,15 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .aierr td{padding:8px 0;border-bottom:1px solid var(--line, #eee)}
 
 .aijobs td,.aijobs th{padding:6px 8px 6px 0}
+
+.dreview .lead{font-size:16px;line-height:1.5}
+.sdots{display:inline-flex;gap:3px;margin-top:4px}.sdots i{width:12px;height:12px;border-radius:50%;background:#E5E1D8}
+.sdots i.on.s1,.sdots i.on.s2{background:#C0392B}.sdots i.on.s3{background:#D4A017}.sdots i.on.s4,.sdots i.on.s5{background:#2E7D4F}
+.scoretab td{vertical-align:top;padding:10px 12px 10px 0}.scoretab td:first-child{width:200px}
+.quote{color:var(--mut,#666);font-style:italic;margin-top:4px}
+.issuetab td{vertical-align:top;padding:8px 10px 8px 0}
+.vbadge{font-size:12px;padding:2px 8px;border-radius:10px;white-space:nowrap}.v-good{background:#E3F2E8;color:#1E6B3A}.v-ok{background:#F6EED6;color:#7A5B00}.v-poor{background:#FBE5E1;color:#A3261B}
+.flagcard{border-left:4px solid #C0392B}.flagcard h3{color:#A3261B}
+.fbcard{border-left:4px solid #2E7D4F}.fbcard .row.sb{display:flex;justify-content:space-between;align-items:center}
+.fb dt{font-weight:600;margin-top:10px}.fb dd{margin:2px 0 0}
+.glist{columns:2;padding-left:18px}

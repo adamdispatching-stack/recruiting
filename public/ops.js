@@ -261,7 +261,7 @@
     const li = (a) => a.map((x) => `<li>${esc(typeof x === 'string' ? x : x.text || x.tip || JSON.stringify(x))}</li>`).join('');
     return `<section class="card coach"><h3>How you write to drivers</h3><p class="hint">What the AI sees in the driver groups. Only you and the admins see this.</p>
       ${c.summary ? `<p>${esc(c.summary)}</p>` : ''}<div class="twocol">${c.strengths.length ? `<div><h4>Keep doing</h4><ul>${li(c.strengths)}</ul></div>` : ''}${c.improve.length ? `<div><h4>Try this</h4><ul>${li(c.improve)}</ul></div>` : ''}</div>
-      ${c.updates ? `<p class="small"><b>Updates:</b> ${esc(c.updates)}</p>` : ''}</section>`;
+      ${c.goal ? `<p><b>Goal for the next 2 weeks:</b> ${esc(c.goal)}</p>` : ''}</section>`;
   }
   async function viewTrucks() {
     const live = App.drawing(); const [r, fe, fg, co] = await Promise.all([api('/api/trucks'), api('/api/fleet/empty').catch(() => null), api('/api/fleet/goal').catch(() => null),

@@ -360,6 +360,11 @@ async function migrate() {
       PRIMARY KEY (user_id, badge, level)
     );
     ALTER TABLE users ADD COLUMN IF NOT EXISTS badges_seen BOOLEAN NOT NULL DEFAULT false;
+    -- an account the bot made for a dispatcher it saw in the driver groups (his Telegram id); no email or password until an admin gives them
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS from_tg BIGINT;
+    -- every dispatcher review the AI wrote (the newest is also in tg_people.profile), to see the trend
+    CREATE TABLE IF NOT EXISTS tg_disp_reviews (id SERIAL PRIMARY KEY, tg_id BIGINT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now(), profile JSONB NOT NULL, stats JSONB);
+    CREATE INDEX IF NOT EXISTS tg_disp_reviews_tg ON tg_disp_reviews(tg_id, at DESC);
     -- Indeed messages the website asks the Chrome extension to send (after a call with no answer).
     -- pending -> sending (an extension took it) -> sent | failed
     CREATE TABLE IF NOT EXISTS indeed_outbox (
