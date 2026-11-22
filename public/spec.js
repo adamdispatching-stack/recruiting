@@ -143,6 +143,12 @@
           P('Updater mode', 'partial', 'Today it only asks about mix-ups and confirms appointment changes. Full updater (ETA checks, check calls) waits for your decision on what Smart Update keeps doing.', 'Group page → Updater'),
           P('Full updater', 'next', 'ETA check-ins, check calls, seal / BOL reminders following the approved dispatching practices.', 'Dispatch groups')
         ] },
+        { title: 'Shift desk', items: [
+          P('Shifts and the dispatcher on shift', 'built', 'Three shifts (team time zone) with their dispatchers; the truck\'s own dispatcher is asked when on shift, else the shift. Who can be reached privately is shown.', 'Telegram → Shift desk'),
+          P('One to one check-ins', 'built', 'From the working groups, privately to the dispatcher on shift: driver resting until a time (Got it? no calls; checked again at that time), needs a load (book one, or send the best option and why), a question nobody answered. No answer: the others on shift, then the admins.', 'Private chat with the bot'),
+          P('Load option review', 'idea', 'The AI looks at the option the dispatcher sends (rate per mile, deadhead, home direction, his hours) and says what is good or risky before he books.', 'Private chat with the bot'),
+          P('Shift handover', 'idea', 'At each shift change the bot sends the next shift what is open: resting drivers and their times, empty trucks, open cases, unanswered questions.', 'Private chat, management group')
+        ] },
         { title: 'Road cases', items: [
           P('Road cases and the playbook', 'built', 'The bot opens a case from the driver groups (breakdown, breakdown on the NJ Turnpike / Garden State Parkway, flat tire, accident, running late, out of hours, detention, wrong trailer, load refused, inspection, ELD down), follows its steps and if/else rules, writes the message to the driver (Updater sends it), raises steps that wait too long with the truck\'s dispatcher and the admins, and keeps what was learned. Admins edit the playbook.', 'Road cases, dashboard, trucks, group, driver'),
           P('Case times and costs', 'built', 'Per kind of case, driver, truck and dispatcher: cases, still open, time to resolve, cost; shops used. The cost comes from the group or from Resolved.', 'Road cases → Times and costs'),

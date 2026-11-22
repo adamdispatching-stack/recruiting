@@ -405,6 +405,7 @@ async function handle(u) {
       if (cq.data.startsWith('reg:')) answer = await registerButton(cq, who);
       else if (cq.data.startsWith('regm:')) answer = await modeButton(cq, who);
       else if (cq.data.startsWith('regc:')) { if (!isStaff(who)) answer = 'Only our team can choose this.'; else { const [, cid, md] = cq.data.split(':'); await dropButtons(cq.message.chat.id, cq.message.message_id); if (String(cid) === String(cq.message.chat.id) && await setChatMode(cq.message.chat.id, md, who.name, who)) answer = CMODES[md] + ' ✓'; } }
+      else if (cq.data.startsWith('desk:')) answer = await require('./desk').onButton(cq, who);
       else if (cq.data.startsWith('regk:')) { if (!isStaff(who)) answer = 'Only our team can register a group.'; else { await dropButtons(cq.message.chat.id, cq.message.message_id); await register({ chat: cq.message.chat, message_id: cq.message.message_id }, cq.data.split(':')[1], who); answer = 'OK'; } }
       else { const job = chat && handlers[chat.kind]; if (job && cq.data.startsWith(PREFIX[chat.kind] + ':')) answer = (await job.onButton(chat, cq, who)) || ''; }
     }
@@ -440,6 +441,7 @@ async function handle(u) {
     if ((pc && pc[1] === 'onboard') || /^\s*onboard(ing)?\s*$/i.test(m.text || '')) return require('./team').onboardCmd(m.chat.id, me);
     if ((pc && pc[1] === 'empty') || /^\s*empty( trucks)?\s*$/i.test(m.text || '')) return emptyCmd(m.chat.id, me);
     if (pc && pc[1] === 'help') return send(m.chat.id, helpText(false));
+    if (me && isStaff(me) && await require('./desk').privateText(m, me)) return; // an answer to the shift desk (a load option and why...)
     if (/^\/start/.test(m.text || '')) await send(m.chat.id, 'Hi! I work in the driver groups. Add me to a group and send the link code from the website there. Alerts from the Indeed extension also come here.');
     return;
   }
@@ -587,4 +589,4 @@ async function start() {
   await retryWaiting().catch((e) => console.error('tg waiting', e.message));
   loop();
 }
-module.exports = { trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+module.exports = { react, isStaff, trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

@@ -102,6 +102,26 @@ module.exports = (app) => {
   // a group linked as the wrong type or to the wrong driver: changed here. What the wrong type started is undone
   // (onboarding conversation, replies waiting, road cases), the group pushed out by the mistake gets its place back,
   // and the last 14 days are read again as the right type (quietly: nobody is told about old messages)
+  // the shift desk: the shifts, who is on now, who can be reached privately, and what the bot asked and was answered
+  app.get('/api/tg/desk', needUser, needAdmin, wrap(async (req, res) => {
+    const D = require('./tg/desk'); const sh = await D.shiftNow();
+    const people = (await q(`SELECT u.id, u.name, u.role, p.tg_id::text tg_id, (SELECT count(*) > 0 FROM tg_messages m WHERE m.chat_id = p.tg_id) private_ok
+      FROM users u LEFT JOIN LATERAL (SELECT tg_id FROM tg_people WHERE user_id = u.id ORDER BY seen_at DESC NULLS LAST LIMIT 1) p ON true WHERE u.active AND u.role IN ('dispatcher', 'admin') ORDER BY (u.role = 'dispatcher') DESC, u.name`)).rows;
+    const checks = (await q(`SELECT c.id, c.kind, c.quote, c.until_text, c.place, c.ask, c.state, c.asked_at, c.answered_at, c.answered_by, c.answer, c.escalated, c.created_at, c.chat_id::text chat_id, d.id driver_id, d.name driver,
+        (SELECT string_agg(u.name, ', ') FROM tg_check_asks a JOIN users u ON u.id = a.user_id WHERE a.check_id = c.id) asked
+      FROM tg_checks c LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.created_at > now() - interval '7 days' ORDER BY c.created_at DESC LIMIT 100`)).rows;
+    const speed = (await q(`SELECT a.user_id, u.name, count(*)::int asked, count(a.said_at)::int answered, round((percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM a.said_at - a.asked_at) / 60) FILTER (WHERE a.said_at IS NOT NULL))::numeric)::int med
+      FROM tg_check_asks a JOIN users u ON u.id = a.user_id WHERE a.asked_at > now() - interval '30 days' GROUP BY 1, 2 ORDER BY 3 DESC`)).rows;
+    res.json({ desk: D.cfg(), now: sh ? sh.name : null, people, checks, speed });
+  }));
+  app.put('/api/tg/desk', needUser, needAdmin, wrap(async (req, res) => {
+    const b = req.body || {}; const cur = require('./tg/desk').cfg(); const hm = (x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
+    const shifts = (Array.isArray(b.shifts) ? b.shifts : cur.shifts).slice(0, 4).map((s) => ({ name: String(s.name || '').trim().slice(0, 30) || 'Shift', start: String(s.start || '').trim(), end: String(s.end || '').trim(), people: [...new Set((s.people || []).map(Number).filter(Boolean))] }));
+    if (shifts.some((s) => !hm(s.start) || !hm(s.end))) return res.status(400).json({ error: 'Write the shift times like 06:00 and 14:00' });
+    const v = { on: b.on === undefined ? cur.on : !!b.on, where: b.where === 'group' ? 'group' : 'private', answerMin: Math.max(5, Math.min(120, Math.round(+b.answerMin || cur.answerMin))), shifts };
+    await db.saveSetting('tg', { ...db.settings.tg, desk: v });
+    res.json({ ok: true, desk: v });
+  }));
   // every group the bot is in, connected or not, with a guess from the title for the ones not connected (admins: All groups tab)
   app.get('/api/tg/all-groups', needUser, needAdmin, wrap(async (req, res) => {
     const rows = (await q(`SELECT c.chat_id::text chat_id, c.title, c.kind, c.driver_id, d.name driver, d.status driver_status, c.member_count, c.bot_admin, c.active, c.mode, c.linked_at, c.last_at, u.name linked_by,

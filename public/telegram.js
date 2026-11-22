@@ -75,7 +75,7 @@
     const admin = S.me.role === 'admin';
     document.title = 'Telegram · FleetHire';
     const status = !st.on ? '' : st.bot ? `<p class="tgstat ${st.lastError ? 'bad' : 'ok'}"><b>@${esc(st.bot.username)}</b> is ${st.lastError ? `having trouble: ${esc(st.lastError)}` : 'on'}${st.ai ? ', AI on' : ', AI off (no ANTHROPIC_API_KEY)'}.</p>` : `<p class="tgstat bad">The bot is starting${st.lastError ? `: ${esc(st.lastError)}` : ''}.</p>`;
-    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ...(admin ? [['all', 'All groups']] : []), ['history', 'Bot history'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Knowledge']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
+    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ...(admin ? [['all', 'All groups'], ['desk', 'Shift desk']] : []), ['history', 'Bot history'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Knowledge']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
     let body = '';
     if (tab === 'groups') {
       const [qs, al, act, ws] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts), api('/api/active').then((x) => x.drivers), api('/api/tg/waiting').then((x) => x.waiting)]); if (!live()) return;
@@ -98,6 +98,28 @@
           <td class="tgsum">${c.lastSummary ? `<span class="small mut">${esc(dateText(c.lastSummary.day, { month: 'short', day: 'numeric' }))}${MOOD[c.lastSummary.mood] ? ', ' + MOOD[c.lastSummary.mood] : ''}</span><div class="clip2">${esc(c.lastSummary.summary)}</div>${(c.lastSummary.issues || []).length ? `<div class="small latetag">${c.lastSummary.issues.length} open</div>` : ''}` : '<span class="none">None yet</span>'}</td>
           <td class="n">${c.todayMsgs || '<span class="none">0</span>'}</td></tr>`).join('')}</tbody></table></div>`
         : coHtml ? '' : `<div class="emptycard"><div class="emptyart"><h2>No groups yet.</h2><p>Open a driver in onboarding and use <b>Link a group</b> in the Telegram part of the onboarding card. The bot joins in from there.</p></div></div>`);
+    } else if (tab === 'desk' && admin) {
+      // the shift desk: shifts and their dispatchers, who can be reached, what the bot asked and what they answered
+      const dk = await api('/api/tg/desk'); if (!live()) return; const D = dk.desk;
+      const reach = (p) => (!p.tg_id ? '<span class="small cbad" title="He sends /me CODE to the bot (Connect my Telegram on the website)">Telegram not connected</span>' : p.private_ok ? '<span class="small okt">reachable</span>' : '<span class="small cwarn" title="He opens a chat with the bot and sends /start once">needs /start</span>');
+      const KIND = { rest: '😴 Resting until', needs_load: '📦 Needs a load', question: '❓ Unanswered question', other: '🔎 To check', wake: '⏰ Wake-up check' };
+      const STATE = { open: ['Waiting', 'cwarn'], ok: ['Got it', 'okt'], done: ['Done', 'okt'], answered: ['Answered', 'okt'], booked: ['Load booked', 'okt'], looking: ['Still looking', 'cwarn'], onit: ['On it', 'okt'], calling: ['Calling him', 'cwarn'], cancelled: ['Called off', ''] };
+      const mins = (a, b) => (a && b ? Math.round((new Date(b) - new Date(a)) / 60000) : null);
+      body = `<section class="card deskcfg"><h3>Shifts ${dk.now ? `<span class="small mut">· on shift now: <b>${esc(dk.now)}</b></span>` : ''}</h3>
+        <p class="hint">The bot reads the working drivers' groups and checks in with the dispatcher on shift, one to one in a private chat with the bot: a driver resting until a time ("Got it? No calls until then", then a check at that time), a driver who needs a load ("send me the best option you see now and why"), a question nobody answered. It asks the truck's own dispatcher when he is on shift, else the dispatchers of the shift. No answer in time: the others on shift, then the admins. Nothing is written in the driver groups.</p>
+        <form id="deskForm"><div class="deskrow"><label class="chk"><input type="checkbox" name="on" ${D.on ? 'checked' : ''}> On</label>
+          <label class="fld sm">Ask<select name="where"><option value="private" ${D.where !== 'group' ? 'selected' : ''}>In a private chat with the bot</option><option value="group" ${D.where === 'group' ? 'selected' : ''}>In the driver's group (tagging him)</option></select></label>
+          <label class="fld sm">Ask the others after (min)<input type="number" name="answerMin" min="5" max="120" value="${D.answerMin}"></label></div>
+        ${D.shifts.map((s, i) => `<div class="shiftrow" data-i="${i}"><div class="deskrow"><label class="fld sm">Shift<input name="name" value="${esc(s.name)}"></label><label class="fld sm">From<input type="time" name="start" value="${esc(s.start)}"></label><label class="fld sm">To<input type="time" name="end" value="${esc(s.end)}"></label></div>
+          <div class="ppl">${dk.people.map((p) => `<label class="pchip"><input type="checkbox" name="p" value="${p.id}" ${(s.people || []).map(Number).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}${p.role === 'admin' ? ' <span class="small mut">admin</span>' : ''} ${reach(p)}</label>`).join('')}</div></div>`).join('')}
+        <div class="tgsave"><button class="btn primary">Save</button></div></form></section>
+        ${dk.speed.length ? `<section class="card"><h3>How fast they answer the bot, 30 days</h3><table class="mini"><thead><tr><th>Dispatcher</th><th class="n">Asked</th><th class="n">Answered</th><th class="n">Half within</th></tr></thead><tbody>${dk.speed.map((x) => `<tr><td>${esc(x.name)}</td><td class="n">${x.asked}</td><td class="n">${x.answered}</td><td class="n">${x.med === null ? '—' : x.med + ' min'}</td></tr>`).join('')}</tbody></table></section>` : ''}
+        <section class="card"><h3>What the bot asked, last 7 days <span class="cnt">${dk.checks.length}</span></h3>${dk.checks.length ? `<div class="sheet"><table class="tgt"><thead><tr><th>When</th><th>Driver</th><th>What</th><th>Asked</th><th>Answer</th></tr></thead><tbody>
+          ${dk.checks.map((c) => { const st = STATE[c.state] || [c.state, '']; const m = mins(c.asked_at, c.answered_at);
+            return `<tr><td class="nowrap small">${esc(when(c.created_at))}</td><td>${c.driver_id ? `<a href="#/active/${c.driver_id}">${esc(c.driver)}</a>` : ''} <a class="small" href="#/telegram/${c.chat_id}">group</a></td>
+              <td>${esc(KIND[c.kind] || c.kind)}${c.until_text ? ' <b>' + esc(c.until_text) + '</b>' : ''}${c.place ? ' · ' + esc(c.place) : ''}${c.quote ? `<div class="small mut">"${esc(c.quote)}"</div>` : ''}${c.ask ? `<div class="small">${esc(c.ask)}</div>` : ''}</td>
+              <td class="small">${esc(c.asked || 'nobody on shift')}${c.escalated ? ' <span class="dtag warn">asked others</span>' : ''}</td>
+              <td><span class="${st[1]}">${esc(st[0])}</span>${c.answered_by ? ` <span class="small mut">${esc(c.answered_by)}${m !== null ? `, ${m} min` : ''}</span>` : ''}${c.answer ? `<div class="small">${esc(c.answer)}</div>` : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<p class="hint">Nothing yet. The bot asks when a working driver\'s group shows something to confirm.</p>'}</section>`;
     } else if (tab === 'all' && admin) {
       // every group the bot is in: not connected first, then connected; type and driver changed right here
       const [ag, dopt] = await Promise.all([api('/api/tg/all-groups'), api('/api/tg/driver-options')]); if (!live()) return;
@@ -398,6 +420,10 @@
   on('tgTab', (b) => { tab = b.dataset.tab; App.render(); });
   on('tgPeople', () => { tab = 'people'; App.go('#/telegram'); });
   on('tgSum', async (b) => { b.disabled = true; try { await api(`/api/tg/chats/${b.dataset.chat}/summary`, { method: 'POST', body: {} }); toast('Summary written'); App.render(); } catch (e) { fail(e); b.disabled = false; } });
+  // the shift desk settings
+  document.addEventListener('submit', async (e) => { if (e.target.id !== 'deskForm') return; e.preventDefault(); const f = e.target;
+    const shifts = [...f.querySelectorAll('.shiftrow')].map((r) => ({ name: r.querySelector('[name=name]').value, start: r.querySelector('[name=start]').value, end: r.querySelector('[name=end]').value, people: [...r.querySelectorAll('[name=p]:checked')].map((x) => +x.value) }));
+    try { await api('/api/tg/desk', { method: 'PUT', body: { on: f.querySelector('[name=on]').checked, where: f.querySelector('[name=where]').value, answerMin: +f.querySelector('[name=answerMin]').value, shifts } }); toast('Saved'); App.render(); } catch (er) { fail(er); } });
   // All groups tab: connect, change, disconnect in the row
   onChange('agKind', (el) => { const i = el.closest('tr').querySelector('.agdrv'); i.disabled = el.value === 'management'; });
   on('agSave', async (b) => { const tr = b.closest('tr'); const kind = tr.querySelector('[data-ch=agKind]').value; const v = tr.querySelector('.agdrv').value; const m = /#(\d+)\s*$/.exec(v);

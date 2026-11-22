@@ -148,6 +148,8 @@ async function digestChat(chatId) {
     await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', $5, $3, $4, false, true)`, [qn, an, chatId, chat.kind === 'accounting' ? 'accounting' : 'general', "AI, from the team's replies"]);
     out.learned = (out.learned || 0) + 1;
   }
+  // the shift desk: confirm with the dispatcher on shift (privately)
+  if (working && (r.desk_asks || []).length && !quiet) await require('./desk').fromGroup({ ...chat, chat_id: chatId }, r.desk_asks).catch((e) => console.error('desk', e.message));
   // signs he may leave
   if (working && (r.leaving_signs || []).length && !quiet) await require('../leaving').fromGroup({ ...chat, chat_id: chatId }, r.leaving_signs).catch((e) => console.error('leaving', e.message));
   // home time: going home, at home, coming back, back on the road

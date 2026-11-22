@@ -82,7 +82,9 @@ http.createServer((req, res) => {
         if (oc && /moved to the service area/.test(fresh)) case_updates.push({ case_id: +oc, steps_done: [1, 2], note: 'At the Molly Pitcher service area', resolved: false });
       }
       // shops, home time, leaving signs, the orientation day
-      const places = [], leaving_signs = [], orientation_done = []; let home_time;
+      const places = [], leaving_signs = [], orientation_done = [], desk_asks = []; let home_time;
+      if (working && /wake up at 10:30/.test(fresh)) desk_asks.push({ kind: 'rest', until: '10:30', quote: 'I will wake up at 10:30' });
+      if (working && /I am empty in Harrisburg/.test(fresh)) desk_asks.push({ kind: 'needs_load', place: 'Harrisburg, PA', quote: 'I am empty, need a load' });
       if (working) {
         if (/Use Mikes Diesel/.test(fresh)) places.push({ name: 'Mikes Diesel Repair', kind: 'shop', services: ['DPF cleaning', 'air leaks'], phone: '(410) 555-0199', city: 'Baltimore', state: 'MD', area: 'Baltimore area', outcome: 'unknown' });
         if (/fixed at Mikes Diesel/.test(fresh)) places.push({ name: 'Mikes Diesel Repair', kind: 'shop', phone: '4105550199', outcome: 'good', cost: 850, note: 'Fixed the air leak', services: ['air leaks'] });
@@ -94,7 +96,7 @@ http.createServer((req, res) => {
         if (/ELD works, I am logged in/.test(fresh) && /or_eld:/.test(j.system)) orientation_done.push('or_eld');
       }
       AI.working = (AI.working || 0) + (working ? 1 : 0);
-      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], places, leaving_signs, orientation_done, ...(home_time ? { home_time } : {}), cases_opened, case_updates, people, load_updates, dispatch_lessons, promises, promise_results } }] }));
+      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], desk_asks, places, leaving_signs, orientation_done, ...(home_time ? { home_time } : {}), cases_opened, case_updates, people, load_updates, dispatch_lessons, promises, promise_results } }] }));
     }
     if (tool === 'dispatcher_profile') { AI.disp = (AI.disp || 0) + 1; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { summary: 'Short, clear messages.', tone: 'friendly', clarity: 'clear', professionalism: 'high', update_habits: ['Asks for the BOL photo once loaded'], phrases: ['Send me the BOL once loaded'], strengths: ['Answers fast'], improve: ['Ask for the ETA earlier'],
       scores: [{ area: 'speed', score: 4, seen: 'Answers within 20 minutes.', example: 'Send me the ETA please' }, { area: 'driver_care', score: 2, seen: 'Pushed a tired driver.' }],
@@ -592,6 +594,25 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const zm2 = Object.fromEntries((await pg.query(`SELECT chat_id::text id, kind, driver_id FROM tg_chats WHERE chat_id IN ($1, $2)`, [ZD.id, ZE.id])).rows.map((x) => [x.id, x]));
   ok(fx.ok && fx.restored.length === 1 && zm2[ZE.id].kind === 'eld' && zm2[ZD.id].kind === 'dispatch' && zm2[ZD.id].driver_id === zed, 'fixed on the group page: ELD again, and the real Dispatch group is back');
   ok(+((await pg.query(`SELECT chat_id FROM onb_cases WHERE driver_id = $1`, [zed])).rows[0] || {}).chat_id === ZD.id, 'the onboarding conversation is in the right group');
+
+  // ---------- the shift desk: one to one with the dispatcher on shift ----------
+  ok((await web('/api/tg/desk', { method: 'PUT', body: { on: true, where: 'private', answerMin: 15, shifts: [{ name: 'All day', start: '00:00', end: '23:59', people: [danU.id] }] } })).ok, 'a shift with Dan on it');
+  push({ message: { message_id: mid++, from: DAN, chat: { id: DAN.id, type: 'private' }, date: Math.floor(Date.now() / 1000), text: '/start' } }); await sleep(1500);
+  let dn = tg.sent.length; say(HANK, 'Going to sleep, I will wake up at 10:30', HCHAT);
+  const q1 = await until(() => sentSince(dn).find((m) => String(m.chat_id) === String(DAN.id) && /will be up at/.test(m.text)), 15000);
+  ok(q1 && /10:30/.test(q1.text) && /No calls until then/.test(q1.text) && !inChat(dn, HCHAT).some((m) => /will be up at/.test(m.text)), 'the driver will wake up at 10:30: the bot asks Dan privately, nothing in the group');
+  const cid = /desk:(\d+):ok/.exec(JSON.stringify(q1.reply_markup))[1];
+  tap(DAN, `desk:${cid}:ok`, { id: DAN.id, type: 'private' }, q1.message_id);
+  ok(await until(async () => ((await pg.query(`SELECT state, answered_by FROM tg_checks WHERE id = $1`, [cid])).rows[0] || {}).answered_by === 'Dan Dispatch'), 'Dan taps Got it');
+  dn = tg.sent.length; await pg.query(`UPDATE tg_checks SET until_at = now() - interval '1 minute' WHERE id = $1`, [cid]);
+  ok(await until(() => sentSince(dn).some((m) => String(m.chat_id) === String(DAN.id) && /should be up now/.test(m.text)), 15000), 'at 10:30 the bot checks back: he should be up now');
+  dn = tg.sent.length; say(HANK, 'Delivered. I am empty in Harrisburg', HCHAT);
+  const q2 = await until(() => sentSince(dn).find((m) => String(m.chat_id) === String(DAN.id) && /needs a load/.test(m.text)), 15000);
+  ok(q2 && /best option you see now, and why it is good or not/.test(q2.text), 'he is empty: Dan is asked for a load, or the best option he sees and why');
+  push({ message: { message_id: mid++, from: DAN, chat: { id: DAN.id, type: 'private' }, date: Math.floor(Date.now() / 1000), text: 'Harrisburg to Newark tomorrow 6 AM, $2,100 for 170 miles: good rate, close to home', reply_to_message: { message_id: q2.message_id } } });
+  ok(await until(async () => /Harrisburg to Newark/.test(((await pg.query(`SELECT answer FROM tg_checks WHERE driver_id = $1 AND kind = 'needs_load' ORDER BY id DESC LIMIT 1`, [hank])).rows[0] || {}).answer || '')), 'his load option and why is saved');
+  const dk = await web('/api/tg/desk');
+  ok(dk.now === 'All day' && dk.checks.some((c) => c.kind === 'needs_load' && c.answered_by === 'Dan Dispatch') && dk.speed.some((x) => x.name === 'Dan Dispatch' && x.answered >= 2), 'Shift desk: on shift now, what was asked and answered, how fast');
 
   // ---------- the contract and the Clearinghouse ----------
   ok((await pg.query(`SELECT count(*)::int n FROM checklist WHERE driver_id = $1 AND key IN ('contract_sent', 'contract_signed', 'ch_registered', 'ch_query', 'ch_consent')`, [zed])).rows[0].n === 5, 'onboarding has the contract and Clearinghouse steps');

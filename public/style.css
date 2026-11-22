@@ -1804,3 +1804,6 @@ table.active.compact tbody th{text-align:left;background:inherit}
 .tipline{background:#FFF8E6;border-radius:8px;padding:8px 10px;margin:8px 0}
 .homeplan .hlist li{padding:4px 0;line-height:1.35}.homeplan .hact{white-space:nowrap;margin-left:4px}.homeplan .hact .linkbtn{font-size:13px}.homeplan details summary{cursor:pointer;color:#2B6CB0;margin:4px 0}
 .homeplan{padding-bottom:10px}
+.deskrow{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin:8px 0}.deskrow .fld.sm{min-width:140px}
+.shiftrow{border-top:1px solid #F0ECE4;padding:10px 0}.ppl{display:flex;flex-wrap:wrap;gap:8px}.pchip{display:flex;gap:6px;align-items:center;border:1px solid #E5E1D8;border-radius:16px;padding:4px 10px;font-size:14px}
+.okt{color:#1E6B3A;font-weight:600}.cwarn{color:#8A6100;font-weight:600}.cbad{color:#A3261B;font-weight:600}

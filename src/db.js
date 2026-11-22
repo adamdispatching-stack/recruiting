@@ -388,6 +388,10 @@ async function migrate() {
     ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS place_id INTEGER;
     ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS city TEXT;
     ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS state TEXT;
+    -- the shift desk: what the bot asked the dispatchers on shift (privately) and what they answered
+    CREATE TABLE IF NOT EXISTS tg_checks (id SERIAL PRIMARY KEY, chat_id BIGINT, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, kind TEXT NOT NULL, quote TEXT, until_at TIMESTAMPTZ, until_text TEXT, place TEXT, ask TEXT,
+      state TEXT NOT NULL DEFAULT 'open', asked_at TIMESTAMPTZ, asked_n INTEGER NOT NULL DEFAULT 0, answered_at TIMESTAMPTZ, answered_by TEXT, answer TEXT, escalated INTEGER NOT NULL DEFAULT 0, followed_up BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE TABLE IF NOT EXISTS tg_check_asks (id SERIAL PRIMARY KEY, check_id INTEGER NOT NULL REFERENCES tg_checks(id) ON DELETE CASCADE, user_id INTEGER, tg_id BIGINT, msg_id BIGINT, chat_id BIGINT, asked_at TIMESTAMPTZ NOT NULL DEFAULT now(), said TEXT, said_at TIMESTAMPTZ);
     -- the reply the bot would send to a driver in onboarding (Watch and learn: shown on the website with a Send button)
     CREATE TABLE IF NOT EXISTS tg_drafts (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, msg_id BIGINT, driver_text TEXT, draft TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'reply', state TEXT NOT NULL DEFAULT 'open', sent_text TEXT, sent_by TEXT, decided_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
@@ -730,7 +734,9 @@ const DEFAULTS = {
   // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
   // a second tag if nobody answers after remindMin, and the daily AI summary of each group
   // onbMode: how the bot starts in a new onboarding group (watch / assist / run); autoTick: the AI ticks onboarding steps itself
-  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, workMode: 'watch', onbMode: 'watch', autoTick: false, readEvery: 25, autoAccounts: true },
+  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, workMode: 'watch', onbMode: 'watch', autoTick: false, readEvery: 25, autoAccounts: true,
+    // the shift desk: who is on shift (team time zone), where the bot asks (private chat with the bot, or the group), minutes before asking the others
+    desk: { on: true, where: 'private', answerMin: 15, shifts: [{ name: 'Day', start: '06:00', end: '14:00', people: [] }, { name: 'Evening', start: '14:00', end: '22:00', people: [] }, { name: 'Night', start: '22:00', end: '06:00', people: [] }] } },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },
