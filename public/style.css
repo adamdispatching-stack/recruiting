@@ -1709,3 +1709,9 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .plist .btn{flex:none}
 @media (max-width:700px){.plist li{flex-wrap:wrap}.plist .pst{width:auto}}
 .pmap .pml text.c{text-anchor:middle}.pmap .pml text.e{text-anchor:end}
+
+/* papers */
+.docs{list-style:none;margin:0;padding:0}.docs li{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid #EEF1EF}
+.docs img{width:64px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #DCE3DF;display:block}
+.docs .dpdf{width:64px;height:44px;display:flex;align-items:center;justify-content:center;font-size:24px;border:1px solid #DCE3DF;border-radius:6px;text-decoration:none}
+.dup{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}

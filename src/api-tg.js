@@ -414,6 +414,8 @@ module.exports = (app) => {
     const b = req.body || {}; const v = { ...(db.settings.tg || {}) };
     if (b.teamReportAt !== undefined) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.teamReportAt))) return res.status(400).json({ error: 'A time like 09:00' }); v.teamReportAt = b.teamReportAt; }
     if (b.teamReport !== undefined) v.teamReport = !!b.teamReport;
+    if (b.eldAuto !== undefined) v.eldAuto = !!b.eldAuto; // new ELD groups run the setup by themselves (off: silent, /info on request)
+    if (b.acctAuto !== undefined) v.acctAuto = !!b.acctAuto;
     if (b.teamFollowups !== undefined) v.teamFollowups = !!b.teamFollowups;
     if (b.workMode !== undefined) { if (!['watch', 'updater'].includes(b.workMode)) return res.status(400).json({ error: 'Pick watch or updater' }); v.workMode = b.workMode; }
     if (b.onbMode !== undefined) { if (!['watch', 'assist', 'run'].includes(b.onbMode)) return res.status(400).json({ error: 'Pick watch, assist or run' }); v.onbMode = b.onbMode; }

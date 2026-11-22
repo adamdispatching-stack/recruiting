@@ -12,7 +12,7 @@ async function sessionUser(req) {
   return r.rows[0] || null;
 }
 // A dispatcher works with the trucks and the active drivers: the recruiting screens are not theirs.
-const DISPATCH_OK = [/^\/api\/(me|logout|beat|track)(\/|$)/, /^\/api\/notices/, /^\/api\/trucks(\/|$)/, /^\/api\/truck-events\//, /^\/api\/fleet\//,
+const DISPATCH_OK = [/^\/api\/(me|logout|beat|track)(\/|$)/, /^\/api\/notices/, /^\/api\/trucks(\/|$)/, /^\/api\/truck-events\//, /^\/api\/docs(\/|$)/, /^\/api\/fleet\//,
   /^\/api\/drivers\/\d+\/profile/, /^\/api\/team\/(\d+|me)(\/month)?$/, /^\/api\/tg\/(chats|alerts|me-code|status)(\/|$)/];
 const DISPATCH_GET = [/^\/api\/companies(\/\d+)?$/, /^\/api\/active(\/\d+)?$/];
 const dispatcherMay = (req) => { const p = req.path; return DISPATCH_OK.some((r) => r.test(p)) || (req.method === 'GET' && DISPATCH_GET.some((r) => r.test(p))); };

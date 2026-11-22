@@ -29,6 +29,7 @@
           <div><dt>CDL expires</dt><dd class="exp ${cdl.state}">${cdl.html}</dd></div><div><dt>Medical card expires</dt><dd class="exp ${med.state}">${med.html}</dd></div>
           <div><dt>On the road</dt><dd>${road.html}</dd></div></dl></section>
 
+      ${S.me.role === 'dispatcher' ? '' : App.docsBox({ driverId: r.driver.id, kinds: ['cdl', 'medical', 'other'], title: 'Driver papers', hint: 'The CDL and medical card. /info in the ELD group shares them.' })}
       <section class="card"><h3>Telegram groups</h3><div class="gtiles">${['dispatch', 'eld', 'accounting'].map((k) => {
         const g = by[k];
         return g ? `<a class="gtile on" href="#/telegram/${g.id}"><b>${GK[k][0]}</b><span>${esc(g.title || GK[k][1])}</span><span class="small mut">${g.lastAt ? 'last message ' + esc(teamWhen(g.lastAt)) : 'no messages yet'}${g.today ? ` · ${plural(g.today, 'message')} today` : ''}</span></a>`

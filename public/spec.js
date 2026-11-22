@@ -62,11 +62,13 @@
           P('What a verified driver still needs', 'built', 'Arrival date, company and truck before the start; reminders to the recruiter.', 'Notifications'),
           P('MVR and drug test info', 'built', 'CDL state, ZIP for the drug test, last 4 of SSN for a Pennsylvania MVR (hidden, logged, deleted after 30 days).', 'Lead page → Onboarding'),
           P('Book the drug test', 'next', 'From the ZIP, find nearby facilities and save the appointment.', 'Lead page'),
+          P('Driver papers (CDL, medical card)', 'built', 'Recruiters upload the CDL photo or PDF on the lead; shown only to the team.', 'Lead page → Driver papers'),
           P('Start date and travel from the chat', 'built', '"Ready Monday" becomes the start date (never overwrites the team\'s date; tells the recruiter instead).', 'Lead page')
         ] },
         { title: 'Trucks and companies', items: [
           P('Trucks by company', 'built', 'One table per company, empty trucks on top, the driver on each truck.', 'Trucks', '#/trucks'),
           P('Truck profile', 'built', 'Drivers and companies over time, shop history, oil changes, mileage, costs, open issues.', 'Trucks → a truck'),
+          P('Truck papers', 'built', 'Registration, insurance card, lease and other paperwork per truck.', 'Truck page → Truck papers'),
           P('Oil change reminders', 'built', 'By miles and days, with warnings ahead.', 'Notifications'),
           P('Empty-truck cost', 'built', '$8,000 a month per truck (lease $5,000, insurance $2,000, other $1,000), counted per day.', 'Dashboard, /empty'),
           P('Companies', 'built', 'Each company with its trucks and drivers.', 'Companies', '#/companies'),
@@ -125,7 +127,8 @@
           P('Knowledge base', 'built', 'Answers the bot uses, approved by the team.', 'Telegram → Knowledge')
         ] },
         { title: 'ELD and accounting groups', items: [
-          P('ELD setup and daily log checks', 'built', 'For new drivers: info, CDL and registration photos, login, manual, then checks at set times.', 'ELD groups'),
+          P('/info in the ELD group', 'built', 'The team types /info: the bot posts name, phone, email, company, truck (VIN, plate) and sends the CDL and the truck papers uploaded on the website. Nothing is sent by itself.', 'ELD groups'),
+          P('ELD setup and daily log checks', 'built', 'Info, login, manual, then log checks at set times. Off by default; switch on per group.', 'ELD group page → Run the ELD setup'),
           P('Silent for active drivers', 'built', 'ELD and accounting groups of drivers already working only read; switch on per group.', 'Group page'),
           P('Accounting answers', 'built', 'Answers pay and settlement questions, tags accounting when unsure, learns.', 'Accounting groups (switched on)')
         ] },

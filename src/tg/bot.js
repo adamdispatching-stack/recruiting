@@ -11,6 +11,17 @@ const state = { running: false, me: null, lastError: null, lastUpdateAt: null, s
 const handlers = { eld: null, dispatch: null, accounting: null }; // set by the job modules
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// send a file (a photo or a PDF) from the website's papers
+async function sendFile(chatId, { data, name, mime }, caption = '') {
+  const fd = new FormData(); fd.append('chat_id', String(chatId));
+  const photo = /^image\/(jpeg|png|webp)$/.test(mime) && data.length < 9.5e6;
+  fd.append(photo ? 'photo' : 'document', new Blob([data], { type: mime }), name);
+  if (caption) { fd.append('caption', caption); fd.append('parse_mode', 'HTML'); }
+  const r = await fetch(`${API()}/bot${TOKEN()}/${photo ? 'sendPhoto' : 'sendDocument'}`, { method: 'POST', body: fd });
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok) throw new Error(j.description || `Telegram file failed (${r.status})`);
+  return j.result;
+}
 async function call(method, params = {}) {
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), (params.timeout || 0) * 1000 + 15000);
   try {
@@ -132,7 +143,13 @@ async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
     await log('mode', `${d.name} is already active: the bot reads this ${KINDS[kind]} group quietly (no setup messages)`, { chatId, driverId });
     return;
   }
-  if (kind === 'eld' || kind === 'accounting') await q(`UPDATE tg_chats SET mode = 'updater' WHERE chat_id = $1`, [chatId]); // a new driver's ELD / accounting group: the setup runs
+  // ELD / accounting groups: nothing automatic. The team types /info for the driver's papers; the ELD setup and checks run only when switched on (group page)
+  if ((kind === 'eld' && (db.settings.tg || {}).eldAuto !== true) || (kind === 'accounting' && (db.settings.tg || {}).acctAuto !== true)) {
+    await q(`UPDATE tg_chats SET mode = 'watch' WHERE chat_id = $1`, [chatId]);
+    await log('mode', kind === 'eld' ? 'ELD group: silent. Type /info here to share the driver\'s info, CDL and truck papers' : 'Accounting group: silent (switch on answers on the group page)', { chatId, driverId });
+    return;
+  }
+  if (kind === 'eld' || kind === 'accounting') await q(`UPDATE tg_chats SET mode = 'updater' WHERE chat_id = $1`, [chatId]); // switched on in Settings: the setup runs
   const working = kind === 'dispatch' && (opts.big || ((await q(`SELECT member_count FROM tg_chats WHERE chat_id = $1`, [chatId])).rows[0] || {}).member_count > 10 || ((await q(`SELECT status FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).status === 'Hired');
   if (working) await q(`UPDATE tg_chats SET mode = $2 WHERE chat_id = $1`, [chatId, CMODES[(db.settings.tg || {}).workMode] ? db.settings.tg.workMode : 'watch']);
   if (kind === 'dispatch' && working && ((await q(`SELECT status FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).status !== 'Hired') return; // a working driver's group: read along and learn, nothing to start
@@ -445,12 +462,13 @@ async function handle(u) {
     }
     return emptyCmd(m.chat.id, who);
   }
-  if (cmd && ['help', 'mode', 'sum', 'status', 'link'].includes(cmd[1])) await log('cmd', `/${cmd[1]}${cmd[2] && cmd[1] === 'mode' ? ' ' + clip(cmd[2], 20) : ''}`, { chatId: chat.chat_id, who });
+  if (cmd && ['help', 'mode', 'sum', 'status', 'link', 'info'].includes(cmd[1])) await log('cmd', `/${cmd[1]}${cmd[2] && cmd[1] === 'mode' ? ' ' + clip(cmd[2], 20) : ''}`, { chatId: chat.chat_id, who });
   if (cmd && cmd[1] === 'link') return link(m, cmd[2].trim(), who);
   if (cmd && cmd[1] === 'me') return connectMe(m, cmd[2], who);
   const reg = /^\/?register(?:@\w+)?\b\s*(.*)$/is.exec((m.text || '').trim());
   if (reg && who) return register(m, reg[1], who);
   if (cmd && cmd[1] === 'help') return send(chat.chat_id, helpText(true), { replyTo: m.message_id });
+  if (cmd && cmd[1] === 'info' && chat.kind === 'eld') return require('./eld').infoCmd(chat, who); // the driver's info and papers, on request
   if (cmd && cmd[1] === 'mode') return modeCmd(m, chat, cmd[2], who);
   if (cmd && cmd[1] === 'sum') return sumCmd(m, chat, who);
   if (cmd && cmd[1] === 'status') {
@@ -461,7 +479,7 @@ async function handle(u) {
 }
 
 // ---------- the command list in Telegram's / menu ----------
-const GROUP_CMDS = [['register', 'Connect this group to a driver (dispatch, ELD or accounting)'], ['mode', 'Onboarding: how I work here (watch, answer, run)'], ['status', 'The driver\'s status card'],
+const GROUP_CMDS = [['info', 'ELD group: the driver\'s info, CDL and truck papers'], ['register', 'Connect this group to a driver (dispatch, ELD or accounting)'], ['mode', 'Onboarding: how I work here (watch, answer, run)'], ['status', 'The driver\'s status card'],
   ['sum', 'Sum up today on the website now'], ['help', 'What I do and the commands']];
 const PRIVATE_CMDS = [['onboard', 'Drivers in onboarding: Amazon verified / pending'], ['empty', 'The empty trucks, by company'], ['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
 async function setCommands() {
@@ -558,4 +576,4 @@ async function start() {
   await retryWaiting().catch((e) => console.error('tg waiting', e.message));
   loop();
 }
-module.exports = { linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+module.exports = { sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

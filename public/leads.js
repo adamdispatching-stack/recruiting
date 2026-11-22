@@ -466,6 +466,7 @@
         <div>
           ${d.status === 'Hired' ? activeCard(d) : ''}
           ${d.aiSummary ? `<section class="card"><div class="ai"><b>AI summary</b>${esc(d.aiSummary)}</div></section>` : ''}
+          ${['Onboarding', 'Hired'].includes(d.status) || (cur && cur.onboarding) ? App.docsBox({ driverId: d.id, kinds: ['cdl', 'medical', 'other'], title: 'Driver papers', hint: 'Upload the CDL here. In the ELD group, /info shares it with the driver\'s info and the truck papers.' }) : ''}
           <section class="card"><h3>Profile</h3><dl class="facts">
             ${[['Status', `${badge(d.status)}${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Company', App.coTag(d.companyId)], ['Driver type', esc(one(d.mode))],
               ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Ran Amazon Relay before', d.relayBefore === true ? 'Yes' : d.relayBefore === false ? 'No' : ''], ['Working period', esc(App.periodText(d))], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]

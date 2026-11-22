@@ -67,6 +67,24 @@ async function driverInfo(driverId) {
   return `🪪 <b>Driver for the ELD account</b>\nName: <b>${esc(d.name)}</b>\nPhone: ${esc(nice || 'not given')}\nEmail: ${esc((d.emails || [])[0] || 'not given')}\nCompany: ${esc(d.company || 'not set yet')}\nTruck: ${esc(truck)}\nType: ${oo ? 'Owner-operator' : 'Company driver'}${d.arrive ? `\nStarts: ${esc(d.arrive)}` : ''}`;
 }
 
+// ---------- /info: the driver's info and papers for the ELD team, only when the team asks ----------
+const DOCK = { cdl: 'CDL', medical: 'Medical card', registration: 'Truck registration', insurance: 'Insurance card', lease: 'Lease', other: 'Paper' };
+async function infoCmd(chat, who) {
+  if (!bot.isStaff(who)) return; // only our team; nothing written for anyone else
+  if (!chat.driver_id) return send(chat.chat_id, 'This group is not connected to a driver yet.');
+  const d = (await q(`SELECT d.*, co.name company, t.id truck_id, t.unit, t.details, t.vin, t.plate FROM drivers d LEFT JOIN companies co ON co.id = d.company_id LEFT JOIN trucks t ON t.driver_id = d.id WHERE d.id = $1`, [chat.driver_id])).rows[0];
+  const phone = (d.phones || [])[0]; const nice = phone && /^\d{10}$/.test(phone) ? `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}` : phone;
+  const oo = d.mode === 'Owner-operators';
+  const truck = d.unit ? `${d.unit}${d.details ? ` · ${d.details}` : ''}${d.vin ? ` · VIN ${d.vin}` : ''}${d.plate ? ` · plate ${d.plate}` : ''}` : oo && (d.truck_year || d.truck_model) ? `own truck · ${[d.truck_year, d.truck_model].filter(Boolean).join(' ')}` : 'not assigned yet';
+  const cdl = (await q(`SELECT id, kind, name, mime, data FROM docs WHERE driver_id = $1 AND kind IN ('cdl', 'medical') ORDER BY kind, created_at`, [d.id])).rows;
+  const tp = d.truck_id ? (await q(`SELECT id, kind, name, mime, data FROM docs WHERE truck_id = $1 ORDER BY (kind = 'registration') DESC, created_at`, [d.truck_id])).rows : [];
+  const missing = [!cdl.some((x) => x.kind === 'cdl') ? 'CDL' : '', d.truck_id && !tp.some((x) => x.kind === 'registration') ? 'truck registration' : ''].filter(Boolean);
+  await send(chat.chat_id, `🪪 <b>${esc(d.name)}</b>\n📞 ${esc(nice || '—')}\n✉️ ${esc((d.emails || [])[0] || '—')}\n🏢 ${esc(d.company || '—')}\n🚛 ${esc(truck)}${d.cdl_expires ? `\n🪪 CDL expires ${esc(String(d.cdl_expires).slice(0, 10))}` : ''}${d.license_state ? ` (${esc(d.license_state)})` : ''}${missing.length ? `\n⚠️ Not uploaded on the website yet: ${missing.join(', ')}` : ''}`);
+  for (const f of [...cdl, ...tp]) await bot.sendFile(chat.chat_id, f, `${DOCK[f.kind] || 'Paper'}${f.kind === 'registration' || f.kind === 'insurance' ? ` · truck ${esc(d.unit || '')}` : ` · ${esc(d.name)}`}`).catch((e) => send(chat.chat_id, `Could not send ${esc(f.name)}: ${esc(e.message)}`));
+  await bot.log('said', `/info: driver info${cdl.length + tp.length ? ` and ${cdl.length + tp.length} paper${cdl.length + tp.length === 1 ? '' : 's'}` : ''} shared with the ELD team`, { chatId: chat.chat_id, driverId: d.id, who });
+  await require('../lib').history(d.id, `Driver info and papers shared in the ELD group (/info by ${who.name})`, who.name, 'telegram').catch(() => {});
+}
+
 // ---------- start, after the group is linked ----------
 async function begin(chatId, driverId) {
   await q(`INSERT INTO eld_cases (driver_id, chat_id, steps) VALUES ($1, $2, $3) ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2, stopped_at = NULL`, [driverId, chatId, JSON.stringify({ info: { at: new Date().toISOString(), by: 'bot' } })]);
@@ -294,4 +312,4 @@ function checkText(c, tags, short) {
 }
 function start() { setInterval(() => tick().catch((e) => console.error('eld tick', e.message)), +process.env.TG_TICK_MS || 60000); }
 bot.handlers.eld = { begin, onButton, onMessage, status };
-module.exports = { start, tick, STEPS, phaseOf, caseOf };
+module.exports = { start, tick, STEPS, phaseOf, caseOf, infoCmd };

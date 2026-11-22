@@ -69,6 +69,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await until(async () => { try { return (await fetch(BASE + '/healthz')).ok; } catch (e) { return false; } }, 15000, 'server');
   await web('/api/login', { method: 'POST', body: { email: 'admin@example.com', password: 'test-password-123' } });
   const st = await until(async () => { const s = await web('/api/tg/status'); return s.running && s.bot ? s : null; }, 10000, 'bot');
+  ok((await web('/api/tg/autopilot', { method: 'PUT', body: { eldAuto: true } })).ok, 'this test runs the automatic ELD setup (switched on in the settings)');
   ok(st && st.bot.username === 'fleethire_test_bot' && st.ai, 'the bot is on as @fleethire_test_bot, with AI');
 
   // a driver in onboarding

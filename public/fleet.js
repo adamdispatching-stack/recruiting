@@ -67,6 +67,7 @@
         <section class="card"><h3>History</h3><div class="seg sm" role="group" aria-label="Show">${tab('all', 'Everything')}${tab('oil', 'Oil changes')}${tab('shop', 'Shop and service')}${tab('issues', 'Issues')}${tab('people', 'Drivers and companies')}</div>
           ${items.length ? `<ul class="evlist">${items.join('')}</ul>` : '<p class="hint">Nothing here yet. Oil changes and shop visits talked about in the driver\'s Telegram groups are added by themselves.</p>'}</section>
       </div><div>
+        ${App.docsBox({ truckId: t.id, kinds: ['registration', 'insurance', 'lease', 'other'], title: 'Truck papers', hint: 'Registration and other paperwork. /info in the driver\'s ELD group shares them.' })}
         <section class="card"><h3>Costs</h3><dl class="figs">${[['This month', c.month], ['This year', c.year], ['All time', c.all]].map(([l, v]) => `<div><dd>${money(v)}</dd><dt>${l}</dt></div>`).join('')}</dl>
           ${c.unpaid ? `<p class="unpaidline">${money(c.unpaid)} not paid yet</p>` : ''}
           ${kinds.length ? `<ul class="kbars">${kinds.map(([k, v]) => `<li><span>${esc(KIND[k] || k)}</span><i style="width:${Math.max(4, (v / top) * 100)}%"></i><b>${money(v)}</b></li>`).join('')}</ul>` : '<p class="hint">No costs yet. Add the cost when you log a service.</p>'}</section>

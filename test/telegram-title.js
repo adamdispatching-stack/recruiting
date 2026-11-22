@@ -15,7 +15,9 @@ http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', async () => {
     const out = (result) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ ok: true, result })); };
-    const p = JSON.parse(body || '{}');
+    let p; try { p = JSON.parse(body || '{}'); } catch (e) { // a file (multipart): keep the chat, the caption and the size
+      p = { chat_id: (/name="chat_id"\r\n\r\n(-?\d+)/.exec(body) || [])[1], caption: (/name="caption"\r\n\r\n([^\r]*)/.exec(body) || [])[1], filename: (/filename="([^"]*)"/.exec(body) || [])[1], bytes: body.length }; }
+    if (/send(Photo|Document)$/.test(req.url)) { (tg.files_sent = tg.files_sent || []).push({ method: req.url.split('/').pop(), ...p }); res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ ok: true, result: { message_id: 7000 + tg.files_sent.length, date: 0, chat: { id: +p.chat_id } } })); }
     const fm = /^\/file\/bot[^/]+\/(.+)$/.exec(req.url); if (fm) { res.end(tg.files[fm[1]] || ''); return; }
     const method = req.url.split('/').pop();
     if (method === 'getMe') return out(BOT);
@@ -196,7 +198,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   say(PAUL, 'I will be ready to roll on Monday, taking the Greyhound', PCHAT);
   const ob1 = await until(async () => (await pg.query(`SELECT to_char(expected_arrival, 'YYYY-MM-DD') ea, extract(dow FROM expected_arrival)::int dow, arrival_by, arrival_note FROM onboarding WHERE driver_id = $1 AND expected_arrival IS NOT NULL`, [paul])).rows[0], 15000, 'start date');
   ok(ob1 && ob1.dow === 1 && ob1.arrival_by === 'ai', '"ready to roll on Monday": the start date is set to Monday');
-  ok(ob1 && /Greyhound/.test(ob1.arrival_note) && !/88812345/.test(ob1.arrival_note), 'and the travel details (no ticket number)');
+  const note1 = await until(async () => (await pg.query(`SELECT arrival_note FROM onboarding WHERE driver_id = $1 AND arrival_note IS NOT NULL`, [paul])).rows[0]);
+  ok(note1 && /Greyhound/.test(note1.arrival_note) && !/88812345/.test(note1.arrival_note), 'and the travel details (no ticket number)');
   ok((await pg.query(`SELECT text FROM notices WHERE user_id = $1 AND text LIKE 'Paul Penn: start date set to%'`, [rita])).rows.length === 1, 'Rita is told');
   ok((await pg.query(`SELECT done FROM checklist WHERE driver_id = $1 AND key = 'arrival_date'`, [paul])).rows[0].done, 'the "Arrival date set" step ticks itself');
   // the team sets another date: the chat never overwrites it, the recruiter is told instead
@@ -411,6 +414,35 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   // switched on from the website: the ELD setup starts
   ok((await web(`/api/tg/chats/${E1.id}/mode`, { method: 'PATCH', body: { mode: 'updater' } })).ok && (await until(() => tg.sent.some((m) => String(m.chat_id) === String(E1.id)))), 'switched on on the group page: the ELD setup posts');
   await web(`/api/tg/chats/${E1.id}/mode`, { method: 'PATCH', body: { mode: 'watch' } });
+  // ---------- papers: uploaded on the website, shared in the ELD group with /info ----------
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64').toString('base64');
+  const up1 = await web('/api/docs', { method: 'POST', body: { driverId: ella, kind: 'cdl', name: 'ella-cdl.png', mime: 'image/png', data: png } });
+  ok(up1.doc && up1.doc.kind === 'cdl', 'CDL uploaded on the website');
+  ok((await web('/api/docs', { method: 'POST', body: { driverId: ella, kind: 'cdl', name: 'x.exe', mime: 'application/x-msdownload', data: png } })).status === 400, 'only photos and PDFs');
+  const tE = (await pg.query(`INSERT INTO trucks (unit, details, vin, plate) VALUES ('E22', '2022 Volvo VNL', '4V4NC9EH1NN000001', 'PA 12345') RETURNING id`)).rows[0].id;
+  await pg.query(`UPDATE trucks SET driver_id = $1 WHERE id = $2`, [ella, tE]);
+  await pg.query(`UPDATE drivers SET phones = ARRAY['2155550999'], emails = ARRAY['ella@example.com'] WHERE id = $1`, [ella]);
+  const pdf = Buffer.from('%PDF-1.4 test registration').toString('base64');
+  ok((await web('/api/docs', { method: 'POST', body: { truckId: tE, kind: 'registration', name: 'e22-registration.pdf', mime: 'application/pdf', data: pdf } })).doc, 'truck registration uploaded');
+  const fl = await fetch(BASE + '/api/docs/' + up1.doc.id + '/file', { headers: { Cookie: cookie } });
+  ok(fl.ok && fl.headers.get('content-type') === 'image/png', 'the file opens on the website');
+  n = tg.sent.length; const f0 = (tg.files_sent || []).length;
+  say(PAUL, '/info', E1); await sleep(700);
+  ok(!sentSince(n).length && (tg.files_sent || []).length === f0, 'someone not on the team types /info: nothing');
+  say(RITA, '/info', E1);
+  const info = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(E1.id) && /🪪 <b>Ella Evans<\/b>/.test(m.text)));
+  ok(info && /📞 \(215\) 555-0999/.test(info.text) && /✉️ ella@example.com/.test(info.text) && /🚛 E22 · 2022 Volvo VNL · VIN 4V4NC9EH1NN000001 · plate PA 12345/.test(info.text), '/info in the ELD group: name, phone, email, the truck');
+  const fs2 = await until(() => { const f = (tg.files_sent || []).slice(f0); return f.length >= 2 ? f : null; });
+  ok(fs2 && fs2.some((f) => f.method === 'sendPhoto' && /CDL/.test(f.caption) && String(f.chat_id) === String(E1.id)) && fs2.some((f) => f.method === 'sendDocument' && /Truck registration · truck E22/.test(f.caption)), 'and the CDL photo and the truck registration PDF');
+  ok((await web('/api/tg/log?chat=' + E1.id)).log.some((x) => /\/info: driver info and 2 papers shared/.test(x.text)), 'in the bot history');
+  // nothing automatic in a new ELD group
+  const nd = (await web('/api/drivers', { method: 'POST', body: { name: 'Nate Newdriver', source: 'Indeed', phone: '2155551234' } })).id;
+  await web('/api/drivers/' + nd, { method: 'PATCH', body: { status: 'Onboarding' } });
+  const NE = { id: -100736, type: 'supergroup', title: 'Nate Newdriver ELD 215 555 1234' };
+  n = tg.sent.length; added(NE, RITA);
+  ok(await until(async () => ((await pg.query(`SELECT kind, mode FROM tg_chats WHERE chat_id = $1`, [NE.id])).rows[0] || {}).kind === 'eld'), 'a new driver\'s ELD group connects');
+  await sleep(800); ok(!inChat(n, NE).length, 'and stays silent: no automatic info or questions');
+
   // nobody fits: the card lets you pick the group type and any driver
   const E3 = { id: -100732, type: 'supergroup', title: 'Zed Zero ELD 610 555 0101' };
   added(E3, X);

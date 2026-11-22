@@ -438,6 +438,12 @@ async function migrate() {
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS arrival_by TEXT;
     -- a working driver's group: how many people are in it, and how the bot works there (watch = learn quietly; updater = also writes)
     ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS member_count INTEGER;
+    -- papers the team uploads: the driver's CDL (and medical card), each truck's registration and paperwork.
+    -- Kept for the team and shared in the ELD group only when someone types /info there.
+    CREATE TABLE IF NOT EXISTS docs (id SERIAL PRIMARY KEY, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, truck_id INTEGER REFERENCES trucks(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BYTEA NOT NULL, uploaded_by INTEGER, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE INDEX IF NOT EXISTS docs_driver ON docs(driver_id);
+    CREATE INDEX IF NOT EXISTS docs_truck ON docs(truck_id);
     -- a working driver's group: the load updates seen in the chat (where the driver is with a load)
     CREATE TABLE IF NOT EXISTS tg_updates (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER, msg_id BIGINT, at TIMESTAMPTZ NOT NULL DEFAULT now(),
       status TEXT NOT NULL, place TEXT, eta TEXT, load_ref TEXT, by_role TEXT, text TEXT);

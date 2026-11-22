@@ -430,6 +430,31 @@ window.App = (() => {
   const updText = (u) => `${UPD[u.status] || u.status}${u.place ? ', ' + u.place : ''}${u.eta ? `, ETA ${u.eta}` : ''}${u.load_ref ? ` (${u.load_ref})` : ''}`;
   // how likely a driver in onboarding is to make it, from how he responds
   const chance = (r, long = false) => (r ? `<span class="chance c-${r.level}" title="${esc(r.reasons.map((x) => (x.up ? '+ ' : '− ') + x.text).join('\n') || 'Nothing to go on yet')}">${r.icon} ${r.score}${r.silentDays >= 1 ? ` · 🔇 ${r.silentDays}d silent` : ''}</span>${long && r.reasons.length ? `<ul class="chwhy">${r.reasons.map((x) => `<li class="${x.up ? 'up' : 'dn'}">${x.up ? '▲' : '▼'} ${esc(x.text)}</li>`).join('')}</ul>` : ''}` : '');
-  return { chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  // ---------- papers: the driver's CDL, a truck's registration (uploaded here, shared in the ELD group with /info) ----------
+  const DOCN = { cdl: 'CDL', medical: 'Medical card', registration: 'Registration', insurance: 'Insurance card', lease: 'Lease', other: 'Other' };
+  const docsBox = (o) => `<section class="card docsbox" data-${o.driverId ? 'driver' : 'truck'}="${o.driverId || o.truckId}" data-kinds="${o.kinds.join(',')}"><h3>${esc(o.title || 'Papers')}</h3><p class="hint">${esc(o.hint || '')}</p><div class="dlist"><p class="hint">Loading…</p></div>
+    <div class="dup"><select aria-label="What is it">${o.kinds.map((k) => `<option value="${k}">${DOCN[k]}</option>`).join('')}</select><label class="btn plain sm"><input type="file" accept="image/*,application/pdf" hidden data-ch="docUp">Upload a photo or PDF</label></div></section>`;
+  async function fillDocs(box) {
+    box.dataset.ready = '1';
+    const q = box.dataset.driver ? `driverId=${box.dataset.driver}` : `truckId=${box.dataset.truck}`;
+    try {
+      const r = await api('/api/docs?' + q);
+      box.querySelector('.dlist').innerHTML = r.docs.length ? `<ul class="docs">${r.docs.map((d) => `<li data-doc="${d.id}">${/^image\//.test(d.mime) && !/heic|heif/.test(d.mime) ? `<a href="/api/docs/${d.id}/file" target="_blank" rel="noopener"><img src="/api/docs/${d.id}/file" alt="${esc(DOCN[d.kind] || d.kind)}" loading="lazy"></a>` : `<a class="dpdf" href="/api/docs/${d.id}/file" target="_blank" rel="noopener">📄</a>`}
+        <div class="grow"><b>${esc(DOCN[d.kind] || d.kind)}</b><div class="small mut">${esc(d.name)} · ${Math.max(1, Math.round(d.size / 1024))} KB · ${esc(when(d.at))}${d.by ? ' · ' + esc(d.by) : ''}</div></div>
+        <a class="btn plain sm" href="/api/docs/${d.id}/file" target="_blank" rel="noopener">Open</a><button type="button" class="linkbtn danger" data-act="docDel">Delete</button></li>`).join('')}</ul>` : '<p class="hint">Nothing uploaded yet.</p>';
+    } catch (e) { box.querySelector('.dlist').innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+  }
+  new MutationObserver(() => document.querySelectorAll('.docsbox:not([data-ready])').forEach(fillDocs)).observe(document.body, { childList: true, subtree: true });
+  onChange('docUp', async (el) => {
+    const f = el.files && el.files[0]; if (!f) return; const box = el.closest('.docsbox');
+    if (f.size > 15 * 1024 * 1024) { el.value = ''; return toast('Up to 15 MB'); }
+    const data = await new Promise((ok, no) => { const rd = new FileReader(); rd.onload = () => ok(String(rd.result).split(',')[1]); rd.onerror = no; rd.readAsDataURL(f); });
+    const mime = f.type || (/\.pdf$/i.test(f.name) ? 'application/pdf' : /\.hei[cf]$/i.test(f.name) ? 'image/heic' : '');
+    try { await api('/api/docs', { method: 'POST', body: { [box.dataset.driver ? 'driverId' : 'truckId']: +(box.dataset.driver || box.dataset.truck), kind: box.querySelector('select').value, name: f.name, mime, data } }); toast('Uploaded'); } catch (e) { fail(e); }
+    el.value = ''; fillDocs(box);
+  });
+  on('docDel', async (b) => { if (!confirm('Delete this paper?')) return; const box = b.closest('.docsbox'); try { await api('/api/docs/' + b.closest('[data-doc]').dataset.doc, { method: 'DELETE' }); toast('Deleted'); } catch (e) { fail(e); } fillDocs(box); });
+
+  return { docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();
