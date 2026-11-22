@@ -1963,3 +1963,29 @@ table.leads.wk td.w .assign select{max-width:150px}
 .morefil{display:flex;flex-wrap:wrap;gap:12px;flex-basis:100%}
 .morefil[hidden]{display:none}
 #resetF{white-space:nowrap}
+
+/* ---------- Onboarding: cleaner rows (white, one hairline, icons instead of words) ---------- */
+table.obt tbody tr.brow>th,table.obt tbody tr.brow>td,table.obt tbody tr.brow.alt>th,table.obt tbody tr.brow.alt>td{background:#fff;padding-top:10px;padding-bottom:10px;border-bottom:1px solid #E6E9E5;vertical-align:middle}
+table.obt tbody tr.brow:hover>th,table.obt tbody tr.brow:hover>td{background:#F6F8F5}
+table.obt tbody tr.brow.azrow>th{box-shadow:none}
+table.obt tbody tr.ostep>td{background:#FAFBF9}
+.brow.droprow > th, .brow.droprow > td{background:#FFF7F5 !important}
+.obl1{display:flex;align-items:center;gap:6px;min-width:0}
+.obl1 .nml{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obl1 .obday{margin-left:0;background:#EEF1EE;color:var(--mut);font-weight:600}
+.ofacts{margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;white-space:normal}
+.ofacts .needtag{display:inline-block;margin-top:0}
+.obic{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:26px;height:26px;padding:0 4px;border:0;border-radius:7px;background:none;color:var(--mut);text-decoration:none;font-size:11.5px;font-weight:700;cursor:pointer}
+.obic:hover{background:#EEF1EE;color:var(--ink)}
+.obic:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+.obic.msg{color:#2B6CB0} .obic.ori{color:#1F6F43;background:#E7F2EA}
+.obic.bot.due{color:var(--yellow-ink);background:var(--yellow-t)}
+.obic.odrop{color:var(--red)} .obic.odrop:hover{background:var(--red-t);color:var(--red)}
+.obacts{display:flex;gap:4px;margin-top:4px;margin-left:-4px}
+.dropline{margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12.5px;color:var(--red)}
+td.azc{text-align:left}
+.azchk{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:7px;cursor:pointer}
+.azchk:hover{background:#FFF1DB}
+.azchk input{width:18px;height:18px;accent-color:#E68A00;cursor:pointer}
+td.azc .clip1{max-width:90px}
+.obacts{align-items:center}

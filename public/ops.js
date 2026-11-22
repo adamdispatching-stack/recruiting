@@ -177,6 +177,12 @@
   App.tile = tile;
 
   const open = new Set(); // drivers whose checklist is unfolded on the board
+  const OB_ICON = {
+    tg: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#229ED9"/><path d="M5.6 11.7 16.9 7.3c.5-.2 1 .1.8 1l-1.9 9c-.1.6-.5.8-1 .5l-2.9-2.1-1.4 1.4c-.2.2-.3.3-.6.3l.2-3 5.4-4.9c.2-.2 0-.3-.3-.1l-6.7 4.2-2.9-.9c-.6-.2-.6-.6.1-.9Z" fill="#fff"/></svg>',
+    drop: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="m16 8 5 5m0-5-5 5"/></svg>',
+    msg: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+    bot: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/></svg>',
+  };
   async function viewOnboarding() {
     const live = App.drawing(); const r = await api('/api/onboarding'); if (!live()) return; const t = r.today;
     document.title = 'Onboarding · FleetHire';
@@ -196,34 +202,40 @@
           <button class="dot" data-act="boardStep" data-step="${i.id}" data-done="${i.done ? 1 : 0}" ${LOCKED.includes(i.auto) ? 'disabled title="Ticks itself from the driver\'s page"' : ''} aria-pressed="${i.done}" aria-label="${esc(i.label)}: ${i.done ? 'done' : 'not done'}${LOCKED.includes(i.auto) ? ', ticks itself' : ''}">${i.done ? '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 8.4 3 3 6-6.4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}</button>
           <span>${esc(i.label)}</span>${i.note ? `<small title="${esc(i.note)}">Note</small>` : ''}</li>`;
     const row = (d, k) => {
-      const alt = k % 2 ? ' alt' : '';
+      const alt = '';
       const done = d.items.filter((i) => i.done).length, total = d.items.length, isOpen = open.has(d.id);
       const next = d.items.find((i) => !i.done); const oo = d.mode === 'Owner-operators';
       const facts = [d.location, d.expYears !== null && d.expYears !== undefined ? `${plural(d.expYears, 'yr')} CDL` : '', d.relayBefore === true ? 'ran Relay before' : d.relayBefore === false ? 'new to Relay' : '', App.periodText(d)].filter(Boolean).map(esc).join(' · ');
       const truck = oo && !d.truck ? (d.ownTruck ? `<b>Own</b> <span class="small mut">${esc(d.ownTruck)}</span>` : '<span class="none">Own truck, not noted</span>')
         : d.truck ? `<b>${esc(d.truck.unit)}</b>${d.truck.details ? ` <span class="small mut">${esc(d.truck.details)}</span>` : ''}` : '<span class="latetag">No truck yet</span>';
       const azv = d.amazonStep === 'verified'; const az = (S.me.amazon || []).find((x) => x.key === d.amazonStep);
-      return `<tr class="brow${alt}${azv ? ' azrow' : ''}${d.drop ? ' droprow' : ''}${isOpen ? ' open' : ''}" data-driver="${d.id}" title="Open ${esc(d.name)}"><th scope="row"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><span class="obday">day ${daysSince(d.startedAt) + 1}</span>
-          ${d.orientation && d.orientation.done < d.orientation.total ? `<a class="replyready orient" href="#/driver/${d.id}">Orientation day ${d.orientation.done} of ${d.orientation.total}</a>` : ''}
-          ${d.drafts ? `<a class="replyready" href="#/driver/${d.id}">💬 Reply ready to send</a>` : ''}
-          ${d.drop ? `<div class="dropline" data-drop="${d.id}" data-name="${esc(d.name)}" data-quote="${esc(d.drop.quote)}" data-reason="${esc(d.drop.reason || '')}"><b>Says he is not coming:</b> "${esc(d.drop.quote)}" <button type="button" class="btn danger sm" data-act="dropIt">Dropped out</button> <button type="button" class="btn plain sm" data-act="dropKeep">Still with us</button></div>` : ''}
-          <div class="small mut ofacts">${App.chance(d.reach)} ${azv ? '<span class="azv sm">✓ Amazon verified</span>' : `<span class="azpend" title="Amazon Relay">Amazon: ${az ? esc(az.label) : 'not started'}</span>`}${(d.needed || []).length ? ` <span class="needtag" title="Verified on Amazon: this must be set">Set: ${esc(d.needed.join(', '))}</span>` : ''}${facts ? ` ${facts}` : ''}</div>${d.bot && (d.bot.nextStep || d.bot.suggested) ? `<div class="small obai" title="What the Telegram bot sees">🤖 ${d.bot.waitingOn && d.bot.waitingOn !== 'nobody' ? `Waiting on ${esc(d.bot.waitingOn)}${d.bot.nextStep ? ': ' : ''}` : ''}${esc(d.bot.nextStep || '')}${d.bot.suggested ? ` <a class="latetag" href="#/driver/${d.id}">${plural(d.bot.suggested, 'step')} to confirm</a>` : ''}</div>` : ''}</th>
+      // the name cell stays two lines: name, day and small icons; then the chance to start and what must be set.
+      // The details (place, CDL years, Relay before, home time) and what the bot sees are in the tooltips.
+      const botTip = d.bot && (d.bot.nextStep || d.bot.suggested) ? `What the Telegram bot sees: ${d.bot.waitingOn && d.bot.waitingOn !== 'nobody' ? `waiting on ${d.bot.waitingOn}. ` : ''}${d.bot.nextStep || ''}` : '';
+      return `<tr class="brow${d.drop ? ' droprow' : ''}${isOpen ? ' open' : ''}" data-driver="${d.id}" title="Open ${esc(d.name)}"><th scope="row">
+          <div class="obl1"><a class="nml" href="#/driver/${d.id}" title="${esc(facts.replace(/ · /g, ', ') || d.name)}"><b>${esc(d.name)}</b></a><span class="obday" title="Day ${daysSince(d.startedAt) + 1} of onboarding">day ${daysSince(d.startedAt) + 1}</span>
+          ${d.drafts ? `<a class="obic msg" href="#/driver/${d.id}" title="A reply is ready to send" aria-label="A reply is ready to send">${OB_ICON.msg}</a>` : ''}
+          ${d.orientation && d.orientation.done < d.orientation.total ? `<a class="obic ori" href="#/driver/${d.id}" title="Orientation day: ${d.orientation.done} of ${d.orientation.total} done">${d.orientation.done}/${d.orientation.total}</a>` : ''}
+          ${botTip ? `<a class="obic bot${d.bot.suggested ? ' due' : ''}" href="#/driver/${d.id}" title="${esc(botTip)}${d.bot.suggested ? ` (${plural(d.bot.suggested, 'step')} to confirm)` : ''}" aria-label="${esc(botTip)}">${OB_ICON.bot}${d.bot.suggested ? `<b>${d.bot.suggested}</b>` : ''}</a>` : ''}</div>
+          <div class="small mut ofacts">${App.chance(d.reach)}${(d.needed || []).length ? ` <span class="needtag" title="Verified on Amazon: this must be set">Set: ${esc(d.needed.join(', '))}</span>` : ''}</div>
+          ${d.drop ? `<div class="dropline" data-drop="${d.id}" data-name="${esc(d.name)}" data-quote="${esc(d.drop.quote)}" data-reason="${esc(d.drop.reason || '')}" title="${esc(d.drop.quote)}"><b>Says he is not coming</b> <button type="button" class="btn danger sm" data-act="dropIt">Dropped out</button> <button type="button" class="btn plain sm" data-act="dropKeep">Still with us</button></div>` : ''}</th>
         <td>${(d.phones || []).slice(0, 1).map((p) => App.phone(p)).join('') || '<span class="none">No phone</span>'}</td>
         <td class="emcell">${(d.emails || []).slice(0, 1).map((m) => App.email(m)).join('') || '<span class="none">No email</span>'}</td>
         <td>${d.companyId ? App.coTag(d.companyId) : (d.needed || []).includes('company') ? '<span class="latetag">Not set</span>' : '<span class="none">Not set</span>'}</td>
         <td class="tk">${truck}</td>
         <td class="arr" title="${esc(d.arrivalNote || '')}">${whenText(d)}${d.arrivalNote ? `<div class="small mut clip1">${esc(d.arrivalNote)}</div>` : ''}</td>
+        <td class="azc"><label class="azchk" title="${azv ? 'Verified by Amazon' : `Amazon Relay: ${az ? az.label : 'not started'}. Tick when Amazon verifies him.`}"><input type="checkbox" data-ch="azVerified" data-id="${d.id}" ${azv ? 'checked' : ''} aria-label="${esc(d.name)} verified on Amazon"></label>${azv ? '' : `<div class="small mut clip1">${az ? esc(az.label) : 'Not started'}</div>`}</td>
         <td><div class="obprog"><span class="pbar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span><span class="cpill${done === total && total ? ' full' : ''}">${done}/${total}</span></div>
           <div class="small mut clip1">${next ? `Next: ${esc(next.label)}` : 'All done, ready to mark hired'}</div></td>
-        <td class="small">${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}<div><button type="button" class="linkbtn danger small" data-act="dropRow" data-id="${d.id}" data-name="${esc(d.name)}">Dropped out</button></div>${d.telegramLink ? `<div><a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram</a></div>` : ''}</td>
+        <td class="small">${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}<div class="obacts">${d.telegramLink ? `<a class="obic tg" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer" title="Open his Telegram group" aria-label="Open ${esc(d.name)}'s Telegram group">${OB_ICON.tg}</a>` : ''}<button type="button" class="obic odrop" data-act="dropRow" data-id="${d.id}" data-name="${esc(d.name)}" title="Dropped out" aria-label="${esc(d.name)} dropped out">${OB_ICON.drop}</button></div></td>
         <td><button class="caret" data-act="boardOpen" aria-expanded="${isOpen}" aria-label="${isOpen ? 'Hide' : 'Show'} the checklist for ${esc(d.name)}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td></tr>
-        ${isOpen ? `<tr class="ostep${alt}"><td colspan="9"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
+        ${isOpen ? `<tr class="ostep${alt}"><td colspan="10"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
           <ol class="stepper">${d.items.map((i, k) => step(d, i, k)).join('')}</ol>
           <p class="note-i">Truck and arrival steps tick themselves when you fill them in on the driver's page. Click a circle to tick or untick a step.</p></td></tr>` : ''}`;
     };
     const table = (list, title, oo) => list.length ? `<h3 class="obsub">${title} <span class="cnt">${list.length}</span></h3>
-      <div class="sheet"><table class="board2 obt"><colgroup><col style="width:16%"><col style="width:150px"><col style="width:176px"><col style="width:8%"><col style="width:11%"><col style="width:11%"><col><col style="width:9%"><col style="width:40px"></colgroup>
-        <thead><tr><th>Driver</th><th>Phone</th><th>Email</th><th>Company</th><th>${oo ? 'Their truck' : 'Truck'}</th><th>Arrival</th><th>Progress</th><th>Recruiter</th><th></th></tr></thead><tbody>${list.map((d, k) => row(d, k)).join('')}</tbody></table></div>` : '';
+      <div class="sheet"><table class="board2 obt"><colgroup><col style="width:17%"><col style="width:146px"><col style="width:150px"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:92px"><col style="width:150px"><col style="width:9%"><col style="width:40px"></colgroup>
+        <thead><tr><th>Driver</th><th>Phone</th><th>Email</th><th>Company</th><th>${oo ? 'Their truck' : 'Truck'}</th><th>Arrival</th><th title="Verified by Amazon">Amazon ✓</th><th>Progress</th><th>Recruiter</th><th></th></tr></thead><tbody>${list.map((d, k) => row(d, k)).join('')}</tbody></table></div>` : '';
     const byType = (list) => {
       const co = list.filter((d) => d.mode !== 'Owner-operators'), oo = list.filter((d) => d.mode === 'Owner-operators');
       return table(co, 'Company drivers', false) + table(oo, 'Owner operators', true);
@@ -239,6 +251,12 @@
         <span class="small mut">${d.truck ? 'Truck ' + esc(d.truck) + ', ' : ''}hired ${esc(dateText(dayOf(d.hiredAt)))}, ${plural(Math.max(1, Math.round((new Date(d.hiredAt) - new Date(d.startedAt)) / 864e5)), 'day')} in onboarding</span></li>`).join('')}</ul></section>` : ''}
     </main>`;
   }
+  // Amazon verified, ticked right on the row (unticking puts him back to "Waiting for Amazon")
+  onChange('azVerified', async (el) => {
+    if (!el.checked && !confirm('Not verified by Amazon after all? He goes back to "Waiting for Amazon".')) { el.checked = true; return; }
+    try { await api('/api/drivers/' + el.dataset.id, { method: 'PATCH', body: { amazonStep: el.checked ? 'verified' : 'waiting' } }); toast(el.checked ? 'Verified on Amazon' : 'Back to waiting for Amazon'); } catch (e) { fail(e); el.checked = !el.checked; }
+    await redraw(viewOnboarding);
+  });
   // a click anywhere on a driver's row opens the driver; links, buttons and the arrow keep their own job
   document.addEventListener('click', (e) => {
     const r = e.target.closest('table.obt tr.brow[data-driver]');
