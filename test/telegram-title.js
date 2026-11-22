@@ -343,12 +343,16 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(!sentSince(n).length, 'a driver typing it: nothing');
 
   // ---------- /onboard and management groups ----------
-  await pg.query(`UPDATE drivers SET amazon_step = 'verified' WHERE id = $1`, [paul]);
+  await pg.query(`UPDATE drivers SET amazon_step = 'verified', mode = 'Owner-operators', truck_year = 2021, truck_model = 'Freightliner Cascadia' WHERE id = $1`, [paul]);
+  const cara = (await web('/api/drivers', { method: 'POST', body: { name: 'Cara Company', source: 'Indeed' } })).id;
+  await web('/api/drivers/' + cara, { method: 'PATCH', body: { status: 'Onboarding' } });
+  await pg.query(`UPDATE drivers SET amazon_step = 'verified', mode = 'Company drivers' WHERE id = $1`, [cara]);
   await pg.query(`UPDATE drivers SET amazon_step = 'accurate', amazon_log = jsonb_build_object('accurate', (now() - interval '6 hours')::text), owner_id = $2 WHERE id = $1`, [cody, rita]);
   await pg.query(`UPDATE tg_people SET user_id = $1 WHERE tg_id = 11`, [rita]); // Rita's Telegram is Rita on the website
   n = tg.sent.length; priv(RITA, '/onboard');
   const ob = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /in onboarding/.test(m.text)), 20000);
   ok(ob && /✅ <b>Amazon verified<\/b> \(\d+\)[\s\S]*Paul Penn[\s\S]*⏳ <b>Pending Amazon<\/b>[\s\S]*Cody Coming/.test(ob.text), '/onboard: Amazon verified (Paul), then pending Amazon (Cody)');
+  ok(ob && /✅ <b>Amazon verified<\/b> \(2\)\n<b>🚛 Company drivers<\/b> \(1\)\n• <b>Cara Company<\/b>[\s\S]*<b>🛻 Owner-operators<\/b> \(1\)\n• <b>Paul Penn<\/b>[\s\S]*Own truck: 2021 Freightliner Cascadia[\s\S]*⏳ <b>Pending Amazon/.test(ob.text), 'verified: company drivers first, then owner-operators (with their truck)');
   ok(ob && /Amazon: Background check \(6 h\)/.test(ob.text) && /Paul Penn<\/b>: Rita Recruiter, starts/.test(ob.text), 'with the recruiter, the start date, the Amazon step and how long');
   const MCHAT = { id: -100740, type: 'supergroup', title: 'Management Team' };
   n = tg.sent.length; added(MCHAT, RITA);

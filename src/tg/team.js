@@ -28,7 +28,7 @@ async function refresh(limitMs = 40000) {
 }
 
 async function onboardText({ tagRecruiters = false } = {}) {
-  const rows = (await q(`SELECT d.id, d.name, d.amazon_step, d.amazon_log, d.owner_id, u.name owner, o.expected_arrival::text start, o.arrival_note, c.ai_status, c.ai_status_at, c.mode,
+  const rows = (await q(`SELECT d.id, d.name, d.mode dtype, d.truck_year, d.truck_model, d.amazon_step, d.amazon_log, d.owner_id, u.name owner, o.expected_arrival::text start, o.arrival_note, c.ai_status, c.ai_status_at, c.mode,
       (SELECT max(at) FROM tg_messages m WHERE m.chat_id = ch.chat_id AND NOT m.is_bot) last_msg, ch.chat_id
     FROM drivers d LEFT JOIN users u ON u.id = d.owner_id LEFT JOIN onboarding o ON o.driver_id = d.id LEFT JOIN onb_cases c ON c.driver_id = d.id
     LEFT JOIN tg_chats ch ON ch.driver_id = d.id AND ch.kind = 'dispatch' AND ch.active
@@ -50,7 +50,14 @@ async function onboardText({ tagRecruiters = false } = {}) {
   };
   const ver = rows.filter((d) => d.amazon_step === 'verified'), pend = rows.filter((d) => d.amazon_step !== 'verified');
   const blocks = [`🧭 <b>${rows.length} in onboarding</b>: ${ver.length} Amazon verified, ${pend.length} pending Amazon`];
-  blocks.push(`\n✅ <b>Amazon verified</b> (${ver.length})`); for (const d of ver) blocks.push(await line(d)); if (!ver.length) blocks.push('Nobody yet.');
+  blocks.push(`\n✅ <b>Amazon verified</b> (${ver.length})`); if (!ver.length) blocks.push('Nobody yet.');
+  // verified: company drivers first, then owner-operators (and anyone not marked yet)
+  const groups = [['🚛 Company drivers', ver.filter((d) => d.dtype === 'Company drivers')], ['🛻 Owner-operators', ver.filter((d) => d.dtype === 'Owner-operators')], ['❔ Not marked company or owner-operator', ver.filter((d) => d.dtype !== 'Company drivers' && d.dtype !== 'Owner-operators')]];
+  for (const [label, ds] of groups) {
+    if (!ds.length && label.startsWith('❔')) continue;
+    blocks.push(`<b>${label}</b> (${ds.length})`); if (!ds.length) blocks.push('Nobody.');
+    for (const d of ds) blocks.push((await line(d)) + (d.dtype === 'Owner-operators' && (d.truck_year || d.truck_model) ? `\n   🚚 Own truck: ${esc([d.truck_year, d.truck_model].filter(Boolean).join(' '))}` : ''));
+  }
   blocks.push(`\n⏳ <b>Pending Amazon</b> (${pend.length})`); for (const d of pend) blocks.push(await line(d)); if (!pend.length) blocks.push('Nobody.');
   // Telegram allows 4096 characters a message: split between drivers
   const out = []; let cur = '';
