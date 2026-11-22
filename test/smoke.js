@@ -121,7 +121,7 @@ const sql = async (text, params) => {
   ok((await sam('/api/drivers/' + frank)).status === 200, 'shared mode again: everyone sees every lead');
 
   console.log('\n# trucks');
-  ok((await post(don, '/api/trucks', { unit: '300' })).status === 403 && (await don('/api/trucks')).status === 403, 'trucks are the dispatch team\'s: a recruiter cannot open or add them (he picks a free truck in onboarding)');
+  ok((await don('/api/trucks')).status === 200 && (await don('/api/fleet/settings')).status === 403, 'a recruiter opens the trucks, not the fleet settings');
   const t104 = (await post(admin, '/api/trucks', { unit: '104', details: '2021 Freightliner Cascadia', location: 'Newark yard' })).body.id;
   const t9 = (await post(admin, '/api/trucks', { unit: '9', details: '2019 Cascadia' })).body.id;
   const t220 = (await post(admin, '/api/trucks', { unit: '220', driverName: 'Mike (current driver)' })).body.id;

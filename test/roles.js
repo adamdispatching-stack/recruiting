@@ -38,9 +38,9 @@ async function until(f, ms = 10000) { for (let i = 0; i < ms / 100; i++) { const
 
   // ---------- a recruiter: recruiting only ----------
   const no = async (who, paths) => { const bad = []; for (const p of paths) { const r = await who(p); if (r.status !== 403) bad.push(`${p} ${r.status}`); } return bad; };
-  const rb = await no(R, ['/api/trucks', '/api/active', '/api/cases', '/api/places', '/api/playbooks', '/api/tg/dispatch-readiness', '/api/tg/desk', '/api/tg/routines', '/api/team/dispatchers', '/api/tg/dispatchers/u' + dan, '/api/fleet/dispatchers', `/api/drivers/${hank}/profile`, '/api/team/' + dan]);
-  ok(!rb.length, 'a recruiter cannot open trucks, active drivers, road cases, shops, the shift desk, dispatchers\' reviews or another person\'s page' + (rb.length ? ': ' + rb.join(', ') : ''));
-  const rOk = await Promise.all(['/api/drivers', '/api/onboarding', '/api/companies', '/api/fleet/goal', '/api/team/me', '/api/kb', '/api/tg/chats', '/api/tg/readiness'].map(async (p) => [p, (await R(p)).status]));
+  const rb = await no(R, ['/api/fleet/settings', '/api/active', '/api/cases', '/api/places', '/api/playbooks', '/api/tg/dispatch-readiness', '/api/tg/desk', '/api/tg/routines', '/api/team/dispatchers', '/api/tg/dispatchers/u' + dan, `/api/drivers/${hank}/profile`, '/api/team/' + dan]);
+  ok(!rb.length, 'a recruiter cannot open truck settings, active drivers, road cases, shops, the shift desk, dispatchers\' reviews or another person\'s page' + (rb.length ? ': ' + rb.join(', ') : ''));
+  const rOk = await Promise.all(['/api/drivers', '/api/onboarding', '/api/companies', '/api/trucks', '/api/fleet/dispatchers', '/api/fleet/free-drivers', '/api/fleet/goal', '/api/team/me', '/api/kb', '/api/tg/chats', '/api/tg/readiness'].map(async (p) => [p, (await R(p)).status]));
   ok(rOk.every(([, s]) => s === 200), 'a recruiter opens leads, onboarding, companies, the hiring goal, his own activity, answers for drivers, his Telegram groups' + (rOk.some(([, s]) => s !== 200) ? ': ' + JSON.stringify(rOk) : ''));
   const rc = (await R('/api/tg/chats')).chats;
   ok(rc.length === 1 && rc[0].driver === 'Olga Onb', 'a recruiter\'s Telegram: only the onboarding driver\'s group, not the working driver\'s or the shift group');
@@ -75,8 +75,8 @@ async function until(f, ms = 10000) { for (let i = 0; i < ms / 100; i++) { const
       await p.goto(BASE + '/'); await p.fill('input[type=email]', email); await p.fill('input[type=password]', pw); await p.click('button[type=submit], .btn.primary'); await p.waitForSelector('.rail', { timeout: 8000 });
       const items = await p.$$eval('.rail nav[aria-label=Sections] a span', (x) => x.map((e) => e.textContent)); await p.screenshot({ path: shot }); return { p, items }; };
     const r = await menu('rita@example.com', 'rita-pass-1234', '/tmp/shot/menu-recruiter.png');
-    ok(['Leads', 'Onboarding', 'Telegram', 'Answers for drivers'].every((x) => r.items.includes(x)) && !['Trucks', 'Active drivers', 'Road cases', 'Shops & services', 'Shift desk', 'Team'].some((x) => r.items.includes(x)), 'recruiter menu: ' + r.items.join(', '));
-    await sleep(1000); await r.p.goto(BASE + '/#/trucks'); await sleep(1000); ok(!/#\/trucks/.test(r.p.url()), 'a recruiter typing #/trucks is sent back to his day');
+    ok(['Leads', 'Onboarding', 'Trucks', 'Telegram', 'Answers for drivers'].every((x) => r.items.includes(x)) && !['Active drivers', 'Road cases', 'Shops & services', 'Shift desk', 'Team'].some((x) => r.items.includes(x)), 'recruiter menu: ' + r.items.join(', '));
+    await sleep(1000); await r.p.goto(BASE + '/#/trucks'); await sleep(1000); ok(/#\/trucks/.test(r.p.url()), 'a recruiter opens Trucks');
     const d = await menu('dan@example.com', 'dan-pass-12345', '/tmp/shot/menu-dispatcher.png');
     ok(['Trucks', 'Active drivers', 'Road cases', 'Telegram', 'Knowledge base'].every((x) => d.items.includes(x)) && !['Leads', 'Onboarding', 'Team', 'Shift desk', 'Badges'].some((x) => d.items.includes(x)), 'dispatcher menu: ' + d.items.join(', '));
     await sleep(1200); await d.p.goto(BASE + '/#/telegram'); await d.p.waitForSelector('.fbtabs', { timeout: 8000 });

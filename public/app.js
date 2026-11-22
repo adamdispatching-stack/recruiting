@@ -287,7 +287,7 @@ window.App = (() => {
     // a dispatcher's screens: trucks, active drivers, their Telegram groups, their own activity and password
     if (S.me.role === 'dispatcher' && /^#\/driver\/\d+$/.test(path)) return go(path.replace('#/driver/', '#/active/'));
     if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active(\/\d+)?|cases|playbook|places|kb(\/handbook)?|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
-    if (S.me.role === 'member' && /^#\/(trucks|truck\/|active|cases|playbook|places|shifts|dispatcher\/|team\/dispatchers)/.test(path)) return go('#/');
+    if (S.me.role === 'member' && /^#\/(active|cases|playbook|places|shifts|dispatcher\/|team\/dispatchers)/.test(path)) return go('#/');
     pageOpened(h);
     for (const [re, fn] of routes) { const m = path.match(re); if (m) { try { return await fn(...m.slice(1), new URLSearchParams(qs || '')); } catch (e) { return fail(e); } } }
     go('#/');
@@ -337,7 +337,7 @@ window.App = (() => {
       ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places']]],
     ] : [
       ['', [['#/', admin ? 'Dashboard' : 'My day', 'home']]],
-      ['Recruiting', [['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges']]],
+      ['Recruiting', [['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ...(admin ? [] : [['#/trucks', 'Trucks', 'trucks']]), ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges']]],
       // a recruiter: his onboarding groups in Telegram, the answers for drivers; the dispatching pages are not his
       ...(admin ? [['Dispatch', [['#/active', 'Active drivers', 'active'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ['#/shifts', 'Shift desk', 'shifts'], ['#/telegram', 'Telegram', 'telegram']]],
         ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places']]],
@@ -457,7 +457,7 @@ window.App = (() => {
   const moodDots = (m, big) => `<span class="mood${big ? ' big' : ''}" role="img" aria-label="Mood: ${(m || []).map((x) => `${dateText(x.day, { weekday: 'short' })} ${x.mood ? MOODS[x.mood][1] : 'no summary'}${x.high ? ', alert' : ''}`).join('; ')}">${(m || []).map((x) =>
     `<i class="md ${x.mood || 'none'}${x.high ? ' hi' : ''}" title="${esc(dateText(x.day, { weekday: 'short', month: 'short', day: 'numeric' }))}: ${x.mood ? MOODS[x.mood][1] : 'no summary yet'}${x.alerts ? `, ${x.alerts} alert${x.alerts > 1 ? 's' : ''}` : ''}${x.notes && x.notes[0] ? ' — ' + esc(x.notes[0].slice(0, 160)) : ''}">${x.mood ? MOODS[x.mood][0] : ''}</i>`).join('')}</span>`;
   // a hired driver's name goes to his own page (groups, mood, notes); a lead goes to the lead page
-  const driverHref = (id, status) => (status === 'Hired' || (S.me && S.me.role === 'dispatcher') ? `#/active/${id}` : `#/driver/${id}`);
+  const driverHref = (id, status) => ((status === 'Hired' && !(S.me && S.me.role === 'member')) || (S.me && S.me.role === 'dispatcher') ? `#/active/${id}` : `#/driver/${id}`);
   // A call-back time the driver asked for: "3:00 PM", "Sat 9:00 AM"; late = past and not called yet
   const cbTime = (cb) => { const t = new Date(cb.at); const same = t.toLocaleDateString('en-CA', { timeZone: tz() }) === new Date().toLocaleDateString('en-CA', { timeZone: tz() });
     return t.toLocaleString('en-US', { timeZone: tz(), ...(same ? {} : { weekday: 'short' }), hour: 'numeric', minute: '2-digit' }); };

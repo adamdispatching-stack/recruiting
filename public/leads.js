@@ -52,7 +52,7 @@
       <nav id="stages" class="stages" aria-label="Stages"></nav>
       <section class="fcard" aria-label="Filters"><div class="tools">
         <label class="search">${ICON_SEARCH}<input id="q" type="search" placeholder="Search name, phone, email, city, notes" aria-label="Search leads"></label>
-        <select id="fOwner" class="pick" aria-label="Recruiter"><option value="me">My leads</option><option value="">All recruiters</option><option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id).map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
+        <select id="fOwner" class="pick" aria-label="Recruiter"><option value="me">My leads</option><option value="">All recruiters</option><option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id && p.role !== 'dispatcher').map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
         <button type="button" class="pick morebtn" id="moreBtn" data-act="leadMore" aria-expanded="false">More filters</button>
         <button type="button" class="linkbtn" id="resetF" data-act="clearFilters" hidden>Reset to my leads</button>
         <div class="morefil" id="moreFil" hidden>

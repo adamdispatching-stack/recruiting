@@ -19,7 +19,7 @@ const u = Date.now().toString().slice(-5);
   let r = await R('/api/companies', { method: 'POST', body: { name: `Rae Freight ${u}`, mc: '123456' } });
   const co = r.body.id; ok(r.status === 200 && co, 'a recruiter adds a company');
   ok((await R('/api/companies/' + co, { method: 'PATCH', body: { notes: 'Pays on Fridays' } })).status === 200, 'and edits it');
-  ok((await R('/api/trucks', { method: 'POST', body: { unit: `R${u}`, companyId: co } })).status === 403 && (await R('/api/trucks')).status === 403, 'trucks are the dispatch team\'s: a recruiter cannot add or open them');
+  ok((await R('/api/trucks', { method: 'POST', body: { unit: `R${u}`, companyId: co } })).status === 200 && (await R('/api/trucks')).status === 200, 'a recruiter adds and opens trucks');
   ok((await R('/api/companies/' + co, { method: 'DELETE' })).status === 403, 'removing a company is for admins only');
   // Relay before
   r = await R('/api/drivers', { method: 'POST', body: { name: `Rita Relay ${u}`, source: 'Indeed', phone: '484555' + u.slice(-4), relayBefore: 'yes' } });

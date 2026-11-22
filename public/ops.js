@@ -324,7 +324,7 @@
         </tbody></table></div></section>`).join('') || '<div class="empty"><p>No trucks in this group.</p></div>') + `<p class="hint foot">Each company has its own table, empty trucks first. Click a unit number for the truck's own page: oil changes, shop visits, drivers and costs.</p>`
         : `<div class="empty"><p>No trucks listed yet.</p>Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.</div>`}
     </main>`;
-    App.casesCard(document.getElementById('truckCases'), '', { title: 'Road cases now' });
+    if (S.me.role !== 'member') App.casesCard(document.getElementById('truckCases'), '', { title: 'Road cases now' }); // road cases are not a recruiter's
   }
   on('truckFilter', (b) => { truckFilter = truckFilter === b.dataset.k && b.classList.contains('ftile') ? '' : b.dataset.k; viewTrucks(); });
   onChange('truckCo', (el) => { truckCo = el.value; viewTrucks(); });
@@ -333,8 +333,7 @@
     const has = t && (t.driver || t.driverName);
     if (!dispatchers) dispatchers = (await api('/api/fleet/dispatchers')).people;
     // active drivers without a truck, to link this one to
-    const act = t && t.driver ? [] : (await api('/api/active')).drivers;
-    const free = act.filter((d) => !d.truck);
+    const free = t && t.driver ? [] : (await api('/api/fleet/free-drivers')).drivers;
     const match = t && t.driverName ? free.find((d) => d.name.trim().toLowerCase() === t.driverName.trim().toLowerCase()) : null;
     dialog(`<form id="truckForm" class="dform"><h2>${t ? 'Truck ' + esc(t.unit) : 'Add a truck'}</h2><div class="grid2">
         <label class="fld">Unit number<input name="unit" type="text" required maxlength="30" value="${esc(t ? t.unit : '')}"></label>

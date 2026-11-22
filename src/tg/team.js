@@ -2,7 +2,8 @@
 // - /onboard: the drivers in onboarding, Amazon verified first, then pending Amazon; each with the recruiter, the start date
 //   and what is going on in the group (the AI reads the newest messages first, so the list is up to date)
 // - management groups: a Telegram group of our team (no driver). The bot posts the morning report there and follows up:
-//   it tags the recruiter when a driver waits for an answer, a call-back was missed, or Amazon is stuck.
+//   it tags whoever looks after a driver who got no response (the recruiter; for a working driver the truck's dispatcher),
+//   and the recruiter when a call-back was missed or Amazon is stuck.
 const db = require('../db');
 const bot = require('./bot');
 const { q } = db; const { send, esc } = bot;
@@ -100,26 +101,80 @@ const local = () => { const p = new Intl.DateTimeFormat('en-CA', { timeZone: db.
   const g = (k) => (p.find((x) => x.type === k) || {}).value; return { date: `${g('year')}-${g('month')}-${g('day')}`, min: (+g('hour') % 24) * 60 + +g('minute') }; };
 async function once(key) { const r = await q(`INSERT INTO tg_state (key, value) VALUES ($1, '{}'::jsonb) ON CONFLICT (key) DO NOTHING RETURNING key`, [key]); return !!r.rows[0]; }
 
+// A driver waits for us: he wrote in his dispatch group and got no response at all for 3+ hours (in onboarding, or working).
+// - only the driver's own messages start the wait. What others write is never an alert, and neither is a driver who does
+//   not answer us (his silence still lowers his chance on the Onboarding page).
+// - any response ends it: a person who is not the driver writing in the group, our reply sent from the website or
+//   answered through the bot, or a logged call where they talked.
+// - "ok", "thanks" or a sticker needs no answer. The wait counts from his first unanswered message, so writing again
+//   does not restart it. After 3 days it is no longer news.
+const WAIT_MS = 3 * 36e5, WAIT_DAYS = 3;
+const ANON_ADMIN = '1087968824'; // Telegram's id for an admin who writes as the group: our team
+const ACK = /^(?:(?:ok(?:ay)?|k+|thanks?( you)?|thank u|thx|ty|yes|yeah|yep|yup|no|nope|no problem|got it|copy( that)?|roger( that)?|10-4|will do|sounds good|alright|cool|great|perfect|good|noted|understood|you too|sir|bro|brother|man|boss)(?![a-z0-9])[\s.,!]*)+$/i;
+function needsAnswer(m) {
+  if (!m.text) return !!m.media && m.media !== 'sticker';
+  const t = String(m.text).replace(/[\p{Extended_Pictographic}\p{Emoji_Modifier}\u200d\ufe0f]/gu, '').trim();
+  return /[\p{L}\p{N}?]/u.test(t) && !t.startsWith('/') && !ACK.test(t);
+}
+const firstWord = (s) => String(s || '').trim().split(/\s+/)[0].toLowerCase();
+async function waitingDrivers() {
+  const groups = (await q(`SELECT d.id, d.name, d.status, d.owner_id, u.name owner_name, ch.chat_id
+    FROM drivers d JOIN tg_chats ch ON ch.driver_id = d.id LEFT JOIN users u ON u.id = d.owner_id
+    WHERE ch.kind = 'dispatch' AND ch.active AND (d.status = 'Onboarding' OR (d.status = 'Hired' AND d.left_on IS NULL))`)).rows;
+  if (!groups.length) return [];
+  const msgs = (await q(`SELECT m.chat_id, m.msg_id, m.from_id, m.from_name, m.is_bot, m.text, m.media, m.at, m.imported, p.role, p.user_id, p.name person
+    FROM tg_messages m JOIN tg_chats c ON c.chat_id = m.chat_id LEFT JOIN tg_people p ON p.tg_id = m.from_id
+    WHERE c.kind = 'dispatch' AND c.active AND m.at > now() - interval '${WAIT_DAYS} days' ORDER BY m.at, m.id`)).rows;
+  const byChat = new Map();
+  for (const m of msgs) { const k = String(m.chat_id); if (!byChat.has(k)) byChat.set(k, []); byChat.get(k).push(m); }
+  const known = new Map(); // driver -> his Telegram accounts
+  for (const p of (await q(`SELECT tg_id, driver_id FROM tg_people WHERE role = 'driver' AND driver_id IS NOT NULL`)).rows) {
+    if (!known.has(p.driver_id)) known.set(p.driver_id, new Set());
+    known.get(p.driver_id).add(String(p.tg_id));
+  }
+  // our responses that are not a person's message in the group
+  const sent = (await q(`SELECT chat_id, decided_at at FROM tg_drafts WHERE state = 'sent' AND decided_at > now() - interval '${WAIT_DAYS} days'`)).rows
+    .concat((await q(`SELECT chat_id, answered_at at FROM tg_questions WHERE answered_at > now() - interval '${WAIT_DAYS} days'`)).rows);
+  const talked = (await q(`SELECT driver_id, created_at at FROM notes WHERE kind = 'call' AND outcome = 'Talked' AND created_at > now() - interval '${WAIT_DAYS} days'`)).rows;
+
+  const out = [];
+  for (const g of groups) {
+    const list = byChat.get(String(g.chat_id)); if (!list) continue;
+    const ids = known.get(g.id);
+    // not connected as the driver yet: only someone with no role and the driver's own first name counts as him
+    const isDriver = (m) => !m.is_bot && !m.user_id && (ids ? ids.has(String(m.from_id))
+      : (!m.role || m.role === 'driver') && firstWord(m.person || m.from_name) === firstWord(g.name));
+    let first = null;
+    for (const m of list) {
+      if (!m.text && !m.media) continue; // someone joined, the title changed
+      if (isDriver(m)) { if (!first && !m.imported && needsAnswer(m)) first = m; continue; }
+      const byPerson = m.is_bot
+        ? String(m.from_id) === ANON_ADMIN || /\n\([^()\n]+\)$/.test(m.text || '') // a note posted from the website ends "(name)"
+        : m.user_id || m.role !== 'driver';
+      if (byPerson) first = null;
+    }
+    if (!first) continue;
+    const at = +new Date(first.at);
+    if (Date.now() - at <= WAIT_MS) continue;
+    if (sent.some((r) => String(r.chat_id) === String(g.chat_id) && new Date(r.at) >= at)) continue;
+    if (talked.some((r) => r.driver_id === g.id && new Date(r.at) >= at)) continue;
+    out.push({ ...g, msg: first });
+  }
+  return out;
+}
+
 // what needs a follow-up now: each item once a day
 async function followups() {
   const items = [];
-  // a driver in onboarding wrote in the group and nobody from the team answered for 3+ hours
-  for (const d of (await q(`SELECT d.id, d.name, d.owner_id, u.name owner, ch.chat_id, ch.title,
-      (SELECT max(m.at) FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL))) drv,
-      (SELECT max(m.at) FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND (p.role IN ('staff', 'dispatch', 'eld', 'accounting') OR p.user_id IS NOT NULL)) team
-    FROM drivers d JOIN tg_chats ch ON ch.driver_id = d.id AND ch.kind = 'dispatch' AND ch.active LEFT JOIN users u ON u.id = d.owner_id WHERE d.status = 'Onboarding'`)).rows) {
-    if (d.drv && (!d.team || new Date(d.team) < new Date(d.drv)) && Date.now() - new Date(d.drv) > 3 * 36e5)
-      items.push({ key: `wait:${d.id}`, userId: d.owner_id, owner: d.owner, text: `${esc(d.name)} wrote in the group ${ago(d.drv)} ago and nobody from the team answered.`, driverId: d.id });
-  }
-  // the silence countdown: 2 days (call him), 4 days (at risk), 7 days (still with us?)
-  const ob = (await q(`SELECT d.id, d.name, d.owner_id, u.name owner FROM drivers d LEFT JOIN users u ON u.id = d.owner_id WHERE d.status = 'Onboarding'`)).rows;
-  const rs = await require('../reach').scoreMany(ob.map((d) => d.id));
-  for (const d of ob) {
-    const r = rs[d.id]; if (!r || !(r.silentDays >= 2)) continue;
-    const step = r.silentDays >= 7 ? 7 : r.silentDays >= 4 ? 4 : 2;
-    const what = step === 7 ? 'still with us? Consider moving the driver out of onboarding.' : step === 4 ? `now at risk (${r.icon} ${r.score}). Try a call and a text today.` : 'please give a call.';
-    items.push({ ever: true, key: `silent${step}:${d.id}`, userId: d.owner_id, owner: d.owner, driverId: d.id,
-      text: `${esc(d.name)} has been silent ${r.silentDays} days${r.unanswered ? ` (${r.unanswered} of our messages unanswered${r.calls.noAnswer ? `, ${r.calls.noAnswer} call${r.calls.noAnswer === 1 ? '' : 's'} not answered` : ''})` : ''}: ${what}` });
+  for (const w of await waitingDrivers()) {
+    let userId = w.owner_id, owner = w.owner_name;
+    if (w.status === 'Hired') { // a working driver: his truck's dispatcher, not the recruiter who hired him
+      const t = (await q(`SELECT t.dispatcher_id, u.name FROM trucks t JOIN users u ON u.id = t.dispatcher_id WHERE t.driver_id = $1 AND u.active`, [w.id])).rows[0];
+      userId = t ? t.dispatcher_id : null; owner = t ? t.name : 'Dispatch';
+    }
+    const said = String(w.msg.text || '').replace(/\s+/g, ' ').trim();
+    items.push({ key: `wait:${w.id}:${w.chat_id}:${w.msg.msg_id}`, userId, owner, driverId: w.id,
+      text: `${esc(w.name)} wrote in the group ${ago(w.msg.at)} ago and got no response${said ? `: "${esc(said.length > 120 ? said.slice(0, 120) + '…' : said)}"` : '.'}` });
   }
   // a call-back that was missed
   for (const d of (await q(`SELECT d.id, d.name, d.owner_id, u.name owner, d.callback_at, d.callback_said FROM drivers d LEFT JOIN users u ON u.id = d.owner_id WHERE d.callback_state = 'due' AND d.callback_at < now() - interval '30 minutes'`)).rows)
@@ -148,10 +203,8 @@ async function tick() {
     }
     if (t.teamFollowups === false || !work) continue;
     const fu = await followups();
-    // one silence = since the driver's last sign of life; a new silence later counts again
-    const rsAt = Object.fromEntries((await q(`SELECT d.id, (SELECT max(m.at) FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id IN (SELECT chat_id FROM tg_chats WHERE driver_id = d.id) AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)))::text last FROM drivers d WHERE d.id = ANY($1::int[])`, [fu.filter((x) => x.ever).map((x) => x.driverId)])).rows.map((r) => [r.id, r.last || '']));
     for (const it of fu) {
-      if (!await once(it.ever ? `mf:${g.chat_id}:${it.key}:${(rsAt[it.driverId] || '')}` : `mf:${g.chat_id}:${it.key}:${L.date}`)) continue; // the silence steps: once per silence
+      if (!await once(`mf:${g.chat_id}:${it.key}:${L.date}`)) continue;
       const tg = await who(it.userId, it.owner);
       await send(g.chat_id, `🔔 ${tg}${it.text.startsWith('missed') ? ' ' : ': '}${it.text}`);
       await bot.log('ask', `Follow-up: ${it.owner || 'no recruiter'}: ${bot.stripHtml ? bot.stripHtml(it.text) : it.text}`, { chatId: g.chat_id, driverId: it.driverId });

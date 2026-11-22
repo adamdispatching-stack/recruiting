@@ -51,7 +51,7 @@
     const evs = hist === 'people' ? [] : r.events.filter(filt[hist] || filt.all);
     const items = hist === 'people' ? r.history.map(histRow) : hist === 'all' ? [...r.events.map((e) => ({ at: evDay(e), h: evRow(e, edit) })), ...r.history.map((h) => ({ at: dayOf(h.at), h: histRow(h) }))].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).map((x) => x.h) : evs.map((e) => evRow(e, edit));
     const kinds = Object.entries(c.byKind).sort((a, b) => b[1] - a[1]); const top = kinds.length ? kinds[0][1] : 0;
-    const drv = t.driver ? `${t.driver.id ? `<a href="${App.driverHref(t.driver.id, t.driver.status)}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}${t.driver.group ? ` <a class="small" href="#/telegram/${t.driver.group}">dispatch group</a>` : ''}` : t.driverName ? `<b>${esc(t.driverName)}</b>` : '<span class="none">Nobody</span>';
+    const drv = t.driver ? `${t.driver.id ? `<a href="${App.driverHref(t.driver.id, t.driver.status)}"><b>${esc(t.driver.name)}</b></a>` : `<b>${esc(t.driver.name)}</b>`} ${badge(t.driver.status)}${t.driver.group && !(S.me.role === 'member' && t.driver.status === 'Hired') ? ` <a class="small" href="#/telegram/${t.driver.group}">dispatch group</a>` : ''}` : t.driverName ? `<b>${esc(t.driverName)}</b>` : '<span class="none">Nobody</span>';
     const tab = (k, l) => `<button type="button" data-act="truckHist" data-k="${k}" class="${hist === k ? 'on' : ''}" aria-pressed="${hist === k}">${l}</button>`;
     view.innerHTML = header('trucks') + `<main class="truckpage">
       <a class="back" href="#/trucks">← Trucks</a>

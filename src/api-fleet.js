@@ -41,6 +41,13 @@ module.exports = (app) => {
   app.get('/api/fleet/dispatchers', needUser, wrap(async (req, res) => res.json({ people: (await q(`SELECT id, name, role FROM users WHERE active AND role IN ('dispatcher', 'admin') ORDER BY role = 'admin', lower(name)`)).rows })));
 
   // the profile
+  // Who a truck can be given to. A list of its own, so the truck form does not need Active drivers (phones, papers).
+  app.get('/api/fleet/free-drivers', needUser, wrap(async (req, res) => {
+    const params = []; const vis = require('./lib').visSql(req.user, params);
+    const r = await q(`SELECT d.id, d.name, d.company_id FROM drivers d LEFT JOIN trucks t ON t.driver_id = d.id
+      WHERE d.status = 'Hired' AND d.left_on IS NULL AND t.id IS NULL${vis ? ' AND ' + vis : ''} ORDER BY lower(d.name)`, params);
+    res.json({ drivers: r.rows.map((d) => ({ id: d.id, name: d.name, companyId: d.company_id })) });
+  }));
   app.get('/api/trucks/:id', needUser, wrap(async (req, res) => {
     const t = (await q(`SELECT t.*, d.name d_name, d.status d_status, d.owner_id d_owner, c.name company, u.name dispatcher FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id
       LEFT JOIN companies c ON c.id = t.company_id LEFT JOIN users u ON u.id = t.dispatcher_id WHERE t.id = $1`, [+req.params.id || 0])).rows[0];

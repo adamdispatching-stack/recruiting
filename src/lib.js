@@ -15,16 +15,17 @@ async function sessionUser(req) {
 const DISPATCH_OK = [/^\/api\/(cases|playbooks|orientation|places|hometime)(\/|$)/, /^\/api\/(me|logout|beat|track)(\/|$)/, /^\/api\/notices/, /^\/api\/trucks(\/|$)/, /^\/api\/truck-events\//, /^\/api\/docs(\/|$)/, /^\/api\/fleet\//,
   /^\/api\/drivers\/\d+\/profile/, /^\/api\/team\/(\d+|me)(\/month)?$/, /^\/api\/tg\/(chats|alerts|me-code|status)(\/|$)/];
 const DISPATCH_GET = [/^\/api\/companies(\/\d+)?$/, /^\/api\/active(\/\d+)?$/, /^\/api\/kb(\/search)?$/];
-// A recruiter works with leads and onboarding: the dispatching screens (trucks, active drivers, road cases, shops,
-// the shift desk, the dispatchers' learning) are not theirs.
-const RECRUIT_NO = [/^\/api\/(trucks|truck-events|cases|playbooks|places|hometime|active)(\/|$)/, /^\/api\/fleet\/(dispatchers|settings)(\/|$)/, /^\/api\/drivers\/\d+\/profile/,
+// A recruiter works with leads, onboarding and the trucks (not the fleet's settings, removing a truck or deleting its
+// history). The other dispatching screens (active drivers, road cases, shops, the shift desk, the dispatchers'
+// learning) are not theirs.
+const RECRUIT_NO = [/^\/api\/(cases|playbooks|places|hometime|active)(\/|$)/, /^\/api\/fleet\/settings(\/|$)/, /^\/api\/drivers\/\d+\/profile/,
   /^\/api\/tg\/(dispatch-readiness|updates|desk|routines|notes|terms|dispatchers)(\/|$)/];
 const recruiterMay = (req) => !RECRUIT_NO.some((r) => r.test(req.path));
 const dispatcherMay = (req) => { const p = req.path; return DISPATCH_OK.some((r) => r.test(p)) || (req.method === 'GET' && DISPATCH_GET.some((r) => r.test(p))); };
 const needUser = wrap(async (req, res, next) => {
   const u = await sessionUser(req); if (!u) return res.status(401).json({ error: 'Sign in first' });
   if (u.role === 'dispatcher' && !dispatcherMay({ method: req.method, path: (req.baseUrl || '') + req.path })) return res.status(403).json({ error: 'Dispatchers work with trucks and active drivers only' });
-  if (u.role === 'member' && !recruiterMay({ path: (req.baseUrl || '') + req.path })) return res.status(403).json({ error: 'Recruiters work with leads and onboarding only' });
+  if (u.role === 'member' && !recruiterMay({ path: (req.baseUrl || '') + req.path })) return res.status(403).json({ error: 'Recruiters work with leads, onboarding and trucks only' });
   req.user = u; next();
 });
 // Telegram groups by role: recruiters see the groups of drivers not hired yet (leads, onboarding); dispatchers the

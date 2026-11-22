@@ -518,8 +518,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(cr && cr.calls.noAnswer === 3 && cr.reasons.some((x) => /not reachable by phone/.test(x.text)), 'Cody: 3 calls not answered this week');
   const obl = await web('/api/onboarding');
   ok(obl.drivers.every((d) => d.reach && typeof d.reach.score === 'number'), 'the onboarding page shows each driver\'s chance');
-  ok(await until(() => inChat(0, MCHAT).some((m) => /🔔 @rita_r: Paul Penn has been silent 3 days \([12] of our messages unanswered\): please give a call/.test(m.text)), 15000), 'management group: the silence countdown tags Rita');
-  await sleep(2500); ok(inChat(0, MCHAT).filter((m) => /Paul Penn has been silent/.test(m.text)).length === 1, 'once for this silence');
+  await sleep(2500); ok(!inChat(0, MCHAT).some((m) => /has been silent|of our messages unanswered/.test(m.text)), 'management group: a driver not answering us is not alerted');
   n = tg.sent.length; priv(RITA, '/onboard');
   const ob2 = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Onboarding: \d+<\/b>/.test(m.text)), 20000);
   ok(ob2 && /Paul Penn — Nov \d+/.test(ob2.text) && !/🔇/.test(ob2.text), '/onboard stays plain (the chance and the silence are on the website and in the follow-ups)');
