@@ -49,6 +49,7 @@
         <div class="greet"><h2>${greet()}, ${firstName()}</h2>${urgent ? `<span class="ok warn">${pl(urgent, 'thing needs', 'things need')} attention</span>` : '<span class="ok">Your team is on track</span>'}</div></div>
       <div class="tiles">${App.tile('lead', r.trend.leads[0], 'new leads, last 30 days', { href: '#/leads', trend: trendHtml(r.trend.leads) })}${App.tile('clip', r.trend.onboarded[0], 'started onboarding, 30 days', { href: '#/onboarding', trend: trendHtml(r.trend.onboarded) })}
         ${App.tile('award', r.trend.hired[0], 'hired, last 30 days', { trend: trendHtml(r.trend.hired) })}${App.tile('wheel', a.activeDrivers, 'active drivers', { href: '#/active' })}</div>
+      ${r.drops || ''}
       ${r.fill ? `<div class="fillwide">${r.fill}</div>` : ''}
       <div class="dgrid">
         <section class="card"><h3>Recruiting pipeline</h3><p class="hint lead">Driver leads from first reply to hire</p>
@@ -118,7 +119,7 @@
         <div class="greet"><h2>${greet()}, ${firstName()}</h2>${s.due ? `<span class="ok warn">${plural(s.due, 'follow-up')} due</span>` : '<span class="ok">No follow-ups waiting</span>'}</div></div>
       <div class="tiles">${App.tile('cal', s.due, 'follow-ups due', { tone: s.due ? 'r' : '', href: '#/leads?owner=me&due=1' })}${App.tile('warn', s.cold, 'leads going cold', { tone: s.cold ? 'y' : '', href: '#/leads?owner=me&cold=1' })}
         ${App.tile('lead', s.owned, 'your leads in progress', { href: '#/leads?owner=me&working=1' })}${App.tile('clip', r.onboarding.length, 'your drivers in onboarding', { href: '#/onboarding' })}${App.tile('people', r.unassigned, 'leads up for grabs', { href: '#/leads?owner=none&working=1' })}</div>
-      ${r.unlog}${r.plan}
+      ${r.unlog}${r.drops || ''}${r.plan}
       ${challengeCard(r.goal, s.due, r.badges)}
       <div class="dgrid">
         <div>${r.tips}${r.fill}
@@ -146,6 +147,7 @@
     const [r, g, bd] = await Promise.all([api('/api/dashboard'), S.me.role === 'admin' ? null : api('/api/challenge').catch(() => null), S.me.role === 'admin' ? null : api('/api/badges').catch(() => null)]); if (!live()) return;
     const member = S.me.role !== 'admin';
     const [fg, fe, plan, tips, unlog] = await Promise.all([api('/api/fleet/goal').catch(() => null), api('/api/fleet/empty').catch(() => null), member ? api('/api/plan').catch(() => null) : null, member ? api('/api/coaching').then((x) => x.tips).catch(() => []) : [], member ? App.unloggedBar() : '']);
+    r.drops = App.dropsCard(await api('/api/dropouts').catch(() => null));
     r.fill = fg && fe ? App.fillCard(fg, fe, member ? S.me.id : null) : ''; r.plan = plan ? App.planCard(plan) : ''; r.tips = App.tipsCard(tips || []); r.unlog = unlog || '';
     if (g) { r.goal = g; App.setGoal(g); }
     r.badges = bd;
@@ -199,7 +201,8 @@
       const truck = oo && !d.truck ? (d.ownTruck ? `<b>Own</b> <span class="small mut">${esc(d.ownTruck)}</span>` : '<span class="none">Own truck, not noted</span>')
         : d.truck ? `<b>${esc(d.truck.unit)}</b>${d.truck.details ? ` <span class="small mut">${esc(d.truck.details)}</span>` : ''}` : '<span class="latetag">No truck yet</span>';
       const azv = d.amazonStep === 'verified'; const az = (S.me.amazon || []).find((x) => x.key === d.amazonStep);
-      return `<tr class="brow${alt}${azv ? ' azrow' : ''}${isOpen ? ' open' : ''}" data-driver="${d.id}" title="Open ${esc(d.name)}"><th scope="row"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><span class="obday">day ${daysSince(d.startedAt) + 1}</span>
+      return `<tr class="brow${alt}${azv ? ' azrow' : ''}${d.drop ? ' droprow' : ''}${isOpen ? ' open' : ''}" data-driver="${d.id}" title="Open ${esc(d.name)}"><th scope="row"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><span class="obday">day ${daysSince(d.startedAt) + 1}</span>
+          ${d.drop ? `<div class="dropline" data-drop="${d.id}" data-name="${esc(d.name)}" data-quote="${esc(d.drop.quote)}" data-reason="${esc(d.drop.reason || '')}"><b>Says he is not coming:</b> "${esc(d.drop.quote)}" <button type="button" class="btn danger sm" data-act="dropIt">Dropped out</button> <button type="button" class="btn plain sm" data-act="dropKeep">Still with us</button></div>` : ''}
           <div class="small mut ofacts">${App.chance(d.reach)} ${azv ? '<span class="azv sm">✓ Amazon verified</span>' : `<span class="azpend" title="Amazon Relay">Amazon: ${az ? esc(az.label) : 'not started'}</span>`}${(d.needed || []).length ? ` <span class="needtag" title="Verified on Amazon: this must be set">Set: ${esc(d.needed.join(', '))}</span>` : ''}${facts ? ` ${facts}` : ''}</div>${d.bot && (d.bot.nextStep || d.bot.suggested) ? `<div class="small obai" title="What the Telegram bot sees">🤖 ${d.bot.waitingOn && d.bot.waitingOn !== 'nobody' ? `Waiting on ${esc(d.bot.waitingOn)}${d.bot.nextStep ? ': ' : ''}` : ''}${esc(d.bot.nextStep || '')}${d.bot.suggested ? ` <a class="latetag" href="#/driver/${d.id}">${plural(d.bot.suggested, 'step')} to confirm</a>` : ''}</div>` : ''}</th>
         <td>${(d.phones || []).slice(0, 1).map((p) => App.phone(p)).join('') || '<span class="none">No phone</span>'}</td>
         <td>${d.companyId ? App.coTag(d.companyId) : (d.needed || []).includes('company') ? '<span class="latetag">Not set</span>' : '<span class="none">Not set</span>'}</td>
@@ -207,7 +210,7 @@
         <td class="arr" title="${esc(d.arrivalNote || '')}">${whenText(d)}${d.arrivalNote ? `<div class="small mut clip1">${esc(d.arrivalNote)}</div>` : ''}</td>
         <td><div class="obprog"><span class="pbar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span><span class="cpill${done === total && total ? ' full' : ''}">${done}/${total}</span></div>
           <div class="small mut clip1">${next ? `Next: ${esc(next.label)}` : 'All done, ready to mark hired'}</div></td>
-        <td class="small">${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}${d.telegramLink ? `<div><a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram</a></div>` : ''}</td>
+        <td class="small">${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}<div><button type="button" class="linkbtn danger small" data-act="dropRow" data-id="${d.id}" data-name="${esc(d.name)}">Dropped out</button></div>${d.telegramLink ? `<div><a class="small" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer">Telegram</a></div>` : ''}</td>
         <td><button class="caret" data-act="boardOpen" aria-expanded="${isOpen}" aria-label="${isOpen ? 'Hide' : 'Show'} the checklist for ${esc(d.name)}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td></tr>
         ${isOpen ? `<tr class="ostep${alt}"><td colspan="8"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
           <ol class="stepper">${d.items.map((i, k) => step(d, i, k)).join('')}</ol>
@@ -333,5 +336,6 @@
 
   App.route(/^#\/$/, viewHome);
   App.route(/^#\/onboarding$/, viewOnboarding);
+  on('dropRow', (b) => App.dropDialog({ id: +b.dataset.id, name: b.dataset.name }, () => App.render()));
   App.route(/^#\/trucks$/, viewTrucks);
 })();

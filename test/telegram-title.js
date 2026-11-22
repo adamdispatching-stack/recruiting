@@ -49,6 +49,7 @@ http.createServer((req, res) => {
       const o = { summary: 'Onboarding.', waiting_on: 'driver', next_step: 'Start', blockers: [], open_questions: [], driver_mood: 'good', done_steps: [] };
       if (/ready to roll on Monday/.test(fresh)) { o.start_date = day(1); o.travel = 'Greyhound, arrives Newark Sunday 6 PM, ticket 88812345'; }
       if (/actually Wednesday/.test(fresh)) o.start_date = day(3);
+      if (/not be able to come/.test(fresh)) o.dropping_out = { quote: 'I will not be able to come, found a local job', reason: 'Found another job' };
       AI.seen = (AI.seen || 0) + 1;
       res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts: [], learned: [], onboarding: o } }] }));
     }
@@ -465,6 +466,26 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   // a dispatch group renamed to say ELD: the same driver's ELD group now
   push({ message: { message_id: mid++, from: RITA, chat: { ...YCHAT, title: 'Yonis Santa ELD' }, date: Math.floor(Date.now() / 1000), new_chat_title: 'Yonis Santa ELD' } });
   ok(await until(async () => ((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [YCHAT.id])).rows[0] || {}).kind === 'eld'), 'renamed "Yonis Santa ELD": now his ELD group');
+
+  // ---------- dropping out ----------
+  const dora = (await web('/api/drivers', { method: 'POST', body: { name: 'Dora Drop', source: 'Indeed', phone: '6105550777', ownerId: rita } })).id;
+  await web('/api/drivers/' + dora, { method: 'PATCH', body: { status: 'Onboarding' } });
+  const DCH = { id: -100750, type: 'supergroup', title: 'Dora Drop 610 555 0777' };
+  added(DCH, RITA);
+  await until(async () => (await pg.query(`SELECT 1 FROM onb_cases WHERE driver_id = $1`, [dora])).rows[0]);
+  const DORA = { id: 77, is_bot: false, first_name: 'Dora', last_name: 'Drop' };
+  say(DORA, 'Sorry guys, I will not be able to come, found a local job', DCH);
+  ok(await until(async () => ((await pg.query(`SELECT drop_flag FROM onb_cases WHERE driver_id = $1`, [dora])).rows[0] || {}).drop_flag, 15000), 'the driver writes he is not coming: flagged (the status is not changed)');
+  ok((await pg.query(`SELECT status FROM drivers WHERE id = $1`, [dora])).rows[0].status === 'Onboarding', 'still in onboarding until the team confirms');
+  ok((await pg.query(`SELECT 1 FROM notices WHERE user_id = $1 AND text LIKE 'Dora Drop says he is not coming%'`, [rita])).rows.length === 1, 'Rita is told');
+  let dz = await web('/api/dropouts');
+  ok(dz.dropping.some((x) => x.id === dora && /local job/.test(x.quote) && x.reason === 'Found another job'), 'the dashboard: "says he is not coming", to confirm');
+  ok((await web('/api/onboarding')).drivers.find((x) => x.id === dora).drop && (await web('/api/drivers/' + dora)).reach.score <= 5, 'the onboarding page flags the row; the chance drops to almost 0');
+  ok((await web(`/api/drivers/${dora}/drop-dismiss`, { method: 'POST' })).ok && !(await web('/api/dropouts')).dropping.some((x) => x.id === dora), 'Still with us: the flag is set aside');
+  ok((await web('/api/drivers/' + dora, { method: 'PATCH', body: { status: 'Rejected' } })).status === 400, 'Dropped out needs a reason');
+  ok((await web('/api/drivers/' + dora, { method: 'PATCH', body: { status: 'Rejected', lostReason: 'Found another job', lostNote: 'local job' } })).status === 200, 'Dropped out: Rejected with the reason');
+  dz = await web('/api/dropouts');
+  ok(dz.dropped.some((x) => x.id === dora && x.reason === 'Found another job' && x.note === 'local job') && !(await web('/api/onboarding')).drivers.some((x) => x.id === dora), 'the dashboard: dropped out this week, with why; off the onboarding list');
 
   // the bot's history: reactions and replies to the bot
   const bm = tg.sent.filter((m) => String(m.chat_id) === String(PCHAT.id)).pop();

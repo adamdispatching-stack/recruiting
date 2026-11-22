@@ -22,6 +22,25 @@ const progress = (driverId) => q(`UPDATE onboarding SET progress_at = now() WHER
 
 module.exports = (app) => {
   // ---------- the onboarding board: every driver being set up, with every step ----------
+  // ---------- drivers dropping out of onboarding ----------
+  // dropping: the AI read in the group that the driver is not coming (the team confirms); dropped: marked lost in the last 7 days after onboarding started
+  app.get('/api/dropouts', needUser, wrap(async (req, res) => {
+    const p1 = []; const v1 = visSql(req.user, p1);
+    const dropping = (await q(`SELECT d.id, d.name, d.owner_id, c.drop_flag FROM onb_cases c JOIN drivers d ON d.id = c.driver_id
+      WHERE c.drop_flag IS NOT NULL AND c.drop_dismissed_at IS NULL AND d.status = 'Onboarding' ${v1 ? 'AND ' + v1 : ''} ORDER BY (c.drop_flag->>'at') DESC`, p1)).rows;
+    const p2 = []; const v2 = visSql(req.user, p2);
+    const dropped = (await q(`SELECT d.id, d.name, d.owner_id, d.status, d.status_at, d.lost_reason, d.lost_note FROM drivers d JOIN onboarding o ON o.driver_id = d.id
+      WHERE d.status = ANY($${p2.length + 1}::text[]) AND d.status_at > now() - interval '7 days' ${v2 ? 'AND ' + v2 : ''} ORDER BY d.status_at DESC LIMIT 30`, [...p2, db.LOST])).rows;
+    res.json({ dropping: dropping.map((d) => ({ id: d.id, name: d.name, ownerId: d.owner_id, quote: d.drop_flag.quote, reason: d.drop_flag.reason, at: d.drop_flag.at })),
+      dropped: dropped.map((d) => ({ id: d.id, name: d.name, ownerId: d.owner_id, status: d.status, at: d.status_at, reason: d.lost_reason, note: d.lost_note })) });
+  }));
+  // "Still with us": the AI's read was wrong (or he changed his mind back)
+  app.post('/api/drivers/:id/drop-dismiss', needUser, wrap(async (req, res) => {
+    const d = await lib.loadDriver(req, res); if (!d) return;
+    await q(`UPDATE onb_cases SET drop_dismissed_at = now() WHERE driver_id = $1 AND drop_flag IS NOT NULL`, [d.id]);
+    await lib.history(d.id, 'Still with us (the "not coming" message was set aside)', req.user.name, 'web');
+    res.json({ ok: true });
+  }));
   app.get('/api/onboarding', needUser, wrap(async (req, res) => {
     const params = []; const vis = visSql(req.user, params);
     const rows = await q(`SELECT d.id, d.name, d.owner_id, d.phones, d.mode, d.location, d.company_id, d.amazon_step, d.relay_before, d.truck_year, d.truck_model, d.exp_years, d.weeks_out, d.days_home, o.started_at, o.expected_arrival, o.arrival_note, o.arrived_on, o.telegram_link, o.progress_at, t.unit truck_unit, t.details truck_details
@@ -32,13 +51,13 @@ module.exports = (app) => {
     const reach = await require('./reach').scoreMany(ids);
     const items = ids.length ? (await q(`SELECT id, driver_id, key, label, auto, done, note FROM checklist WHERE driver_id = ANY($1::int[]) ORDER BY position, id`, [ids])).rows : [];
     // the Telegram bot's view of each onboarding: who it waits on, the next step, steps it saw done to confirm
-    const bots = ids.length ? Object.fromEntries((await q(`SELECT o.driver_id, o.mode, o.ai_status, (SELECT count(*)::int FROM onb_ai_steps s JOIN checklist c ON c.id = s.checklist_id WHERE s.driver_id = o.driver_id AND s.state = 'suggested' AND NOT c.done) sugg FROM onb_cases o WHERE o.driver_id = ANY($1::int[])`, [ids])).rows.map((x) => [x.driver_id, x])) : {};
+    const bots = ids.length ? Object.fromEntries((await q(`SELECT o.driver_id, o.mode, o.ai_status, CASE WHEN o.drop_dismissed_at IS NULL THEN o.drop_flag END drop_flag, (SELECT count(*)::int FROM onb_ai_steps s JOIN checklist c ON c.id = s.checklist_id WHERE s.driver_id = o.driver_id AND s.state = 'suggested' AND NOT c.done) sugg FROM onb_cases o WHERE o.driver_id = ANY($1::int[])`, [ids])).rows.map((x) => [x.driver_id, x])) : {};
     const p2 = []; const v2 = visSql(req.user, p2);
     const hired = await q(`SELECT d.id, d.name, d.owner_id, d.company_id, o.completed_at, o.started_at, t.unit truck_unit FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
       WHERE d.status = 'Hired' AND o.completed_at > now() - interval '30 days' ${v2 ? 'AND ' + v2 : ''} ORDER BY o.completed_at DESC LIMIT 30`, p2);
     const empty = await q(`SELECT count(*)::int n FROM trucks WHERE driver_id IS NULL AND driver_name IS NULL AND NOT out_of_service`);
     res.json({ today: await lib.today(), template: db.settings.checklist, emptyTrucks: empty.rows[0].n,
-      drivers: rows.rows.map((r) => ({ reach: reach[r.id] || null, bot: bots[r.id] ? { mode: bots[r.id].mode, waitingOn: (bots[r.id].ai_status || {}).waitingOn || null, nextStep: (bots[r.id].ai_status || {}).nextStep || null, suggested: bots[r.id].sugg } : null, id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
+      drivers: rows.rows.map((r) => ({ drop: bots[r.id] ? bots[r.id].drop_flag || null : null, reach: reach[r.id] || null, bot: bots[r.id] ? { mode: bots[r.id].mode, waitingOn: (bots[r.id].ai_status || {}).waitingOn || null, nextStep: (bots[r.id].ai_status || {}).nextStep || null, suggested: bots[r.id].sugg } : null, id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
         arrivedOn: r.arrived_on, telegramLink: r.telegram_link, progressAt: r.progress_at, companyId: r.company_id, truck: r.truck_unit ? { unit: r.truck_unit, details: r.truck_details } : null,
         amazonStep: r.amazon_step, relayBefore: r.relay_before, ownTruck: [r.truck_year, r.truck_model].filter(Boolean).join(' ') || null, expYears: r.exp_years === null ? null : +r.exp_years, weeksOut: r.weeks_out === null ? null : +r.weeks_out, daysHome: r.days_home,
         needed: needed[r.id] || [], items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),

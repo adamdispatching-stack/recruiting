@@ -142,6 +142,7 @@ module.exports = (app) => {
       events: ev.rows, onboarding: await ops.onboardingOf(d.id), lostReasons: LOST_REASONS, needed: (await require('./needed').neededFor([d.id]))[d.id] || [], indeedMsgs: await outbox.ofDriver(d.id),
       indeedChat: !!(d.conversation_url && /[?&]conversationId=/.test(d.conversation_url)),
       reach: d.status === 'Onboarding' ? await require('./reach').scoreOne(d.id) : null,
+      dropFlag: d.status === 'Onboarding' ? ((await q(`SELECT drop_flag FROM onb_cases WHERE driver_id = $1 AND drop_dismissed_at IS NULL`, [d.id])).rows[0] || {}).drop_flag || null : null,
       mvrNeeds: require('./tg/mvr').needs(await require('./tg/mvr').driver(d.id)) });
   }));
 

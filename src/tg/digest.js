@@ -138,6 +138,17 @@ async function digestChat(chatId) {
   if (onboarding && r.onboarding && r.onboarding.summary) await onboardingStatus(chat, r.onboarding, onb.steps, quiet);
   return out;
 }
+async function dropFlag(chat, x) {
+  const quote = bot.redact(String(x.quote)).slice(0, 300);
+  const r = await q(`UPDATE onb_cases SET drop_flag = $2, drop_dismissed_at = NULL WHERE driver_id = $1 AND (drop_flag IS NULL OR drop_dismissed_at IS NOT NULL) RETURNING driver_id`,
+    [chat.driver_id, JSON.stringify({ quote, reason: x.reason || null, at: new Date().toISOString() })]);
+  if (!r.rows[0]) return;
+  const d = (await q(`SELECT name, owner_id FROM drivers WHERE id = $1`, [chat.driver_id])).rows[0];
+  const to = new Set([...(d.owner_id ? [d.owner_id] : []), ...(await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows.map((u) => u.id)]);
+  for (const id of to) await db.notify(db.pool, id, 'tg', `${d.name} says he is not coming: "${quote}". Mark as dropped out on the onboarding page?`, '#/onboarding', { driverId: chat.driver_id });
+  await bot.log('fact', `Says he is not coming: "${quote}"`, { chatId: chat.chat_id, driverId: chat.driver_id });
+  await require('../lib').history(chat.driver_id, `Telegram: says he is not coming ("${quote}")`, 'AI', 'telegram').catch(() => {});
+}
 // "I'll be ready to roll Monday": the start date on the website. A date the team typed is never changed; the recruiter is told instead.
 async function startFromChat(chat, o, quiet) {
   const ob = (await q(`SELECT o.*, to_char(o.expected_arrival, 'YYYY-MM-DD') ea, d.name, d.owner_id, (now() AT TIME ZONE $2)::date::text today FROM onboarding o JOIN drivers d ON d.id = o.driver_id WHERE o.driver_id = $1`, [chat.driver_id, db.settings.tz])).rows[0];
@@ -174,6 +185,8 @@ async function onboardingStatus(chat, o, steps, quiet) {
     blockers: (o.blockers || []).map((x) => bot.redact(String(x)).slice(0, 200)).slice(0, 6), openQuestions: (o.open_questions || []).map((x) => bot.redact(String(x)).slice(0, 200)).slice(0, 6), mood: o.driver_mood || null };
   await q(`INSERT INTO onb_cases (driver_id, chat_id, mode, ai_status, ai_status_at) VALUES ($1, $2, 'watch', $3, now()) ON CONFLICT (driver_id) DO UPDATE SET ai_status = $3, ai_status_at = now()`, [chat.driver_id, chat.chat_id, JSON.stringify(s)]);
   // the CDL state and the ZIP (for the MVR and the drug test): fills gaps only
+  // the driver says he is not coming: flag it for the team to confirm (never changes the status by itself)
+  if (o.dropping_out && o.dropping_out.quote && !quiet) await dropFlag(chat, o.dropping_out).catch((e) => console.error('drop', e.message));
   // the start date and how the driver travels, from what was said
   if (o.start_date || o.travel) await startFromChat(chat, o, quiet).catch((e) => console.error('start date', e.message));
   if (o.license_state || o.zip) await require('./mvr').setFacts(chat.driver_id, { state: o.license_state || undefined, zip: o.zip || undefined }, 'AI', { onlyEmpty: true }).catch((e) => console.error('mvr', e.message));

@@ -13,7 +13,7 @@ const ICON = { likely: '🟢', unsure: '🟡', risk: '🔴' };
 
 async function scoreMany(ids) {
   if (!ids.length) return {};
-  const rows = (await q(`SELECT d.id, d.amazon_step, d.amazon_log, d.callback_state, o.expected_arrival::text start, c.ai_status, ch.chat_id, ch.linked_at,
+  const rows = (await q(`SELECT d.id, CASE WHEN c.drop_dismissed_at IS NULL THEN c.drop_flag END drop_flag, d.amazon_step, d.amazon_log, d.callback_state, o.expected_arrival::text start, c.ai_status, ch.chat_id, ch.linked_at,
       (SELECT max(m.at) FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)) AND NOT m.imported) drv_last,
       (SELECT count(*)::int FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)) AND m.at > now() - interval '7 days') drv7,
       (SELECT count(*)::int FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT coalesce((p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)), false)
@@ -55,6 +55,7 @@ async function scoreMany(ids) {
     if ((st.blockers || []).length) add(-Math.min(10, st.blockers.length * 5), 'issues: ' + st.blockers.slice(0, 2).join('; '));
     // ghosting outweighs everything good before it: silent with our messages unanswered caps the chance
     if (silentDays >= 2 && (r.unanswered || r.no_answer)) { const cap = silentDays >= 7 ? 15 : silentDays >= 4 ? 35 : 55; if (s > cap) { s = cap; why.push({ n: -0.5, t: `capped at ${cap} while silent` }); } }
+    if (r.drop_flag) { why.push({ n: -100, t: 'said he is not coming: "' + r.drop_flag.quote + '"' }); s = Math.min(s, 5); }
     s = Math.max(0, Math.min(100, Math.round(s)));
     out[r.id] = { score: s, level: LEVEL(s), icon: ICON[LEVEL(s)], silentDays, unanswered: r.unanswered || 0, replyMin: r.reply_min === null ? null : Math.round(+r.reply_min),
       calls: { noAnswer: r.no_answer, talked: r.talked }, reasons: why.sort((a, b) => Math.abs(b.n) - Math.abs(a.n)).map((x) => ({ up: x.n > 0, text: x.t })) };

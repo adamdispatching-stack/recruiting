@@ -110,6 +110,8 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     blockers: { type: 'array', items: { type: 'string' }, description: 'Problems holding it up (a failed check, a missing document, the driver unsure...).' },
     open_questions: { type: 'array', items: { type: 'string' }, description: 'Questions the driver asked that nobody answered yet.' },
     driver_mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry', 'unknown'] },
+    dropping_out: { type: 'object', description: 'ONLY when the DRIVER clearly says in the NEW messages that he is not coming, quits, took another job, cannot make it, or changed his mind. Leave out when unsure or when it is only a delay.', properties: {
+      quote: { type: 'string', description: 'His words, short.' }, reason: { type: 'string', enum: ['Pay', 'Home time', 'Found another job', 'No response', 'Not qualified', 'Driving record', 'Failed background check', 'Failed drug test', 'Location', 'Equipment', 'Changed their mind', 'Other'] } }, required: ['quote'] },
     start_date: { type: 'string', description: 'The day the driver will start: ready to roll, arriving, or coming in for orientation, as YYYY-MM-DD, ONLY if the messages say it (the latest one counts). Work out "Monday" or "next week Tuesday" from the date of the message that says it. Empty if not said.' },
     travel: { type: 'string', description: 'How and when the driver gets to us, a few words (for example "Greyhound, arrives Newark 6 PM Sunday" or "drives his own car"), ONLY if said. No ticket or confirmation numbers. Empty otherwise.' },
     license_state: { type: 'string', description: 'The 2-letter US state of the driver\'s CDL (like PA), ONLY if a message or a CDL picture shows it. Empty otherwise.' },

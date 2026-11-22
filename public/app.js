@@ -456,6 +456,33 @@ window.App = (() => {
   });
   on('docDel', async (b) => { if (!confirm('Delete this paper?')) return; const box = b.closest('.docsbox'); try { await api('/api/docs/' + b.closest('[data-doc]').dataset.doc, { method: 'DELETE' }); toast('Deleted'); } catch (e) { fail(e); } fillDocs(box); });
 
-  return { docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  // ---------- a driver dropped out of onboarding: status Rejected, with why (the reports count the reasons) ----------
+  function dropDialog(d, after) {
+    dialog(`<form class="dform" id="dropForm"><h2>${esc(d.name)} dropped out</h2>
+      <p class="hint">Saved as Rejected, out of onboarding. The reason is counted in the reports. ${d.quote ? `In the group: <i>"${esc(d.quote)}"</i>` : ''}</p>
+      <fieldset class="whyopts"><legend>Why</legend>${S.me.lostReasons.map((x) => `<label class="chk"><input type="radio" name="why" value="${esc(x)}" ${x === (d.reason || '') ? 'checked' : ''} required> ${esc(x)}</label>`).join('')}</fieldset>
+      <label class="fld">Details<textarea name="note" rows="3" maxlength="500" placeholder="What he said, in his words if you can">${esc(d.quote || '')}</textarea></label>
+      <p class="err" id="dropErr" role="alert"></p>
+      <div class="drow"><button class="btn danger">Save as dropped out</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (dl) => {
+      const f = $('#dropForm', dl);
+      f.onsubmit = async (e) => {
+        e.preventDefault(); const why = (f.querySelector('[name=why]:checked') || {}).value; const note = f.note.value.trim();
+        if (!why) { $('#dropErr').textContent = 'Choose why'; return; }
+        if (why === 'Other' && !note) { $('#dropErr').textContent = 'Write a few words on why'; f.note.focus(); return; }
+        try { await api('/api/drivers/' + d.id, { method: 'PATCH', body: { status: 'Rejected', lostReason: why, lostNote: note } }); dl.close(); toast(`${d.name}: dropped out`); if (after) after(); }
+        catch (err) { $('#dropErr').textContent = err.message; }
+      };
+    });
+  }
+  const stillWithUs = async (id, after) => { try { await api(`/api/drivers/${id}/drop-dismiss`, { method: 'POST' }); toast('Kept in onboarding'); if (after) after(); } catch (e) { fail(e); } };
+  // the dashboard card: who says he is leaving (confirm), who dropped out this week
+  const dropsCard = (x) => (!x || (!x.dropping.length && !x.dropped.length) ? '' : `<section class="card dropcard"><h3>Dropping out of onboarding</h3>
+    ${x.dropping.length ? `<p class="small"><b>Says he is not coming</b> (confirm)</p><ul class="list">${x.dropping.map((d) => `<li data-drop="${d.id}" data-name="${esc(d.name)}" data-quote="${esc(d.quote)}" data-reason="${esc(d.reason || '')}"><div class="grow"><a href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> <span class="small mut">${esc(person(d.ownerId) || '')}</span><div class="small">"${esc(d.quote)}"</div></div>
+      <button type="button" class="btn danger sm" data-act="dropIt">Dropped out</button><button type="button" class="btn plain sm" data-act="dropKeep">Still with us</button></li>`).join('')}</ul>` : ''}
+    ${x.dropped.length ? `<p class="small"><b>Dropped out, last 7 days</b> (${x.dropped.length})</p><ul class="list">${x.dropped.map((d) => `<li><div class="grow"><a href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> <span class="small mut">${esc(person(d.ownerId) || '')} · ${esc(when(d.at))}</span><div class="small">${esc(d.reason || 'no reason')}${d.note ? `: ${esc(d.note)}` : ''}</div></div></li>`).join('')}</ul>` : ''}</section>`);
+  on('dropIt', (b) => { const li = b.closest('[data-drop]'); dropDialog({ id: +li.dataset.drop, name: li.dataset.name, quote: li.dataset.quote, reason: li.dataset.reason }, () => App.render()); });
+  on('dropKeep', (b) => stillWithUs(+b.closest('[data-drop]').dataset.drop, () => App.render()));
+
+  return { dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();

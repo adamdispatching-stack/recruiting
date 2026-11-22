@@ -1724,3 +1724,10 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .aiprice input{width:90px}.aiprice input[name=model]{width:240px}
 .twocol{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media (max-width:800px){.twocol{grid-template-columns:1fr}}
 .warnline{background:#FFF4DD;color:#7A5A06;padding:8px 12px;border-radius:8px}
+
+/* dropping out */
+.brow.droprow > th, .brow.droprow > td{background:#FDF0EE !important}
+.dropline{margin:6px 0;padding:8px 10px;border-radius:8px;background:#FBE9E7;color:#5E1F14;font-size:13px}
+.dropline .btn{margin-left:6px}
+.dropcard{border-left:4px solid #B3261E}
+.linkbtn.danger{color:#B3261E}

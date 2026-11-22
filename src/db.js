@@ -434,6 +434,9 @@ async function migrate() {
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS ssn4_at TIMESTAMPTZ;
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS ssn4_code TEXT;
     ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS asked JSONB NOT NULL DEFAULT '{}'::jsonb;
+    -- the driver said in the group he is not coming (the AI's read; the team confirms "Dropped out" or "Still with us")
+    ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS drop_flag JSONB;
+    ALTER TABLE onb_cases ADD COLUMN IF NOT EXISTS drop_dismissed_at TIMESTAMPTZ;
     -- who set the start date and travel details: 'ai' (from the Telegram group; the AI may change it again) or NULL (the team)
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS arrival_by TEXT;
     -- a working driver's group: how many people are in it, and how the bot works there (watch = learn quietly; updater = also writes)
