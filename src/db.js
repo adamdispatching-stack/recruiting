@@ -363,6 +363,13 @@ async function migrate() {
     -- an account the bot made for a dispatcher it saw in the driver groups (his Telegram id); no email or password until an admin gives them
     ALTER TABLE users ADD COLUMN IF NOT EXISTS from_tg BIGINT;
     -- every dispatcher review the AI wrote (the newest is also in tg_people.profile), to see the trend
+    -- the case playbook: what to do step by step when something happens on the road; and the cases the bot opened from the groups
+    CREATE TABLE IF NOT EXISTS tg_playbooks (id SERIAL PRIMARY KEY, key TEXT UNIQUE, title TEXT NOT NULL, when_text TEXT NOT NULL, steps JSONB NOT NULL DEFAULT '[]', rules JSONB NOT NULL DEFAULT '[]',
+      source TEXT NOT NULL DEFAULT 'team', active BOOLEAN NOT NULL DEFAULT true, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_by TEXT);
+    CREATE TABLE IF NOT EXISTS tg_cases (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, playbook_id INTEGER REFERENCES tg_playbooks(id) ON DELETE CASCADE,
+      summary TEXT, msg_id BIGINT, opened_at TIMESTAMPTZ NOT NULL DEFAULT now(), done INTEGER[] NOT NULL DEFAULT '{}', step_since TIMESTAMPTZ, warned_step INTEGER, long_warned BOOLEAN NOT NULL DEFAULT false,
+      last_at TIMESTAMPTZ, status TEXT NOT NULL DEFAULT 'open', closed_at TIMESTAMPTZ, closed_by TEXT, note TEXT, lesson TEXT);
+    CREATE INDEX IF NOT EXISTS tg_cases_open ON tg_cases(status, chat_id);
     -- the reply the bot would send to a driver in onboarding (Watch and learn: shown on the website with a Send button)
     CREATE TABLE IF NOT EXISTS tg_drafts (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, msg_id BIGINT, driver_text TEXT, draft TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'reply', state TEXT NOT NULL DEFAULT 'open', sent_text TEXT, sent_by TEXT, decided_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());

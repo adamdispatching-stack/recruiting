@@ -1762,3 +1762,14 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .teamtabs a.on{border-bottom-color:#1F6F43;color:#1F6F43}.teamtabs .cnt{font-size:12px;background:#EFEBE3;border-radius:9px;padding:1px 7px;margin-left:4px}
 .team.disp td.goal{max-width:240px;font-size:13px}.rtag.warn{background:#FFF3D6;color:#7A5B00}
 .sc.s1,.sc.s2{color:#A3261B}.sc.s3{color:#7A5B00}.sc.s4,.sc.s5{color:#1E6B3A}
+
+.casesbox{margin:14px 0}.casesbox .row.sb{display:flex;justify-content:space-between;align-items:baseline}.casesbox .cnt{font-size:13px;background:#FBE5E1;color:#A3261B;border-radius:9px;padding:1px 8px}
+.case{border-left:4px solid #D4A017;margin-bottom:12px}.case.late{border-left-color:#C0392B}
+.case header{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.case header h3{margin:0}
+.csteps{padding-left:0;list-style:none;margin:10px 0}.csteps li{padding:6px 0;border-top:1px solid #F0ECE4}.csteps li label{display:flex;gap:8px;align-items:flex-start}
+.csteps li.done span{color:#8A857B;text-decoration:line-through}.csteps li.next{background:#FFF8E6;padding:6px 8px;border-radius:6px}.csteps .bad{color:#A3261B;font-weight:600;margin-left:26px}.csteps .mut{margin-left:26px}
+.crules{margin:6px 0;padding-left:18px}.crules li{margin:3px 0}
+.cdraft{background:#F2F6FC;border-radius:8px;padding:10px;margin:8px 0}.cdraft textarea{width:100%;margin-top:4px;font:inherit;padding:8px;border:1px solid #D8D3C8;border-radius:6px}
+.case .drow,.cdraft .drow{display:flex;gap:8px;margin-top:6px}
+.pbook header{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.pbook header h3{margin:0}.pbook .grow{flex:1}.pbook.off{opacity:.6}.pbsteps td{vertical-align:top;padding:6px 8px 6px 0}
+.dform.wide{max-width:760px}

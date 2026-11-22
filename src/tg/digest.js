@@ -61,7 +61,9 @@ async function digestChat(chatId) {
   const unknown = [...new Set(fresh.filter((m) => !m.is_bot && !m.role && m.from_id && m.from_name).map((m) => m.from_name))].slice(0, 12);
   const working = chat.kind === 'dispatch' && !onboarding;
   const promises = working ? (await q(`SELECT id, what, due FROM tg_promises WHERE chat_id = $1 AND state = 'open' AND at > now() - interval '10 days' ORDER BY at DESC LIMIT 15`, [chatId])).rows : [];
-  try { r = await ai.digest({ promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
+  const cs = require('./cases');
+  const playbook = working ? await cs.forAi() : '', cases = working ? await cs.openFor(chatId) : '';
+  try { r = await ai.digest({ playbook, cases, promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
   catch (e) { console.error('tg digest', e.message); if (e.kind === 'bad' && (badTries[chatId + ':' + fresh[0].id] = (badTries[chatId + ':' + fresh[0].id] || 0) + 1) >= 3) await done(); return null; } // a bad batch is skipped; key, credit, network or busy: the messages wait and are read later
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
@@ -143,6 +145,8 @@ async function digestChat(chatId) {
     await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', $5, $3, $4, false, true)`, [qn, an, chatId, chat.kind === 'accounting' ? 'accounting' : 'general', "AI, from the team's replies"]);
     out.learned = (out.learned || 0) + 1;
   }
+  // the case playbook: cases that started, steps done, the next message for the driver
+  if (working) await cs.apply({ ...chat, chat_id: chatId }, r, fresh, { quiet, mode: cm.mode === 'updater' ? 'updater' : 'watch' }).catch((e) => console.error('tg cases', e.message));
   // where the onboarding stands, and the steps the conversation shows are done
   if (onboarding && r.onboarding && r.onboarding.summary) await onboardingStatus(chat, r.onboarding, onb.steps, quiet, { imported, late });
   return out;

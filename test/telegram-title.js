@@ -72,8 +72,17 @@ http.createServer((req, res) => {
         const op = /OPEN PROMISES \(id: what, due\): (\d+): Be at the receiver/.exec(j.system);
         if (op && /Sorry, overslept, will be there at 8/.test(fresh)) promise_results.push({ id: +op[1], result: 'broken', evidence: 'Overslept, 2 hours late' });
       }
+      // the case playbook: a breakdown on the Turnpike; then he moved off it
+      const cases_opened = [], case_updates = [];
+      if (working) {
+        AI.playbook = /CASE PLAYBOOK/.test(j.system);
+        const pbid = (/\n(\d+): Breakdown on the NJ Turnpike/.exec(j.system) || [])[1];
+        const bd = /\[#(\d+) [^\]]*\] [^:]+: Truck broke down on the turnpike/.exec(fresh); if (bd && pbid) cases_opened.push({ playbook_id: +pbid, msg_id: +bd[1], summary: 'Truck broke down on the NJ Turnpike near exit 7A' });
+        const oc = (/case (\d+): Breakdown on the NJ Turnpike/.exec(j.system) || [])[1];
+        if (oc && /moved to the service area/.test(fresh)) case_updates.push({ case_id: +oc, steps_done: [1, 2], note: 'At the Molly Pitcher service area', resolved: false });
+      }
       AI.working = (AI.working || 0) + (working ? 1 : 0);
-      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], people, load_updates, dispatch_lessons, promises, promise_results } }] }));
+      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], cases_opened, case_updates, people, load_updates, dispatch_lessons, promises, promise_results } }] }));
     }
     if (tool === 'dispatcher_profile') { AI.disp = (AI.disp || 0) + 1; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { summary: 'Short, clear messages.', tone: 'friendly', clarity: 'clear', professionalism: 'high', update_habits: ['Asks for the BOL photo once loaded'], phrases: ['Send me the BOL once loaded'], strengths: ['Answers fast'], improve: ['Ask for the ETA earlier'],
       scores: [{ area: 'speed', score: 4, seen: 'Answers within 20 minutes.', example: 'Send me the ETA please' }, { area: 'driver_care', score: 2, seen: 'Pushed a tired driver.' }],
@@ -105,7 +114,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
 (async () => {
   execSync(`pkill -f "node src/serve[r].js" || true; sleep 0.4; su postgres -c "psql -q -h /tmp -p 5433 -c 'DROP DATABASE IF EXISTS recruiting_test' -c 'CREATE DATABASE recruiting_test'"`, { stdio: 'ignore' });
   const env = { ...process.env, DATABASE_URL: DB, PGSSL: 'off', ADMIN_EMAIL: 'admin@example.com', ADMIN_PASSWORD: 'test-password-123', PORT: '3999',
-    TELEGRAM_BOT_TOKEN: '999:test', TG_API_BASE: 'http://localhost:4999', TG_POLL_SECONDS: '1', TG_TICK_MS: '1000', TG_NO_QUIET: '1', TG_DIGEST_MS: '1000', TG_DIGEST_SETTLE_MIN: '0.03', TG_PROFILE_MS: '1500', TG_TEAM_MS: '1000', TG_DISP_MIN_MSGS: '2', ANTHROPIC_API_KEY: 'test', ANTHROPIC_BASE_URL: 'http://localhost:4998' };
+    TELEGRAM_BOT_TOKEN: '999:test', TG_CASE_MS: '1500', TG_API_BASE: 'http://localhost:4999', TG_POLL_SECONDS: '1', TG_TICK_MS: '1000', TG_NO_QUIET: '1', TG_DIGEST_MS: '1000', TG_DIGEST_SETTLE_MIN: '0.03', TG_PROFILE_MS: '1500', TG_TEAM_MS: '1000', TG_DISP_MIN_MSGS: '2', ANTHROPIC_API_KEY: 'test', ANTHROPIC_BASE_URL: 'http://localhost:4998' };
   require('child_process').spawn('node', ['src/server.js'], { cwd: __dirname + '/..', env, stdio: ['ignore', require('fs').openSync('/tmp/server.log', 'w'), require('fs').openSync('/tmp/server.log', 'a')], detached: true }).unref();
   let cookie = '';
   const web = async (path, opts = {}) => { const r = await fetch(BASE + path, { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json', Cookie: opts.cookie || cookie }, body: opts.body ? JSON.stringify(opts.body) : undefined }); const sc = r.headers.get('set-cookie'); if (sc && !opts.cookie) cookie = sc.split(';')[0]; const t = await r.text(); try { return { status: r.status, ...JSON.parse(t) }; } catch (e) { return { status: r.status, text: t }; } };
@@ -298,6 +307,29 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   say(HANK, 'ok', HCHAT); say(DAN, '👍', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT bool_and(digested) x FROM tg_messages WHERE chat_id = $1`, [HCHAT.id])).rows[0].x, 15000) && ((AI.dg || {})['Hank Hired'] || 0) === hd0, '"ok" and 👍: marked read without an AI call');
   ok(AI.lastDigest && AI.lastDigest.model === 'claude-haiku-5-5' && AI.lastDigest.cached, 'the groups are read by Haiku, with the instructions cached');
+  // the case playbook: a breakdown on the NJ Turnpike
+  ok((await web('/api/playbooks')).playbooks.length >= 11, 'the playbook starts with the common road cases');
+  say(HANK, 'Truck broke down on the turnpike near exit 7A, waiting for amazon roadside', HCHAT);
+  const cs = await until(async () => ((await web('/api/cases')).cases || []).find((c) => c.driver_id === hank), 15000);
+  ok(AI.playbook && cs && /Turnpike/.test(cs.title) && cs.next === 1 && cs.steps.length === 6 && cs.rules.some((r) => /never leave him waiting on the shoulder/.test(r)), 'the bot opens the case "Breakdown on the NJ Turnpike" with its steps and if/else rules');
+  ok(cs.draft && /Are you safe/.test(cs.draft.text) && !tg.sent.some((m) => /Are you safe/.test(m.text)), 'Watch: the message for the driver waits on the website');
+  ok((await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Hank Hired: Breakdown on the NJ Turnpike%'`)).rows.length >= 1, 'the team is told, with the first step');
+  say(HANK, 'Ok I moved to the service area, truck still runs rough', HCHAT);
+  const cs2 = await until(async () => { const c = ((await web('/api/cases')).cases || []).find((x) => x.id === cs.id); return c && c.next === 3 ? c : null; }, 15000);
+  ok(cs2 && cs2.done.includes(2) && /Molly Pitcher/.test(cs2.note), 'he moved off the Turnpike: steps 1 and 2 done, next is calling road service');
+  await pg.query(`UPDATE tg_cases SET step_since = now() - interval '45 minutes' WHERE id = $1`, [cs.id]);
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Hank Hired: Breakdown on the NJ Turnpike%Step 3 is waiting%'`)).rows.length >= 1, 15000), 'step 3 waits longer than 30 min: raised with the team');
+  ok((await web('/api/cases/' + cs.id + '/step', { method: 'POST', body: { step: 3 } })).ok && (await web('/api/cases/' + cs.id + '/step', { method: 'POST', body: { step: 4 } })).ok, 'the dispatcher ticks steps 3 and 4 on the website');
+  const cs3 = ((await web('/api/cases')).cases || []).find((x) => x.id === cs.id);
+  ok(cs3.next === 5, 'next: tell Amazon about the delay');
+  const n5 = tg.sent.length; const d4 = (await pg.query(`SELECT id FROM tg_drafts WHERE chat_id = $1 AND kind = 'case' AND state = 'open'`, [HCHAT.id])).rows[0];
+  if (d4) await web('/api/cases/drafts/' + d4.id + '/skip', { method: 'POST' });
+  ok((await web('/api/cases/' + cs.id + '/close', { method: 'POST', body: { note: 'Fixed at the service area', lesson: 'On the Turnpike, move the truck off before calling road service.' } })).ok, 'resolved, with what to do next time');
+  ok((await pg.query(`SELECT 1 FROM tg_knowledge WHERE question = 'Case: Breakdown on the NJ Turnpike or Garden State Parkway' AND review AND NOT active`)).rows.length === 1, 'the lesson waits in Knowledge to approve');
+  ok(((await web('/api/cases?status=closed')).cases || []).some((x) => x.id === cs.id), 'listed under Closed, last 7 days');
+  const pbs = (await web('/api/playbooks')).playbooks; const tp = pbs.find((x) => x.key === 'breakdown_toll_road');
+  ok((await web('/api/playbooks/' + tp.id, { method: 'PUT', body: { title: tp.title, when: tp.when_text, steps: [...tp.steps, { text: 'Send the repair invoice to accounting', driver: '', wait: 0 }], rules: tp.rules } })).ok
+    && (await web('/api/playbooks')).playbooks.find((x) => x.id === tp.id).steps.length === 7, 'an admin adds a step to the playbook');
   // the driver's word
   say(HANK, 'I will be at the receiver by 6 AM', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_promises WHERE driver_id = $1 AND state = 'open'`, [hank])).rows.length, 15000), 'a promise: "be at the receiver by 6 AM"');
@@ -309,7 +341,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const upd = (await web('/api/tg/chats/' + HCHAT.id)).updates;
   ok((await web('/api/tg/updates/' + upd[0].id, { method: 'POST', body: { ok: true } })).ok && (await web('/api/tg/updates/' + upd[1].id, { method: 'POST', body: { ok: false } })).ok, 'the team checks two load updates: right, wrong');
   const dr = await web('/api/tg/dispatch-readiness');
-  ok(dr.groups.groups >= 2 && dr.updates.ok === 1 && dr.updates.wrong === 1 && dr.updates.accuracy === 0.5 && dr.practices.waiting === 1 && dr.promises.broken === 1 && !dr.ready, 'Dispatch autopilot: groups, 50% read right, 1 practice to approve, 1 promise broken, still learning');
+  ok(dr.groups.groups >= 2 && dr.updates.ok === 1 && dr.updates.wrong === 1 && dr.updates.accuracy === 0.5 && dr.practices.waiting >= 1 && dr.promises.broken === 1 && !dr.ready, 'Dispatch autopilot: groups, 50% read right, 1 practice to approve, 1 promise broken, still learning');
   say(DAN, 'Ok Hank, let me know when you are rolling', HCHAT); say(DAN, 'Send me the ETA please', HCHAT);
   ok(await until(async () => ((await web('/api/tg/dispatch-readiness')).dispatchers.find((x) => x.name === 'Dan Dispatch') || {}).profile, 15000), 'Dan\'s dispatcher profile is written');
   const dd = (await web('/api/tg/dispatch-readiness')).dispatchers.find((x) => x.name === 'Dan Dispatch');
@@ -324,7 +356,9 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   // his work review
   const rv = await web('/api/tg/dispatchers/u' + danU.id);
   ok(rv.profile && rv.profile.feedback.goal && rv.profile.scores.length === 2 && rv.stats.msgs >= 2 && rv.user.noLogin && rv.history.length === 1, 'work review: scores, feedback to give, his numbers, linked account');
-  ok((await web('/api/tg/dispatchers/' + DAN.id + '/review', { method: 'POST' })).ok, 'Review again now');
+  say(DAN, 'Hank, call me when you are empty', HCHAT);
+  await until(async () => +(await pg.query(`SELECT count(*) n FROM tg_messages WHERE from_id = $1 AND text IS NOT NULL`, [DAN.id])).rows[0].n >= 3, 15000);
+  const rvn = await web('/api/tg/dispatchers/' + DAN.id + '/review', { method: 'POST' }); ok(rvn.ok, 'Review again now ' + (rvn.ok ? '' : JSON.stringify(rvn)));
   const rv2 = await web('/api/tg/dispatchers/' + DAN.id);
   ok(rv2.history.length === 2 && rv2.profile.trend.direction === 'better', 'two reviews: the trend shows');
   ok(await until(async () => (await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Dispatcher Dan Dispatch: Told a driver%'`)).rows.length === 1), 'a red flag: the admins are told (once)');
@@ -349,7 +383,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => AI.working > w0, 15000), 'and the bot reads it as a working group (learns updates)');
   // the group page; updater mode
   const gp = await web('/api/tg/chats/' + HCHAT.id);
-  ok(gp.chat.working && gp.chat.members === 14 && gp.chat.mode === 'watch' && gp.chat.learning.msgs >= 3 && gp.chat.learning.dispatchers === 1 && gp.chat.learning.updates >= 2 && gp.chat.learning.lessons === 1 && gp.updates.length >= 2, 'the group page: working group, 14 people, 3 messages read, 1 dispatcher, 2 load updates, 1 practice');
+  ok(gp.chat.working && gp.chat.members === 14 && gp.chat.mode === 'watch' && gp.chat.learning.msgs >= 3 && gp.chat.learning.dispatchers === 1 && gp.chat.learning.updates >= 2 && gp.chat.learning.lessons >= 1 && gp.updates.length >= 2, 'the group page: working group, 14 people, 3 messages read, 1 dispatcher, 2 load updates, 1 practice');
   n = tg.sent.length; say(HANK, 'loaded CONTAINER ABCU9', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_alerts WHERE chat_id = $1`, [HCHAT.id])).rows.length, 15000), 'watch: the container mix-up is an alert on the website');
   await sleep(500); ok(!inChat(n, HCHAT).length, 'and nothing is written in the group');

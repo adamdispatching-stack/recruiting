@@ -55,11 +55,12 @@
             ${r.notes.length ? `<ul class="list">${r.notes.map((n) => `<li><span class="grow"><span class="nk">${esc(NK[n.kind] || 'Note')}</span> ${esc(n.text)}</span><span class="small mut">${esc(dateText(dayOf(n.at)))}</span></li>`).join('')}</ul>` : '<p class="hint">Routines, requests, loads he likes or refuses, how he works: the bot notes them from his groups.</p>'}</section>
         </div>
         <div>
-          <section class="card dprof" id="dprof"><p class="hint">Loading the profile…</p></section>
+          <div id="dcases"></div><section class="card dprof" id="dprof"><p class="hint">Loading the profile…</p></section>
           ${r.truckEvents.length ? `<section class="card"><h3>Truck issues and service</h3><ul class="list">${r.truckEvents.map((e) => `<li><span class="grow"><span class="tst ${e.status}">${e.status === 'fixed' ? 'Done' : e.status === 'scheduled' ? 'Scheduled' : 'Open'}</span> <b>${esc(e.title)}</b>${e.unit ? ` <span class="small mut">truck ${esc(e.unit)}</span>` : ''}</span><span class="small mut">${e.cost !== null ? '$' + e.cost.toLocaleString('en-US') + ' · ' : ''}${esc(dateText(e.day || dayOf(e.at)))}</span></li>`).join('')}</ul></section>` : ''}
         </div>
       </div></main>`;
     App.profileCard(d.id, document.getElementById('dprof'), true);
+    const dcs = document.getElementById('dcases'); if (dcs) App.casesCard(dcs, 'driverId=' + d.id, { title: 'Open cases' });
   }
   const oilTag = (o) => (o.state === 'unknown' ? '<span class="oil unknown">No oil record</span>' : `<span class="oil ${o.state}">${o.state === 'overdue' ? 'Oil overdue' : o.state === 'soon' ? 'Oil due soon' : 'Oil OK'}</span>`);
   on('drvDates', () => App.activeDialog(cur.driver, () => viewDriver(cur.driver.id)));

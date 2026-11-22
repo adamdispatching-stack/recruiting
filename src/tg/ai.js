@@ -96,6 +96,11 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     msg_id: { type: 'integer' }, what: { type: 'string', description: 'Short, in the third person: "Be at the shipper by 6 AM".' }, due: { type: 'string', description: 'When, as said.' } }, required: ['msg_id', 'what'] } },
   promise_results: { type: 'array', description: 'ONLY for the OPEN PROMISES listed: the ones the NEW messages show he kept or did not keep (late, did not do it, changed it without telling).', items: { type: 'object', properties: {
     id: { type: 'integer' }, result: { type: 'string', enum: ['kept', 'broken'] }, evidence: { type: 'string', description: 'Short, what shows it.' } }, required: ['id', 'result'] } },
+  cases_opened: { type: 'array', description: 'ONLY in a WORKING driver\'s group: a case from the CASE PLAYBOOK that the NEW messages show starting (not one already in OPEN CASES).', items: { type: 'object', properties: {
+    playbook_id: { type: 'integer' }, msg_id: { type: 'integer', description: 'The message (#id) where it starts.' }, summary: { type: 'string', description: 'One sentence: what happened and where (no phone or load numbers).' } }, required: ['playbook_id', 'summary'] } },
+  case_updates: { type: 'array', description: 'ONLY for the OPEN CASES listed: the steps the NEW messages show done (or clearly not needed, like the "cannot move" step when the truck moved), a short note, and resolved=true when the problem is over (the truck is rolling again, the load is delivered or settled).', items: { type: 'object', properties: {
+    case_id: { type: 'integer' }, steps_done: { type: 'array', items: { type: 'integer' } }, note: { type: 'string' }, resolved: { type: 'boolean' },
+    lesson: { type: 'string', description: 'When resolved: what to do better or the same next time in a case like this, as general practice. Empty if nothing new.' } }, required: ['case_id', 'steps_done', 'resolved'] } },
   dispatch_lessons: { type: 'array', description: 'ONLY in a WORKING driver\'s dispatch group: how OUR dispatchers handle things, as general practice a new dispatcher (or a bot doing updates) can follow. Only when the NEW messages clearly show it. No names, numbers, places or dates.', items: { type: 'object', properties: {
     situation: { type: 'string', description: 'When this happens, for example "The driver says he will be late to the delivery".' },
     practice: { type: 'string', description: 'What the dispatcher does or says, for example "Asks for the new ETA right away and tells the driver he will update the broker".' } }, required: ['situation', 'practice'] } },
@@ -123,7 +128,7 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     severity: { type: 'string', enum: ['low', 'high'] }, text: { type: 'string', description: 'One clear sentence.' },
     ask_driver: { type: 'string', description: 'Only for container_mismatch or wrong_location: a short polite question to the driver to clear it up, for example "The photo shows container ABCU 102634 but the load is ABCU 102643. Is this the right one?"' } }, required: ['kind', 'severity', 'text'] } } },
   required: ['truck_events', 'driver_notes', 'alerts'] } };
-async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images, onb = null, unknown = [], working = false, promises = [] }) {
+async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images, onb = null, unknown = [], working = false, promises = [], playbook = '', cases = '' }) {
   // the same for every group (cached); what is special about this group goes with the messages
   const system = `You read one truck driver's Telegram group for a US trucking company, and pull out what the managers must know.
 Only report what the NEW messages say; the earlier ones are context. Compare container, trailer and load numbers in the messages with the ones in the pictures: a different number is a container_mismatch.
@@ -131,10 +136,10 @@ Flag unprofessional_dispatcher only for clear rudeness, insults, or telling the 
 Never include passwords, SSN, license or account numbers. Be factual and short.
 Oil changes, shop visits and repairs are truck_events. "Oil change done" is an oil_change with status fixed; say paid=true when they say it is paid, and give the cost, shop and mileage when said. Do not repeat an event already listed in OPEN TRUCK ISSUES: mark it fixed (fixed_issue_ids) or paid (paid_ids) instead.
 In a WORKING driver's dispatch group (the driver hauls loads for us) also fill load_updates (each message is numbered #id), promises, promise_results and dispatch_lessons: the bot is learning how our dispatchers run updates and whether the driver keeps his word. Leave them empty in other groups.
-When the driver is ONBOARDING (not driving for us yet), fill "onboarding" every time. Mark a step done only when a message or a picture clearly shows it is done (a result, a confirmation, a ticket, "done", "passed"), never when it is only planned or asked for.`;
+When the driver is ONBOARDING (not driving for us yet), fill "onboarding" every time. Mark a step done only when a message or a picture clearly shows it is done (a result, a confirmation, a ticket, "done", "passed"), never when it is only planned or asked for.${playbook}`;
   const about = `ABOUT THIS GROUP: the ${kind} group of ${driver}${truck ? `, truck ${truck}` : ''}.
 OPEN TRUCK ISSUES (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}
-${working ? 'This is a WORKING driver\'s dispatch group.\n' + (promises.length ? `OPEN PROMISES (id: what, due): ${promises.map((x) => `${x.id}: ${x.what}${x.due ? ', ' + x.due : ''}`).join('; ')}\n` : '') : ''}${unknown.length ? `People whose role is not known yet: ${unknown.join('; ')}.
+${working ? 'This is a WORKING driver\'s dispatch group.' + cases + '\n' + (promises.length ? `OPEN PROMISES (id: what, due): ${promises.map((x) => `${x.id}: ${x.what}${x.due ? ', ' + x.due : ''}`).join('; ')}\n` : '') : ''}${unknown.length ? `People whose role is not known yet: ${unknown.join('; ')}.
 ` : ''}Truck services not marked paid yet (id: title, cost): ${unpaid.length ? unpaid.map((i) => `${i.id}: ${i.title}${i.cost !== null ? ' $' + i.cost : ''}`).join('; ') : 'none'}${onb ? `
 
 This driver is ONBOARDING (not driving for us yet).

@@ -50,6 +50,7 @@
       <div class="tiles">${App.tile('lead', r.trend.leads[0], 'new leads, last 30 days', { href: '#/leads', trend: trendHtml(r.trend.leads) })}${App.tile('clip', r.trend.onboarded[0], 'started onboarding, 30 days', { href: '#/onboarding', trend: trendHtml(r.trend.onboarded) })}
         ${App.tile('award', r.trend.hired[0], 'hired, last 30 days', { trend: trendHtml(r.trend.hired) })}${App.tile('wheel', a.activeDrivers, 'active drivers', { href: '#/active' })}</div>
       ${r.drops || ''}
+      <div id="homeCases"></div>
       ${r.fill ? `<div class="fillwide">${r.fill}</div>` : ''}
       <div class="dgrid">
         <section class="card"><h3>Recruiting pipeline</h3><p class="hint lead">Driver leads from first reply to hire</p>
@@ -153,6 +154,7 @@
     r.badges = bd;
     document.title = (r.role === 'admin' ? 'Dashboard' : 'My day') + ' · FleetHire';
     view.innerHTML = header('home') + (r.role === 'admin' ? adminHome(r) : myDay(r));
+    App.casesCard(document.getElementById('homeCases'), '', { title: 'Road cases now' });
     App.every(60000, viewHome);
   }
 
@@ -281,7 +283,7 @@
       .filter(([, l]) => l.length).map(([c, l]) => [c, l.sort(byUnit)]);
     const mine = trucks.filter((t) => t.dispatcherId === S.me.id).length;
     const tile = (k, v, l, cls) => `<button type="button" class="ftile ${cls || ''}" data-act="truckFilter" data-k="${k}" aria-pressed="${truckFilter === k}"><b>${v}</b><span>${l}</span></button>`;
-    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck: its company and driver, oil changes, shop visits and what it costs.', `${admin || disp ? '<button class="btn plain" data-act="fleetSettings">Truck settings</button>' : ''}${canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : ''}`)}${coachCard(co && co.coaching)}
+    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck: its company and driver, oil changes, shop visits and what it costs.', `${admin || disp ? '<button class="btn plain" data-act="fleetSettings">Truck settings</button>' : ''}${canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : ''}`)}${coachCard(co && co.coaching)}<div id="truckCases"></div>
       ${fe && fg && trucks.length ? `<section class="card eboard"><div class="ebhead">${App.goalRing(fg)}<div class="grow"><h3>${fe.count ? `${plural(fe.count, 'empty truck')}: about ${App.money(fe.losingPerDay)} lost every day` : 'Every truck has a driver'}</h3>
         <p class="small mut">Lease, insurance and fees: ${App.money(fe.monthly)} a month per truck, ${App.money(fe.perDay)} a day, running or not.${fe.lost ? ` So far these empty trucks have cost ${App.money(fe.lost)}.` : ''} ${fg.filled} filled this month, goal ${fg.target}.</p></div></div>
         ${App.emptyList(fe, 50)}</section>` : ''}
@@ -302,6 +304,7 @@
         </tbody></table></div></section>`).join('') || '<div class="empty"><p>No trucks in this group.</p></div>') + `<p class="hint foot">Each company has its own table, empty trucks first. Click a unit number for the truck's own page: oil changes, shop visits, drivers and costs.</p>`
         : `<div class="empty"><p>No trucks listed yet.</p>Add your trucks, and mark the ones that already have a driver. Empty trucks can then be picked during onboarding.</div>`}
     </main>`;
+    App.casesCard(document.getElementById('truckCases'), '', { title: 'Road cases now' });
   }
   on('truckFilter', (b) => { truckFilter = truckFilter === b.dataset.k && b.classList.contains('ftile') ? '' : b.dataset.k; viewTrucks(); });
   onChange('truckCo', (el) => { truckCo = el.value; viewTrucks(); });

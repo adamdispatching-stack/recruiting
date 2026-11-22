@@ -219,7 +219,7 @@
     const e = r.eld;
     view.innerHTML = header('telegram') + `<main><a class="back" href="#/telegram">← Telegram manager</a>
       ${App.pageHead(c.title || 'Telegram group', `${c.kind ? KIND[c.kind] + ' group' : 'Not linked'}${c.driverId ? ` for <a href="${App.driverHref(c.driverId, c.driverStatus)}">${esc(c.driver)}</a>` : ''}${c.linkedAt ? `, linked ${esc(dateText(String(c.linkedAt).slice(0, 10)))}` : ''}`)}
-      <div id="chatDrafts"></div>
+      <div id="chatDrafts"></div><div id="chatCases"></div>
       ${c.botAdmin ? '' : '<div class="needbox">The bot is not an admin in this group, so it may miss messages. In Telegram: Group settings, Administrators, Add admin.</div>'}
       <div class="tgcols"><div>
         ${e ? `<section class="card"><h3>ELD setup${e.setupDoneAt ? ' <span class="okt">complete</span>' : ''}</h3>
@@ -268,6 +268,7 @@
       if (lg.more) bx.insertAdjacentHTML('afterend', `<p><button type="button" class="btn plain sm" data-act="tgLogMore" data-chat="${c.chatId}" data-before="${lg.log[lg.log.length - 1].id}">Show older</button></p>`); }).catch(() => {});
     const box = document.querySelector('.tgmsgs'); if (box) box.scrollTop = box.scrollHeight;
     App.draftsBox(document.getElementById('chatDrafts'), 'chatId=' + encodeURIComponent(id));
+    App.casesCard(document.getElementById('chatCases'), 'chatId=' + encodeURIComponent(id), { title: 'Open cases in this group' });
   }
 
   // ---------- on a lead's page ----------
