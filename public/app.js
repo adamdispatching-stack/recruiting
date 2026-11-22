@@ -305,6 +305,7 @@ window.App = (() => {
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     telegram: '<path d="m21.5 4.5-3.2 15.1c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.2 13.4l-4.7-1.5c-1-.3-1-1 .2-1.5L20.2 3.3c.9-.3 1.6.2 1.3 1.2z"/>',
     badges: '<circle cx="12" cy="9" r="6"/><path d="m8.5 13.8-1.5 7.2 5-2.6 5 2.6-1.5-7.2"/><path d="m12 6.3.9 1.8 2 .3-1.4 1.4.3 2-1.8-.9-1.8.9.3-2-1.4-1.4 2-.3z"/>',
+    map: '<path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M9 4v13.5M15 6.5V20"/>',
     facebook: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M15.5 8h-1.6c-1.1 0-1.9.8-1.9 1.9V21M9.5 13h5.5"/>'
   };
   const icon = (k) => `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
@@ -321,7 +322,7 @@ window.App = (() => {
           <span class="grow"></span>
           ${goalRing()}
           <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : disp ? 'Dispatcher' : 'Recruiter'}</span></div>
-            <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + `<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a>` : link(['#/settings', 'Password', 'settings', 'password'])}
+            <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + link(['#/map', 'Product map', 'map']) + `<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a>` : link(['#/settings', 'Password', 'settings', 'password'])}
               <button data-act="logout">${icon('out')}<span>Sign out</span></button></nav></div>
         </div></div></div></aside>${extra ? `<header class="sign"><div class="o"><div class="plate">${extra}</div></div></header>` : ''}`;
   }

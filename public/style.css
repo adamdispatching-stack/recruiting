@@ -1684,3 +1684,28 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .chance{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap}
 .chance.c-likely{background:#E5F4EA;color:#1F6B3A}.chance.c-unsure{background:#FFF4DD;color:#7A5A06}.chance.c-risk{background:#FBE9E7;color:#8A2D1B}
 .chwhy{list-style:none;margin:6px 0 0;padding:0;font-size:13px}.chwhy li{margin:2px 0}.chwhy .up{color:#1F6B3A}.chwhy .dn{color:#8A2D1B}
+
+/* product map */
+.pmap{width:100%;height:auto;display:block}
+.pmap .pmn rect{fill:#fff;stroke:#9DB0A6;stroke-width:1.5}
+.pmap .pmn rect.k{fill:#EEF5F1;stroke:var(--green);stroke-width:2}
+.pmap .pmn rect.ai{fill:#F3EEFB;stroke:#7B5BB5}
+.pmap .pmn rect.pp{fill:#FFF8EC;stroke:#C9963A}
+.pmap .pmn text{font-size:12px;fill:#44524B;text-anchor:middle}
+.pmap .pmn text.t{font-size:15px;font-weight:700;fill:#1E2B25}
+.pmap .pml path{fill:none;stroke:#7D8E86;stroke-width:1.6}
+.pmap .pml text{font-size:11.5px;fill:#5B6B63}
+.ptodo ol{margin:6px 0 0;padding-left:20px}.ptodo li{margin:6px 0}
+.pmbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0 8px}
+.pmbar input[type=search]{flex:1;min-width:220px;max-width:360px}
+.pjump{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pjump a{padding:4px 10px;border:1px solid #DCE3DF;border-radius:999px;text-decoration:none;font-size:13px;background:#fff}
+.parea h2{margin-bottom:2px}.pgt{margin:16px 0 6px;font-size:15px}
+.plist{list-style:none;margin:0;padding:0}
+.plist li{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-top:1px solid #EEF1EF}
+.plist .pst{flex:none;width:150px;font-size:12.5px;font-weight:700;padding:2px 8px;border-radius:6px;background:#F1F4F2}
+.ps-built .pst{background:#E5F4EA;color:#1F6B3A}.ps-setup .pst{background:#E8EEF9;color:#24508F}.ps-partial .pst{background:#FFF4DD;color:#7A5A06}
+.ps-next .pst{background:#F1E8FB;color:#6B3FA0}.ps-idea .pst{background:#FFF1E6;color:#8A4B12}
+.plist .btn{flex:none}
+@media (max-width:700px){.plist li{flex-wrap:wrap}.plist .pst{width:auto}}
+.pmap .pml text.c{text-anchor:middle}.pmap .pml text.e{text-anchor:end}
