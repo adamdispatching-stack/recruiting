@@ -438,6 +438,10 @@ async function migrate() {
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS arrival_by TEXT;
     -- a working driver's group: how many people are in it, and how the bot works there (watch = learn quietly; updater = also writes)
     ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS member_count INTEGER;
+    -- what the AI costs: one row per call from the website / bot, daily totals from each Chrome profile
+    CREATE TABLE IF NOT EXISTS ai_usage (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), day DATE NOT NULL, source TEXT NOT NULL, feature TEXT NOT NULL, model TEXT NOT NULL, account TEXT,
+      calls INTEGER NOT NULL DEFAULT 1, failed INTEGER NOT NULL DEFAULT 0, input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0, cache_read BIGINT NOT NULL DEFAULT 0, cache_write BIGINT NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS ai_usage_day ON ai_usage(day);
     -- papers the team uploads: the driver's CDL (and medical card), each truck's registration and paperwork.
     -- Kept for the team and shared in the ELD group only when someone types /info there.
     CREATE TABLE IF NOT EXISTS docs (id SERIAL PRIMARY KEY, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, truck_id INTEGER REFERENCES trucks(id) ON DELETE CASCADE,
@@ -630,6 +634,8 @@ const DEFAULTS = {
   fbTargets: { picture: 5, post: 5, comment: 15, contact: 20, chat: 2, ppost: 1, pcomment: 5 },
   // Trucks: an oil change every oilMiles or oilDays, whichever comes first; "due soon" warnMiles / warnDays before.
   // askDriver: when it is due, the bot asks for the mileage in the driver's dispatch group.
+  ai: { budget: 0 },          // AI cost: a monthly budget in USD (0 = none); admins are told at 80% and 100%
+  aiPrices: {},               // USD per million tokens per model, over the built-in list (ai-usage.js)
   fleet: { oilMiles: 25000, oilDays: 90, warnMiles: 2500, warnDays: 10, askDriver: false, costLease: 5000, costInsurance: 2000, costOther: 1000 },
   // trucks the team means to fill each month: { '2026-11': 6 }; a month not set aims at the trucks empty when it started
   fillGoals: {},

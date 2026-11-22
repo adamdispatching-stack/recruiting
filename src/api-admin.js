@@ -171,6 +171,11 @@ module.exports = (app) => {
 
   // ---------- the Chrome extension ----------
   app.get('/api/ext/ping', needKey, (req, res) => res.json({ ok: true, name: req.key.name }));
+  // the extension's own AI use (its key), as daily totals per model and purpose
+  app.post('/api/ext/ai-usage', needKey, wrap(async (req, res) => {
+    await require('./ai-usage').addExtension((req.body || {}).rows, req.key.name); // which Chrome profile (the access key's name)
+    res.json({ ok: true });
+  }));
   app.post('/api/ext/push', needKey, wrap(async (req, res) => {
     const items = Array.isArray((req.body || {}).drivers) ? req.body.drivers.slice(0, 500) : [];
     // One record that cannot be saved must never hold back the others: each one gets its own savepoint.

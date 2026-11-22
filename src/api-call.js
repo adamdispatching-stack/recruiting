@@ -46,6 +46,7 @@ module.exports = (app) => {
     } catch (e) { return res.status(502).json({ error: e.name === 'AbortError' ? 'The AI did not answer in time. Try again.' : 'Could not reach the AI service.' }); }
     finally { clearTimeout(timer); }
     const j = await r.json().catch(() => ({}));
+    await require('./ai-usage').record({ source: 'website', feature: 'call_prep', model: process.env.CALL_PREP_MODEL || 'claude-haiku-5-5', usage: j.usage, ok: r.ok });
     if (!r.ok) return res.status(502).json({ error: `The AI service said: ${(j.error && j.error.message) || r.status}` });
     const out = ((j.content || []).find((c) => c.type === 'tool_use') || {}).input;
     if (!out || !Array.isArray(out.questions)) return res.status(502).json({ error: 'The AI answer could not be read. Try again.' });

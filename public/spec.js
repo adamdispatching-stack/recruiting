@@ -149,7 +149,7 @@
           P('Daily summaries', 'built', 'A few lines per group every evening.', 'Telegram → group page'),
           P('Profiles', 'built', 'Driver profile for dispatchers, dispatcher profiles.', 'Bot'),
           P('Documents', 'built', 'Reads CDL / medical card expiry and state, Amazon screenshots, background reports (results only).', 'Onboarding groups'),
-          P('Cost and usage on the website', 'idea', 'How many AI calls each part makes per day and what it costs.', 'Settings')
+          P('Cost and usage on the website', 'built', 'What Claude costs today, 7 days, this month and where the month is heading; by purpose, model and part (website, bot, extension); a monthly budget with alerts at 80% and 100%; prices editable.', 'Account → AI usage', '#/ai')
         ] }
       ] }
   ];

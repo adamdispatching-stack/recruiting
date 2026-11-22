@@ -1715,3 +1715,12 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .docs img{width:64px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #DCE3DF;display:block}
 .docs .dpdf{width:64px;height:44px;display:flex;align-items:center;justify-content:center;font-size:24px;border:1px solid #DCE3DF;border-radius:6px;text-decoration:none}
 .dup{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+
+/* AI usage */
+.aichart{width:100%;height:auto;display:block}
+.aichart .ab rect{fill:var(--green)}.aichart .ab rect.hit{fill:transparent}.aichart .ab:hover rect:not(.hit){fill:#05652D}
+.aichart text{font-size:11px;fill:#5B6B63;text-anchor:middle}.aichart text.mx{text-anchor:start}.aichart .base{stroke:#C5CEC9}
+.aifigs .pbar{margin-top:6px}.pbar.sm{height:7px;margin:0;min-width:80px}
+.aiprice input{width:90px}.aiprice input[name=model]{width:240px}
+.twocol{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media (max-width:800px){.twocol{grid-template-columns:1fr}}
+.warnline{background:#FFF4DD;color:#7A5A06;padding:8px 12px;border-radius:8px}

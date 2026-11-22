@@ -11,6 +11,7 @@ async function ask({ model, system, content, tool, maxTokens = 800 }) {
     const r = await fetch(base + '/v1/messages', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model, max_tokens: maxTokens, system, tools: [tool], tool_choice: { type: 'tool', name: tool.name }, messages: [{ role: 'user', content }] }) });
     const j = await r.json().catch(() => ({}));
+    await require('../ai-usage').record({ source: tool.name === 'call_prep' ? 'website' : 'bot', feature: tool.name, model, usage: j.usage, ok: r.ok });
     if (!r.ok) throw new Error((j.error && j.error.message) || `AI error ${r.status}`);
     const use = (j.content || []).find((c) => c.type === 'tool_use'); if (!use) throw new Error('The AI gave no answer');
     return use.input;

@@ -82,6 +82,7 @@ require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-fleet')(app);
 require('./api-docs')(app);
+require('./api-ai')(app);
 require('./api-coach')(app);
 require('./api-admin')(app);
 
