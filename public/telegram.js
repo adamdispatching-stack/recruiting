@@ -2,7 +2,7 @@
 // who is who, and the bot's settings. Also the "Telegram groups" part of a lead's page.
 (() => {
   const { $, esc, view, S, api, toast, fail, on, onChange, header, dialog, dateText, when, plural } = App;
-  const KIND = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting', management: 'Management' };
+  const KIND = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting', management: 'Management', shift: 'Shift' };
   const AKIND = { container_mismatch: 'Container / number', wrong_location: 'Location', late_risk: 'Running late', appointment_change: 'Appointment', load_refused: 'Load refused', driver_upset: 'Driver upset', unprofessional_dispatcher: 'Dispatcher conduct', safety: 'Safety', other: 'Other' };
   const TKIND = { breakdown: 'Breakdown', repair: 'Repair', maintenance: 'Maintenance', oil_change: 'Oil change', tires: 'Tires', inspection: 'Inspection', damage: 'Damage', warning_light: 'Warning light', other: 'Other' };
   const MOOD = { good: '🙂 Good', neutral: '😐 Neutral', unhappy: '🙁 Unhappy', angry: '😠 Angry', unknown: '' };
@@ -108,9 +108,10 @@
       body = `<section class="card deskcfg"><h3>Shifts ${dk.now ? `<span class="small mut">· on shift now: <b>${esc(dk.now)}</b></span>` : ''}</h3>
         <p class="hint">The bot reads the working drivers' groups and checks in with the dispatcher on shift, one to one in a private chat with the bot: a driver resting until a time ("Got it? No calls until then", then a check at that time), a driver who needs a load ("send me the best option you see now and why"), a question nobody answered. It asks the truck's own dispatcher when he is on shift, else the dispatchers of the shift. No answer in time: the others on shift, then the admins. Nothing is written in the driver groups.</p>
         <form id="deskForm"><div class="deskrow"><label class="chk"><input type="checkbox" name="on" ${D.on ? 'checked' : ''}> On</label>
-          <label class="fld sm">Ask<select name="where"><option value="private" ${D.where !== 'group' ? 'selected' : ''}>In a private chat with the bot</option><option value="group" ${D.where === 'group' ? 'selected' : ''}>In the driver's group (tagging him)</option></select></label>
+          <label class="fld sm">Ask<select name="where"><option value="private" ${D.where !== 'group' ? 'selected' : ''}>In a private chat with the bot</option><option value="shift" ${D.where === 'shift' ? 'selected' : ''}>In the shift's Telegram group (tagging him)</option><option value="group" ${D.where === 'group' ? 'selected' : ''}>In the driver's group (tagging him)</option></select></label>
           <label class="fld sm">Ask the others after (min)<input type="number" name="answerMin" min="5" max="120" value="${D.answerMin}"></label></div>
-        ${D.shifts.map((s, i) => `<div class="shiftrow" data-i="${i}"><div class="deskrow"><label class="fld sm">Shift<input name="name" value="${esc(s.name)}"></label><label class="fld sm">From<input type="time" name="start" value="${esc(s.start)}"></label><label class="fld sm">To<input type="time" name="end" value="${esc(s.end)}"></label></div>
+        ${D.shifts.map((s, i) => `<div class="shiftrow" data-i="${i}"><div class="deskrow"><label class="fld sm">Shift<input name="name" value="${esc(s.name)}"></label><label class="fld sm">From<input type="time" name="start" value="${esc(s.start)}"></label><label class="fld sm">To<input type="time" name="end" value="${esc(s.end)}"></label>
+            <label class="fld sm">Telegram group<select name="chatId"><option value="">None (private chats)</option>${dk.groups.map((g) => `<option value="${g.chat_id}" ${String(s.chatId || '') === g.chat_id ? 'selected' : ''}>${esc(g.title || 'Group')}${g.kind === 'management' ? ' (management)' : ''}</option>`).join('')}</select></label></div>
           <div class="ppl">${dk.people.map((p) => `<label class="pchip"><input type="checkbox" name="p" value="${p.id}" ${(s.people || []).map(Number).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}${p.role === 'admin' ? ' <span class="small mut">admin</span>' : ''} ${reach(p)}</label>`).join('')}</div></div>`).join('')}
         <div class="tgsave"><button class="btn primary">Save</button></div></form></section>
         ${dk.speed.length ? `<section class="card"><h3>How fast they answer the bot, 30 days</h3><table class="mini"><thead><tr><th>Dispatcher</th><th class="n">Asked</th><th class="n">Answered</th><th class="n">Half within</th></tr></thead><tbody>${dk.speed.map((x) => `<tr><td>${esc(x.name)}</td><td class="n">${x.asked}</td><td class="n">${x.answered}</td><td class="n">${x.med === null ? '—' : x.med + ' min'}</td></tr>`).join('')}</tbody></table></section>` : ''}
@@ -125,13 +126,13 @@
       const [ag, dopt] = await Promise.all([api('/api/tg/all-groups'), api('/api/tg/driver-options')]); if (!live()) return;
       const st = (s) => (s === 'Hired' ? 'active' : String(s || '').toLowerCase());
       const dval = (id, name, status) => (id ? `${name} · ${st(status)} · #${id}` : '');
-      const TYPES = [['dispatch', 'Dispatch'], ['eld', 'ELD'], ['accounting', 'Accounting'], ['management', 'Management (our team)']];
+      const TYPES = [['dispatch', 'Dispatch'], ['eld', 'ELD'], ['accounting', 'Accounting'], ['management', 'Management (our team)'], ['shift', 'Shift group (dispatchers)']];
       const row = (g, open) => { const k = g.kind || (g.guess && g.guess.kind) || 'dispatch'; const did = g.driver_id || (g.guess && g.guess.driverId);
         const dn = g.driver_id ? dval(g.driver_id, g.driver, g.driver_status) : g.guess && g.guess.driverId ? dval(g.guess.driverId, g.guess.driver, g.guess.status) : '';
         return `<tr data-ag="${g.chat_id}" data-k="${g.kind || ''}" data-d="${g.driver_id || ''}"><th scope="row"><a href="#/telegram/${g.chat_id}">${esc(g.title || 'Group')}</a>
             <div class="small mut">${g.member_count ? plural(g.member_count, 'person', 'people') : ''}${g.msgs7 ? ` · ${plural(g.msgs7, 'message')} this week` : ' · quiet this week'}${g.bot_admin ? '' : ' · <span class="latetag">bot not admin</span>'}${g.pushed_by ? ` · pushed out by "${esc(g.pushed_by)}"` : ''}</div></th>
           <td><select data-ch="agKind" aria-label="Type">${TYPES.map(([v, l]) => `<option value="${v}" ${k === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
-          <td><input class="agdrv" list="agDrivers" value="${esc(dn)}" placeholder="Type a driver's name" aria-label="Driver" ${k === 'management' ? 'disabled' : ''}>${open && g.guess && g.guess.driverId ? '<div class="small mut">Guessed from the title</div>' : ''}</td>
+          <td><input class="agdrv" list="agDrivers" value="${esc(dn)}" placeholder="Type a driver's name" aria-label="Driver" ${['management', 'shift'].includes(k) ? 'disabled' : ''}>${open && g.guess && g.guess.driverId ? '<div class="small mut">Guessed from the title</div>' : ''}</td>
           <td class="small mut">${g.linked_by ? `${esc(g.linked_by)}, ` : ''}${g.linked_at ? esc(when(g.linked_at)) : ''}</td>
           <td class="acts"><button type="button" class="btn ${open ? 'primary' : 'plain'} sm" data-act="agSave">${open ? 'Connect' : 'Save'}</button>${open ? '' : ' <button type="button" class="btn plain sm" data-act="agOff">Disconnect</button>'}</td></tr>`; };
       const notc = ag.groups.filter((g) => g.active && !g.kind), conn = ag.groups.filter((g) => g.active && g.kind), gone = ag.groups.filter((g) => !g.active);
@@ -422,12 +423,12 @@
   on('tgSum', async (b) => { b.disabled = true; try { await api(`/api/tg/chats/${b.dataset.chat}/summary`, { method: 'POST', body: {} }); toast('Summary written'); App.render(); } catch (e) { fail(e); b.disabled = false; } });
   // the shift desk settings
   document.addEventListener('submit', async (e) => { if (e.target.id !== 'deskForm') return; e.preventDefault(); const f = e.target;
-    const shifts = [...f.querySelectorAll('.shiftrow')].map((r) => ({ name: r.querySelector('[name=name]').value, start: r.querySelector('[name=start]').value, end: r.querySelector('[name=end]').value, people: [...r.querySelectorAll('[name=p]:checked')].map((x) => +x.value) }));
+    const shifts = [...f.querySelectorAll('.shiftrow')].map((r) => ({ name: r.querySelector('[name=name]').value, start: r.querySelector('[name=start]').value, end: r.querySelector('[name=end]').value, chatId: r.querySelector('[name=chatId]').value || null, people: [...r.querySelectorAll('[name=p]:checked')].map((x) => +x.value) }));
     try { await api('/api/tg/desk', { method: 'PUT', body: { on: f.querySelector('[name=on]').checked, where: f.querySelector('[name=where]').value, answerMin: +f.querySelector('[name=answerMin]').value, shifts } }); toast('Saved'); App.render(); } catch (er) { fail(er); } });
   // All groups tab: connect, change, disconnect in the row
-  onChange('agKind', (el) => { const i = el.closest('tr').querySelector('.agdrv'); i.disabled = el.value === 'management'; });
+  onChange('agKind', (el) => { const i = el.closest('tr').querySelector('.agdrv'); i.disabled = ['management', 'shift'].includes(el.value); });
   on('agSave', async (b) => { const tr = b.closest('tr'); const kind = tr.querySelector('[data-ch=agKind]').value; const v = tr.querySelector('.agdrv').value; const m = /#(\d+)\s*$/.exec(v);
-    if (kind !== 'management' && !m) return toast('Pick the driver from the list (type a name)', true);
+    if (!['management', 'shift'].includes(kind) && !m) return toast('Pick the driver from the list (type a name)', true);
     b.disabled = true;
     try { const r = await api(`/api/tg/chats/${tr.dataset.ag}/link`, { method: 'PATCH', body: { kind, driverId: m ? +m[1] : null } });
       toast(r.same ? 'Nothing changed' : r.restored && r.restored.length ? `Saved. "${r.restored[0].title || 'The other group'}" is back as the ${KIND[r.restored[0].kind]} group.` : 'Saved'); App.render(); }

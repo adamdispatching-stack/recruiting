@@ -112,14 +112,20 @@ module.exports = (app) => {
       FROM tg_checks c LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.created_at > now() - interval '7 days' ORDER BY c.created_at DESC LIMIT 100`)).rows;
     const speed = (await q(`SELECT a.user_id, u.name, count(*)::int asked, count(a.said_at)::int answered, round((percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM a.said_at - a.asked_at) / 60) FILTER (WHERE a.said_at IS NOT NULL))::numeric)::int med
       FROM tg_check_asks a JOIN users u ON u.id = a.user_id WHERE a.asked_at > now() - interval '30 days' GROUP BY 1, 2 ORDER BY 3 DESC`)).rows;
-    res.json({ desk: D.cfg(), now: sh ? sh.name : null, people, checks, speed });
+    const groups = (await q(`SELECT chat_id::text chat_id, title, kind FROM tg_chats WHERE active AND driver_id IS NULL AND (kind IS NULL OR kind IN ('shift', 'management')) ORDER BY (kind = 'shift') DESC NULLS LAST, title`)).rows;
+    res.json({ desk: D.cfg(), now: sh ? sh.name : null, people, checks, speed, groups });
   }));
   app.put('/api/tg/desk', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const cur = require('./tg/desk').cfg(); const hm = (x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
-    const shifts = (Array.isArray(b.shifts) ? b.shifts : cur.shifts).slice(0, 4).map((s) => ({ name: String(s.name || '').trim().slice(0, 30) || 'Shift', start: String(s.start || '').trim(), end: String(s.end || '').trim(), people: [...new Set((s.people || []).map(Number).filter(Boolean))] }));
+    const shifts = (Array.isArray(b.shifts) ? b.shifts : cur.shifts).slice(0, 4).map((s) => ({ name: String(s.name || '').trim().slice(0, 30) || 'Shift', start: String(s.start || '').trim(), end: String(s.end || '').trim(), people: [...new Set((s.people || []).map(Number).filter(Boolean))], chatId: /^-?\d+$/.test(String(s.chatId || '')) ? String(s.chatId) : null }));
     if (shifts.some((s) => !hm(s.start) || !hm(s.end))) return res.status(400).json({ error: 'Write the shift times like 06:00 and 14:00' });
-    const v = { on: b.on === undefined ? cur.on : !!b.on, where: b.where === 'group' ? 'group' : 'private', answerMin: Math.max(5, Math.min(120, Math.round(+b.answerMin || cur.answerMin))), shifts };
+    const v = { on: b.on === undefined ? cur.on : !!b.on, where: ['group', 'shift'].includes(b.where) ? b.where : 'private', answerMin: Math.max(5, Math.min(120, Math.round(+b.answerMin || cur.answerMin))), shifts };
     await db.saveSetting('tg', { ...db.settings.tg, desk: v });
+    // the shift groups: marked as such (not a driver's group); a group no longer used for a shift is let go
+    const ids = shifts.map((s) => s.chatId).filter(Boolean);
+    if (ids.length) await q(`UPDATE tg_chats SET kind = 'shift', driver_id = NULL, mode = 'watch' WHERE chat_id = ANY($1::bigint[])`, [ids]);
+    await q(`UPDATE tg_chats SET kind = NULL WHERE kind = 'shift' AND NOT (chat_id = ANY($1::bigint[]))`, [ids]);
+    for (const id of ids) await q(`UPDATE tg_waiting SET done_at = now() WHERE chat_id = $1 AND done_at IS NULL`, [id]).catch(() => {});
     res.json({ ok: true, desk: v });
   }));
   // every group the bot is in, connected or not, with a guess from the title for the ones not connected (admins: All groups tab)
@@ -137,8 +143,8 @@ module.exports = (app) => {
   app.patch('/api/tg/chats/:id/link', needUser, needAdmin, wrap(async (req, res) => {
     const c = await loadChat(req, res); if (!c) return;
     const kind = String((req.body || {}).kind || ''); const driverId = +(req.body || {}).driverId || c.driver_id;
-    if (!['dispatch', 'eld', 'accounting', 'management', 'none'].includes(kind)) return res.status(400).json({ error: 'Pick Dispatch, ELD, Accounting or Management' });
-    const d = ['management', 'none'].includes(kind) ? { id: null, name: '' } : (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0]; if (!d) return res.status(400).json({ error: 'Pick the driver' });
+    if (!['dispatch', 'eld', 'accounting', 'management', 'none', 'shift'].includes(kind)) return res.status(400).json({ error: 'Pick Dispatch, ELD, Accounting or Management' });
+    const d = ['management', 'none', 'shift'].includes(kind) ? { id: null, name: '' } : (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0]; if (!d) return res.status(400).json({ error: 'Pick the driver' });
     if (c.kind === kind && c.driver_id === d.id) return res.json({ ok: true, same: true });
     const bot = require('./tg/bot'); const old = { kind: c.kind, driver: c.driver_id };
     // undo what the wrong type started in this group
@@ -155,6 +161,7 @@ module.exports = (app) => {
       await bot.log('connect', `Back as the ${bot.KINDS[b.kind]} group (it was pushed out by mistake)`, { chatId: b.chat_id, driverId: b.driver_id, who: req.user.name });
     }
     if (kind === 'management') await bot.linkTeam(c.chat_id, null, req.user.name);
+    else if (kind === 'shift') await q(`UPDATE tg_chats SET kind = 'shift', mode = 'watch', active = true WHERE chat_id = $1`, [c.chat_id]); // which shift: Telegram → Shift desk
     else if (kind !== 'none') { await bot.linkChat(c.chat_id, kind, d.id, req.user.id, null, { by: req.user.name }); await q(`UPDATE tg_messages SET digested = false WHERE chat_id = $1 AND at > now() - interval '14 days'`, [c.chat_id]); }
     await q(`UPDATE tg_waiting SET done_at = now() WHERE chat_id = $1 AND done_at IS NULL`, [c.chat_id]).catch(() => {});
     await bot.log('connect', kind === 'none' ? `${req.user.name} disconnected this group${old.kind ? ` (it was the ${bot.KINDS[old.kind]} group)` : ''}` : kind === 'management' ? `${req.user.name} made this a management group` : `${req.user.name} changed this group${old.kind ? ` from ${bot.KINDS[old.kind]}` : ''} to the ${bot.KINDS[kind]} group of ${d.name}; the last 14 days are read again as ${bot.KINDS[kind]}`, { chatId: c.chat_id, driverId: d.id, who: req.user.name });

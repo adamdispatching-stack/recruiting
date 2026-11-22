@@ -28,6 +28,19 @@ async function whoFor(driverId, skip = []) {
   if (!pick.length) return [];
   return (await q(`SELECT u.id user_id, u.name, (SELECT tg_id FROM tg_people p WHERE p.user_id = u.id ORDER BY seen_at DESC NULLS LAST LIMIT 1) tg_id FROM users u WHERE u.id = ANY($1::int[]) AND u.active`, [pick])).rows;
 }
+// the shift's own Telegram group (Settings: a group per shift), when the bot asks there
+async function shiftGroup() { const sh = await shiftNow(); return sh && sh.chatId ? sh.chatId : null; }
+async function tagOf(p) { const t = (await q(`SELECT tg_id, username, name FROM tg_people WHERE tg_id = $1`, [p.tg_id])).rows[0]; return require('./bot').tag(t || { tg_id: p.tg_id, name: p.name }); }
+// "register shift Day" in a group, or the Shift desk page: this group is that shift's group
+async function linkShift(chatId, name, by) {
+  const c = cfg(); const i = c.shifts.findIndex((s) => s.name.toLowerCase() === String(name || '').trim().toLowerCase()); if (i < 0) return false;
+  const shifts = c.shifts.map((s, k) => ({ ...s, chatId: k === i ? String(chatId) : String(s.chatId || '') === String(chatId) ? null : s.chatId || null }));
+  await db.saveSetting('tg', { ...db.settings.tg, desk: { ...c, shifts } });
+  await q(`UPDATE tg_chats SET kind = 'shift', driver_id = NULL, mode = 'watch', linked_at = now(), active = true WHERE chat_id = $1`, [chatId]);
+  await q(`UPDATE tg_waiting SET done_at = now() WHERE chat_id = $1 AND done_at IS NULL`, [chatId]).catch(() => {});
+  await require('./bot').log('connect', `Connected as the ${shifts[i].name} shift group: the bot asks the dispatchers on shift here (by ${by})`, { chatId });
+  return true;
+}
 const BTN = {
   rest: [['✅ Got it', 'ok'], ['🙅 Not my driver', 'notmine']],
   needs_load: [['📦 Load booked', 'booked'], ['⏳ Still looking', 'looking'], ['🙅 Not my driver', 'notmine']],
@@ -51,9 +64,12 @@ async function ask(check, people) {
     const buttons = [(BTN[check.kind] || BTN.other).map(([l, act]) => [l, `desk:${check.id}:${act}`])];
     try {
       let msg;
-      if (c.where === 'group') msg = await bot.send(check.chat_id, `${p.tg_id ? bot.tag({ tg_id: p.tg_id, name: p.name }) : bot.esc(p.name)}, ${text}`, { buttons });
-      else { if (!p.tg_id) throw new Error('no Telegram'); msg = await bot.send(p.tg_id, text, { buttons }); }
-      await q(`INSERT INTO tg_check_asks (check_id, user_id, tg_id, msg_id, chat_id) VALUES ($1, $2, $3, $4, $5)`, [check.id, p.user_id, p.tg_id || null, msg && msg.message_id, c.where === 'group' ? check.chat_id : p.tg_id]);
+      const sg = c.where === 'shift' ? await shiftGroup() : null; const mention = p.tg_id ? await tagOf(p) : bot.esc(p.name);
+      let to;
+      if (c.where === 'group') { to = check.chat_id; msg = await bot.send(to, `${mention}, ${text}`, { buttons }); }
+      else if (sg) { to = sg; msg = await bot.send(to, `${mention}, ${text}`, { buttons }); }
+      else { if (!p.tg_id) throw new Error('no Telegram'); to = p.tg_id; msg = await bot.send(to, text, { buttons }); }
+      await q(`INSERT INTO tg_check_asks (check_id, user_id, tg_id, msg_id, chat_id) VALUES ($1, $2, $3, $4, $5)`, [check.id, p.user_id, p.tg_id || null, msg && msg.message_id, to]);
       asked++;
     } catch (e) {
       await bot.log('desk', `Could not ask ${p.name} privately (${p.tg_id ? 'he has not opened a chat with the bot: he sends /start to the bot once' : 'his Telegram is not connected: /me CODE'})`, { chatId: check.chat_id, driverId: check.driver_id });
@@ -106,7 +122,8 @@ async function onButton(cq, who) {
 async function privateText(m, who) {
   if (!who || !m.text || m.text.startsWith('/')) return false;
   const bot = require('./bot');
-  const rep = m.reply_to_message ? (await q(`SELECT c.* FROM tg_check_asks a JOIN tg_checks c ON c.id = a.check_id WHERE a.tg_id = $1 AND a.msg_id = $2`, [m.from.id, m.reply_to_message.message_id])).rows[0] : null;
+  const rep = m.reply_to_message ? (await q(`SELECT c.* FROM tg_check_asks a JOIN tg_checks c ON c.id = a.check_id WHERE a.chat_id = $1 AND a.msg_id = $2 LIMIT 1`, [m.chat.id, m.reply_to_message.message_id])).rows[0] : null;
+  if (!rep && m.chat.type !== 'private') return false; // in a shift group only a reply to the bot's question counts
   const ch = rep || (await q(`SELECT c.* FROM tg_check_asks a JOIN tg_checks c ON c.id = a.check_id WHERE a.tg_id = $1 AND a.asked_at > now() - interval '90 minutes' AND c.kind IN ('needs_load', 'other', 'question') AND c.answer IS NULL ORDER BY a.asked_at DESC LIMIT 1`, [m.from.id])).rows[0];
   if (!ch) return false;
   const text = bot.redact(m.text).slice(0, 1500);
@@ -134,10 +151,11 @@ async function tick() {
     const w = (await q(`INSERT INTO tg_checks (chat_id, driver_id, kind, quote, until_text) VALUES ($1, $2, 'wake', $3, $4) RETURNING *`, [ch.chat_id, ch.driver_id, ch.quote, ch.until_text])).rows[0];
     const text = `It is ${bot.esc(ch.until_text)}: <b>${bot.esc(ch.driver)}</b> should be up now. Did he check in?`;
     for (const p of people) { if (!p.tg_id) continue;
-      const msg = await bot.send(p.tg_id, text, { buttons: [BTN.wake.map(([l, a]) => [l, `desk:${w.id}:${a}`])] }).catch(() => null);
-      if (msg) await q(`INSERT INTO tg_check_asks (check_id, user_id, tg_id, msg_id, chat_id) VALUES ($1, $2, $3, $4, $3)`, [w.id, p.user_id, p.tg_id, msg.message_id]); }
+      const sg = c.where === 'shift' ? await shiftGroup() : null; const to = sg || p.tg_id;
+      const msg = await bot.send(to, sg ? `${await tagOf(p)}, ${text}` : text, { buttons: [BTN.wake.map(([l, a]) => [l, `desk:${w.id}:${a}`])] }).catch(() => null);
+      if (msg) await q(`INSERT INTO tg_check_asks (check_id, user_id, tg_id, msg_id, chat_id) VALUES ($1, $2, $3, $4, $5)`, [w.id, p.user_id, p.tg_id, msg.message_id, to]); }
     await q(`UPDATE tg_checks SET asked_at = now() WHERE id = $1`, [w.id]);
     await bot.log('desk', `Wake-up check: ${ch.driver} should be up (${ch.until_text})`, { chatId: ch.chat_id, driverId: ch.driver_id });
   }
 }
-module.exports = { cfg, shiftNow, whoFor, fromGroup, onButton, privateText, tick, question };
+module.exports = { linkShift, cfg, shiftNow, whoFor, fromGroup, onButton, privateText, tick, question };

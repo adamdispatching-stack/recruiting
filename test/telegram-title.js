@@ -614,6 +614,19 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const dk = await web('/api/tg/desk');
   ok(dk.now === 'All day' && dk.checks.some((c) => c.kind === 'needs_load' && c.answered_by === 'Dan Dispatch') && dk.speed.some((x) => x.name === 'Dan Dispatch' && x.answered >= 2), 'Shift desk: on shift now, what was asked and answered, how fast');
 
+  // a Telegram group for the shift: the bot asks there, tagging the dispatcher
+  const SG = { id: -100901, type: 'supergroup', title: 'Dispatch day shift' }; added(SG, RITA); await sleep(1500);
+  say(RITA, 'register shift All day', SG);
+  ok(await until(async () => ((await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [SG.id])).rows[0] || {}).kind === 'shift', 15000) && String((await web('/api/tg/desk')).desk.shifts[0].chatId) === String(SG.id), '"register shift All day" in a group: it is that shift\'s group');
+  ok((await web('/api/tg/desk', { method: 'PUT', body: { where: 'shift', answerMin: 15, shifts: (await web('/api/tg/desk')).desk.shifts } })).ok, 'ask in the shift\'s group');
+  await pg.query(`UPDATE tg_checks SET state = 'done' WHERE driver_id = $1`, [hank]);
+  dn = tg.sent.length; say(HANK, 'Delivered again. I am empty in Harrisburg', HCHAT);
+  const q3 = await until(() => sentSince(dn).find((m) => String(m.chat_id) === String(SG.id) && /needs a load/.test(m.text)), 15000);
+  ok(q3 && !sentSince(dn).some((m) => String(m.chat_id) === String(DAN.id) && /needs a load/.test(m.text)), 'the question goes to the shift group (tagging Dan), not privately');
+  push({ message: { message_id: mid++, from: DAN, chat: SG, date: Math.floor(Date.now() / 1000), text: 'Booked Harrisburg to Baltimore, $1,400, leaves 4 PM', reply_to_message: { message_id: q3.message_id, from: { id: 999, is_bot: true } } } });
+  ok(await until(async () => /Harrisburg to Baltimore/.test(((await pg.query(`SELECT answer FROM tg_checks WHERE driver_id = $1 AND kind = 'needs_load' ORDER BY id DESC LIMIT 1`, [hank])).rows[0] || {}).answer || '')), 'Dan replies in the shift group: saved');
+  await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: (await web('/api/tg/desk')).desk.shifts } });
+
   // ---------- the contract and the Clearinghouse ----------
   ok((await pg.query(`SELECT count(*)::int n FROM checklist WHERE driver_id = $1 AND key IN ('contract_sent', 'contract_signed', 'ch_registered', 'ch_query', 'ch_consent')`, [zed])).rows[0].n === 5, 'onboarding has the contract and Clearinghouse steps');
   await pg.query(`UPDATE onb_cases SET started_at = now() - interval '2 hours' WHERE driver_id = $1`, [zed]);

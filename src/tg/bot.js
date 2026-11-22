@@ -120,7 +120,7 @@ async function chatOf(c) {
   const r = await q(`INSERT INTO tg_chats (chat_id, title) VALUES ($1, $2) ON CONFLICT (chat_id) DO UPDATE SET title = coalesce($2, tg_chats.title) RETURNING *`, [c.id, c.title || null]);
   return r.rows[0];
 }
-const KINDS = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting', management: 'Management' };
+const KINDS = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting', management: 'Management', shift: 'Shift' };
 const PREFIX = { dispatch: 'onb', eld: 'eld', accounting: 'acc' }; // button data starts with this per kind
 // Make a group the driver's dispatch, ELD or accounting group
 async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
@@ -177,7 +177,7 @@ async function link(m, code, who) {
 }
 // "register dispatch", "register eld John Smith": the team registers a group from Telegram
 const isStaff = (p) => p && (p.role === 'staff' || !!p.user_id);
-const KIND_WORD = { management: 'management', team: 'management', manager: 'management', managers: 'management', office: 'management', dispatch: 'dispatch', updates: 'dispatch', onboarding: 'dispatch', eld: 'eld', accounting: 'accounting', acct: 'accounting', accounts: 'accounting' };
+const KIND_WORD = { shift: 'shift', management: 'management', team: 'management', manager: 'management', managers: 'management', office: 'management', dispatch: 'dispatch', updates: 'dispatch', onboarding: 'dispatch', eld: 'eld', accounting: 'accounting', acct: 'accounting', accounts: 'accounting' };
 // The group's title: "John Smith 215-555-0144", "John Smith ELD", "Accounting - John Smith"
 // Cyrillic letters that look like Latin ones (a title typed on a Russian keyboard: "ЕLD", "АCCOUNTING")
 const LOOK = { 'а': 'a', 'в': 'b', 'е': 'e', 'ё': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'у': 'y', 'х': 'x', 'і': 'i' };
@@ -299,6 +299,7 @@ async function register(m, args, who) {
   if (!kind && !typed && !t.name && !t.phone) return send(m.chat.id, 'Which group is this?', { replyTo: m.message_id, buttons: [[['🚚 Dispatch (onboarding)', 'regk:dispatch'], ['📋 ELD', 'regk:eld'], ['💵 Accounting', 'regk:accounting']]] });
   kind = kind || t.kind;
   if (kind === 'management') { await linkTeam(m.chat.id, who); return react(m.chat.id, m.message_id, '👍'); }
+  if (kind === 'shift') { const ok = await require('./desk').linkShift(m.chat.id, String(args || '').trim().split(/\s+/).slice(1).join(' '), who ? who.name : 'Telegram'); return react(m.chat.id, m.message_id, ok ? '👍' : '🤷'); }
   const info = typed ? { ...titleInfo(typed), kind, mode } : { ...t, kind, mode };
   const f = await findDrivers(info);
   if (f.sure) { await addPhone(f.sure.id, info.phone); return linkChat(m.chat.id, kind, f.sure.id, who.user_id || null, who, { mode, ackMsg: m.message_id }); }
@@ -455,6 +456,7 @@ async function handle(u) {
   if (who && m.reply_to_message && m.reply_to_message.from && state.me && m.reply_to_message.from.id === state.me.id && !u.edited_message)
     await log('reply', `Replied to the bot ("${clip(m.reply_to_message.text, 50)}"): ${clip(redact(m.text || m.caption || '[' + (m.photo ? 'photo' : 'file') + ']').replace(/\d{4,}/g, '••••'), 90)}`, { chatId: chat.chat_id, who });
   const cmd = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || '');
+  if (chat.kind === 'shift' && who && isStaff(who) && !cmd) { await require('./desk').privateText(m, who); return; } // a shift group: only answers to the bot's questions
   if ((cmd && cmd[1] === 'oil') || (chat.kind === 'management' && /^\s*oil( change| changes)?\s*$/i.test(m.text || ''))) {
     if (!isStaff(who)) return;
     if (chat.driver_id) { const ok = await require('./team').oilCmd(who.tg_id, who).catch(() => null); return react(m.chat.id, m.message_id, ok ? '👌' : '🤷'); } // never in a driver's group
