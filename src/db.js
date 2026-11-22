@@ -724,6 +724,7 @@ async function migrate() {
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
   await loadSettings();
+  await addWorkedAt(pool);
 }
 
 // ---------- settings (kept in memory, saved in the database) ----------
@@ -882,6 +883,29 @@ const ORDER = ROUTE.concat(OTHER);
 const ACTIVE = ['Replied', 'Interested', 'Email collected', 'Relay invite sent', 'Signed up on Relay', 'Review']; // leads a recruiter should be working
 const LOST = ['No CDL', 'Not interested', 'Declined on Indeed', 'Rejected'];
 const FRESH = ['Invited', 'Replied', 'Interested', 'Email collected', 'Review']; // new leads: before anyone sent the Relay invite
+// The five stages recruiters work in. They are worked out from the status, which stays as it is (the extension, reports and bot use it).
+//   New         given to this recruiter and not worked since. A lead given to someone else is new again.
+//   In process  the recruiter talked to the driver, wrote down what they learned, or moved the lead on (worked_at)
+//   Red zone    not interested, declined, rejected, no CDL, stalled
+const RED = [...LOST, 'Stalled'];
+const STAGES = ['new', 'process', 'onboarding', 'hired', 'red'];
+const stageSql = (a = 'd') => `(CASE WHEN ${a}.status = 'Onboarding' THEN 'onboarding' WHEN ${a}.status = 'Hired' THEN 'hired' WHEN ${a}.status IN (${RED.map((s) => `'${s}'`).join(', ')}) THEN 'red'
+  WHEN ${a}.worked_at IS NOT NULL AND (${a}.assigned_at IS NULL OR ${a}.worked_at >= ${a}.assigned_at) THEN 'process' ELSE 'new' END)`;
+// Work counts for the lead's own recruiter (or anyone, while nobody owns it): an admin's note does not take a lead out of New.
+async function markWorked(c, driverId, userId) {
+  await c.query(`UPDATE drivers SET worked_at = now() WHERE id = $1 AND (owner_id IS NULL OR owner_id = $2)`, [driverId, userId]);
+}
+// Once, when the column is first added: leads already being worked start in In process, not in New.
+async function addWorkedAt(c) {
+  if ((await c.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'drivers' AND column_name = 'worked_at'`)).rows[0]) return;
+  // one query = one transaction: never the column without the backfill
+  await c.query(`ALTER TABLE drivers ADD COLUMN worked_at TIMESTAMPTZ;
+    UPDATE drivers SET worked_at = now() WHERE status IN ('Relay invite sent', 'Signed up on Relay')
+      OR id IN (SELECT n.driver_id FROM notes n JOIN drivers d ON d.id = n.driver_id
+        WHERE n.user_id IS NOT NULL AND (d.owner_id IS NULL OR n.user_id = d.owner_id) AND (n.kind IS NULL OR n.outcome = 'Talked') AND (d.assigned_at IS NULL OR n.created_at >= d.assigned_at))
+      OR id IN (SELECT a.driver_id FROM activity a JOIN drivers d ON d.id = a.driver_id
+        WHERE a.type IN ('edit', 'status') AND (d.owner_id IS NULL OR a.user_id = d.owner_id) AND (d.assigned_at IS NULL OR a.at >= d.assigned_at));`);
+}
 const COLD_DAYS = 3; // an active lead nobody has touched for this long is "going cold"
 const keyOf = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
 const digits = (p) => { const d = String(p || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? d : null; };
@@ -953,7 +977,7 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
     const newer = !d.status_at || new Date(recAt) > new Date(d.status_at);
     const a = ROUTE.indexOf(st), b = ROUTE.indexOf(d.status);
     const forward = a >= 0 && b >= 0 ? a > b : newer;
-    if ((byHand && !d.status_locked) || (!d.status_locked && forward)) { set.status = st; set.status_locked = byHand || LOCKING.includes(st); set.status_at = recAt; }
+    if ((byHand && !d.status_locked) || (!d.status_locked && forward)) { if (byHand && st === 'Relay invite sent') set.worked_at = new Date().toISOString(); set.status = st; set.status_locked = byHand || LOCKING.includes(st); set.status_at = recAt; }
   }
   if (rec.callbackAt) await require('./callback').fromExtension(c, d, rec);
   if (d.relay_before === null && rec.answers && typeof rec.answers === 'object' && rec.answers.relay) { const v = relayFrom(rec.answers.relay); if (v !== null) set.relay_before = v; }
@@ -1070,5 +1094,5 @@ async function statusChanged(c, d, to, { userId = null, via = 'web', at = null, 
   return notes;
 }
 
-module.exports = { notify, relayFrom, AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, FRESH, COLD_DAYS,
+module.exports = { notify, relayFrom, AMAZON, amazonIdx, amazonTo, pool, q, migrate, hashPassword, checkPassword, sha, token, keyOf, digits, mergeFromExtension, LOCKING, ROUTE, OTHER, ORDER, ACTIVE, LOST, FRESH, COLD_DAYS, RED, STAGES, stageSql, markWorked, addWorkedAt,
   settings, DEFAULTS, saveSetting, ensureOnboarding, syncAuto, releaseTruck, statusChanged };
