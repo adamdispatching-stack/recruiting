@@ -15,7 +15,7 @@
   const P = (name, s, what, where, link) => ({ name, s, what, where, link });
 
   const AREAS = [
-    { id: 'ext', title: 'Chrome extension (Indeed Match Rotator)', icon: '🧩', runs: 'In every Chrome profile that is signed in to an Indeed employer account. Version 1.26.0, files in the indeed-match-rotator folder on your desktop.',
+    { id: 'ext', title: 'Chrome extension (Indeed Match Rotator)', icon: '🧩', runs: 'In every Chrome profile that is signed in to an Indeed employer account. Version 1.28.1, files in the indeed-match-rotator folder on your desktop.',
       groups: [
         { title: 'Finding drivers on Indeed', items: [
           P('Job rotation', 'built', 'Opens each job, sets it Open, opens Matches, invites recently active candidates with Indeed\'s Standard message up to the daily cap, then pauses the job with a reason ("I am evaluating current applicants") and moves on.', 'Side panel → Job rotation'),
@@ -24,6 +24,7 @@
           P('Pick the best matches first', 'idea', 'Rank matched candidates (experience, location, Class A, active recently) before inviting, so the daily cap goes to the best ones.', 'Job rotation')
         ] },
         { title: 'Talking to drivers (auto-reply)', items: [
+          P('Replies in the driver\'s language', 'idea', 'Answer in Russian, Uzbek, Spanish… when the driver writes in it; the team still sees English.', 'Auto-reply'),
           P('Screening auto-reply', 'built', 'Watches Messages (Sourcing and Inbox) and walks each driver through the screening questions; different flows for company drivers and owner-operators.', 'Indeed Messages tab'),
           P('AI replies', 'setup', 'The AI writes the replies and understands free text. Needs the Anthropic key pasted in the extension settings.', 'Side panel → Settings'),
           P('Phone and contacts from the chat', 'built', 'Finds phone numbers in any format (+1 917 555 1234, 410.596.9751) and saves them every time; a one-time backfill fixed older leads.', 'Driver database'),
@@ -35,6 +36,8 @@
           P('Best reply time per driver', 'idea', 'Learn when each driver usually answers and time the follow-ups then.', 'Auto-reply')
         ] },
         { title: 'Data and alerts', items: [
+          P('Cost per hire per job', 'idea', 'How much each Indeed job costs against the drivers it brought who started; keep the jobs that pay off, pause the rest.', 'Website → Leads'),
+          P('Best time to invite', 'idea', 'Learn the hours when invited candidates answer most and run the rotation then.', 'Job rotation'),
           P('Driver database in the browser', 'built', 'Every driver from every Chrome profile, merged; statuses, answers, chats.', 'Database page (db.html)'),
           P('Sync to the website', 'setup', 'Sends drivers to the website with the access key from Settings → Connect the Chrome extension.', 'Side panel → Settings'),
           P('Telegram alerts', 'setup', 'Needs you, human check, errors to your Telegram (bot token and chat id in the extension).', 'Side panel → Settings'),
@@ -44,6 +47,9 @@
     { id: 'web', title: 'Website (FleetHire Recruiting)', icon: '🌐', runs: 'On Railway (Node, Express, Postgres). Every push to GitHub main deploys. Roles: admin, recruiter, dispatcher.',
       groups: [
         { title: 'Leads and the pipeline', items: [
+          P('Source return', 'idea', 'Cost per lead and per hire for Indeed, Facebook, referrals and others, month by month.', 'Dashboard'),
+          P('Referral program', 'idea', 'A driver refers a driver; the bonus is due when the new one passes 30 days, and the website reminds you.', 'Lead page, Active drivers'),
+          P('Duplicate leads merged', 'idea', 'The same driver from two Indeed accounts or Facebook found by phone and merged, history kept.', 'Leads'),
           P('Leads list and pipeline', 'built', 'Every lead with status, source, recruiter; filters; going cold; why leads were lost; where leads came from.', 'Leads, Dashboard', '#/leads'),
           P('Lead page', 'built', 'Profile, experience, their truck, Amazon Relay step, conversation from Indeed, notes and contact log, history.', 'Leads → a lead'),
           P('Fair sharing of new leads', 'built', 'New leads go to the recruiter working now with the fewest today; untouched leads move after 60 min; leads wait when nobody works.', 'Settings → Sharing new leads'),
@@ -56,14 +62,9 @@
           P('Early warning: leaving signs', 'idea', 'AI flags "another offer", repeated pay questions, family trouble.', 'Lead page, management group')
         ] },
         { title: 'Onboarding', items: [
+          P('Sign the lease or contract online', 'idea', 'Owner-operator lease and company driver agreement sent to sign from the lead page; the signed copy kept with the driver papers.', 'Lead page'),
+          P('Orientation day plan', 'idea', 'A checklist for the first day (truck, ELD login, fuel card, Relay app) the dispatcher ticks; the driver group is told when it is done.', 'Onboarding'),
           P('Onboarding board', 'built', 'Drivers in onboarding, Amazon verified first, arrival, truck, checklist progress, recruiter.', 'Onboarding', '#/onboarding'),
-          P('Road cases and the playbook', 'built', 'The bot opens a case from the driver groups (breakdown, breakdown on the NJ Turnpike / Garden State Parkway, flat tire, accident, running late, out of hours, detention, wrong trailer, load refused, inspection, ELD down), follows its steps and if/else rules, writes the message to the driver (Updater sends it), raises steps that wait too long with the truck\'s dispatcher and the admins, and keeps what was learned. Admins edit the playbook.', 'Road cases, dashboard, trucks, group, driver'),
-          P('Replies ready to send', 'built', 'Watch and learn: the bot writes the reply it would send to an onboarding driver (questions and statements); the lead page and the group page show it with Send / Not needed; the onboarding list shows Reply ready. Changed replies are learned. In Run, replies it is sure of go out by themselves.', 'Lead page, Telegram group, Onboarding'),
-          P('Cheaper AI', 'built', 'Groups and daily summaries read by Haiku; Sonnet only for driver profiles and dispatcher reviews. Fixed instructions cached. Working, ELD and accounting groups read every 25 min (urgent words at once); onboarding groups fast. ok / thanks / 👍 need no AI call.', 'Everywhere'),
-          P('Dispatcher accounts from Telegram', 'built', 'Someone the bot learns is a dispatcher gets a dispatcher account (or is linked to his account by name). No login until an admin gives an email and password; admins are told.', 'Team'),
-          P('Dispatcher work review', 'built', 'Admin page per dispatcher: his numbers (answer speed, waits, nights), 8 areas scored with examples, real situations and the better way, how he thinks, how drivers react, red flags, the feedback to give with a 2-week goal, the trend and past reviews. Rebuilt every 3 days.', 'Telegram → dispatcher, Team → person'),
-          P('Coaching for dispatchers', 'built', 'On a dispatcher\'s Trucks page: How you write to drivers (keep doing / try this), from the driver groups. Only he and the admins see it.', 'Trucks (dispatcher)'),
-          P('AI health', 'built', 'AI usage page: Is the AI working? with a Test AI now button and why calls failed, in plain words (wrong key, no credit, model not allowed, busy). Busy or network errors are tried again; a model the key cannot use is swapped; on key or credit problems the bot pauses 10 minutes and admins are told; messages missed meanwhile are read later.', 'AI usage'),
           P('Dropped out', 'built', 'One button on the onboarding list, the lead page and the dashboard: saves the driver as Rejected with why. When a driver writes he is not coming, the AI flags him (Dropped out / Still with us) and tells the recruiter.', 'Onboarding, lead page, dashboard'),
           P('Checklist per driver', 'built', 'Steps from the template (Settings), some tick themselves (Telegram group created, Amazon verified, arrival date set…).', 'Lead page → Onboarding'),
           P('Amazon Relay steps', 'built', 'Invite → account → profile → background check → waiting → verified, with dates.', 'Lead page'),
@@ -74,6 +75,10 @@
           P('Start date and travel from the chat', 'built', '"Ready Monday" becomes the start date (never overwrites the team\'s date; tells the recruiter instead).', 'Lead page')
         ] },
         { title: 'Trucks and companies', items: [
+          P('Service plan beyond oil', 'idea', 'DD15 service intervals (filters, DPF cleaning, valve adjustment) by mileage, a due list like /oil.', 'Truck profile, /oil'),
+          P('Profit per truck', 'idea', 'Revenue from Amazon Relay and brokers against the fixed cost, fuel and repairs: money per truck per week and per mile.', 'Trucks'),
+          P('Fuel and tolls import', 'idea', 'Fuel card and toll statements matched to trucks; odd purchases flagged.', 'Truck profile'),
+          P('Shops we trust', 'idea', 'Shops and road services we used, where, what they cost and how they did; the nearest good one offered in a breakdown case.', 'Trucks, Road cases'),
           P('Trucks by company', 'built', 'One table per company, empty trucks on top, the driver on each truck.', 'Trucks', '#/trucks'),
           P('Truck profile', 'built', 'Drivers and companies over time, shop history, oil changes, mileage, costs, open issues.', 'Trucks → a truck'),
           P('Truck papers', 'built', 'Registration, insurance card, lease and other paperwork per truck.', 'Truck page → Truck papers'),
@@ -83,10 +88,17 @@
           P('Dispatchers on trucks', 'built', 'Dispatchers see trucks and active drivers, log oil changes and shop visits.', 'Trucks (dispatcher)')
         ] },
         { title: 'Active drivers', items: [
+          P('Leaving risk', 'idea', 'Mood trend, home time not kept, pay questions and silence turned into a "may leave" flag, so someone calls him first.', 'Active drivers'),
+          P('Home time planner', 'idea', 'Who is due home in the next 2 weeks against free trucks and drivers in onboarding, so no truck sits.', 'Active drivers'),
+          P('Driver scorecard', 'idea', 'On time, promises kept, safety events, road cases and Amazon score in one card per driver.', 'Active driver page'),
           P('Active drivers by company', 'built', 'CDL and medical card expiry, working period (weeks out, days home), 14-day mood.', 'Active drivers', '#/active'),
           P('Active driver page', 'built', 'Mood day by day, alerts, truck issues, notes from the bot, load updates, keeps his word, Telegram groups.', 'Active drivers → a driver')
         ] },
         { title: 'Team and motivation', items: [
+          P('Recruiters and Dispatchers tabs', 'built', 'Team splits recruiters (leads, calls, hires) and dispatchers (answer speed in the groups, their trucks, review score, goal).', 'Team'),
+          P('Weekly dispatcher ranking', 'idea', 'Every Monday in the management group: dispatchers by review score, answer speed and road cases handled.', 'Management groups'),
+          P('Weekly tip to each dispatcher', 'idea', 'A short private message from the bot: one tip from his review and his 2-week goal.', 'Private chat with the bot'),
+          P('Cost per hire per recruiter', 'idea', 'Indeed and ad spend divided by the hires each recruiter brought.', 'Team → Recruiters'),
           P('Activity and working hours', 'built', 'Active time, sign-ins, idle time alerts, days off, monthly report.', 'Team', '#/team'),
           P('Morning plan and coaching', 'built', 'Plan the day first; manager tips acknowledged by the recruiter.', 'My day'),
           P('Team goal and filled-by credit', 'built', 'Monthly goal to fill trucks, who filled which truck, personal bests.', 'Dashboard'),
@@ -102,6 +114,8 @@
     { id: 'tg', title: 'Telegram bot', icon: '🤖', runs: 'Inside the website server on Railway. Needs TELEGRAM_BOT_TOKEN and ANTHROPIC_API_KEY in Railway Variables, privacy mode off in BotFather (/setprivacy → Disable), and admin rights in each group.',
       groups: [
         { title: 'Connecting groups', items: [
+          P('All groups', 'built', 'Every group the bot is in: not connected (type and driver guessed from the title) and connected; type and driver changed in the row.', 'Telegram → All groups'),
+          P('Fix a wrong type', 'built', 'An ELD group set as Dispatch (or the wrong driver) changed on the group page or in All groups: what the wrong type started is undone, the group it pushed out gets its place back.', 'Group page, All groups'),
           P('Connects from the group title', 'built', 'Name and phone in any format, a truck number, ELD / Accounting / Management words (also on a Russian keyboard). Phone match connects by itself.', 'Adding the bot to a group'),
           P('Groups to connect', 'built', 'When it is not sure: pick the group type and any driver, add a new driver from the title, mark the person as our team.', 'Telegram → Groups', '#/telegram'),
           P('Silent in the groups', 'built', 'Writes nothing when it joins or connects; /register gets a 👍.', 'All groups'),
@@ -110,6 +124,7 @@
           P('Bot history', 'built', 'What the bot did and how people reacted (buttons, emoji, replies).', 'Telegram → Bot history')
         ] },
         { title: 'Onboarding groups', items: [
+          P('Replies ready to send', 'built', 'Watch and learn: the bot writes the reply it would send to an onboarding driver (questions and statements); the lead page and the group page show it with Send / Not needed; the onboarding list shows Reply ready. Changed replies are learned. In Run, replies it is sure of go out by themselves.', 'Lead page, Telegram group, Onboarding'),
           P('Watch and learn (default)', 'built', 'Reads everything, sums it up on the website, learns from the team, never writes.', 'Driver page, /mode'),
           P('Answer questions / Run the onboarding', 'built', 'Answers from what it learned; runs the Amazon steps, reminders, arrival details, asks CDL state, ZIP, start day.', '/mode, driver page'),
           P('AI onboarding status', 'built', 'Summary, who it waits on, next step, blockers, mood; steps it saw done to confirm.', 'Driver page, Onboarding'),
@@ -118,6 +133,8 @@
           P('"Still with us?" nudge', 'idea', 'In Run mode, after 2 days of silence the bot asks the driver itself.', 'Onboarding groups')
         ] },
         { title: 'Dispatch groups (working drivers)', items: [
+          P('Amazon Relay trips matched', 'idea', 'Relay trips matched to the load updates in the groups, so ETAs and late loads are checked against the real appointments.', 'Active driver page'),
+          P('Translations for dispatchers', 'idea', 'Driver messages in other languages shown in English on the website, and replies drafted in the driver\'s language.', 'Group page'),
           P('Load updates', 'built', 'At pickup, loaded, rolling, ETA, delivered, delayed… with place and load number; checked ✓ / ✗ by the team.', 'Active driver page, group page'),
           P('Truck issues and service', 'built', 'From the chat into the truck\'s history.', 'Truck profile'),
           P('Driver notes and profile for dispatchers', 'built', 'Rebuilt daily; never shown in the driver\'s groups.', '/driver Name, active driver page'),
@@ -126,10 +143,20 @@
           P('Updater mode', 'partial', 'Today it only asks about mix-ups and confirms appointment changes. Full updater (ETA checks, check calls) waits for your decision on what Smart Update keeps doing.', 'Group page → Updater'),
           P('Full updater', 'next', 'ETA check-ins, check calls, seal / BOL reminders following the approved dispatching practices.', 'Dispatch groups')
         ] },
+        { title: 'Road cases', items: [
+          P('Road cases and the playbook', 'built', 'The bot opens a case from the driver groups (breakdown, breakdown on the NJ Turnpike / Garden State Parkway, flat tire, accident, running late, out of hours, detention, wrong trailer, load refused, inspection, ELD down), follows its steps and if/else rules, writes the message to the driver (Updater sends it), raises steps that wait too long with the truck\'s dispatcher and the admins, and keeps what was learned. Admins edit the playbook.', 'Road cases, dashboard, trucks, group, driver'),
+          P('Case times and costs', 'idea', 'How long each kind of case takes to end and what it cost, by driver, truck and dispatcher.', 'Road cases'),
+          P('Detention claim', 'idea', 'From the case times (arrived, checked in, left), the detention claim written for Amazon or the broker.', 'Road cases'),
+          P('Road service phone book', 'idea', 'Our road service providers and phone numbers per state inside the playbook steps, so the message to the driver says exactly who to call.', 'The playbook'),
+          P('Voice messages read', 'idea', 'Drivers\' voice notes turned into text (a cheap speech-to-text service), so the bot and the cases see them too.', 'Driver groups'),
+          P('Photos checked against the case', 'idea', 'A breakdown photo or dash code read and added to the case (which light, which code).', 'Road cases')
+        ] },
         { title: 'Learning the team', items: [
+          P('Dispatcher accounts from Telegram', 'built', 'Someone the bot learns is a dispatcher gets a dispatcher account (or is linked to his account by name). No login until an admin gives an email and password; admins are told.', 'Team'),
+          P('Dispatcher work review', 'built', 'Admin page per dispatcher: his numbers (answer speed, waits, nights), 8 areas scored with examples, real situations and the better way, how he thinks, how drivers react, red flags, the feedback to give with a 2-week goal, the trend and past reviews. Rebuilt every 3 days.', 'Telegram → dispatcher, Team → person'),
+          P('Coaching for dispatchers', 'built', 'On a dispatcher\'s Trucks page: How you write to drivers (keep doing / try this), from the driver groups. Only he and the admins see it.', 'Trucks (dispatcher)'),
           P('Who is who', 'built', 'Learns the driver, dispatchers, ELD and accounting people from what they write.', 'Telegram → People'),
           P('Dispatcher reply time', 'built', 'How fast each person answers drivers (median, 7 days).', 'Telegram → People'),
-          P('Dispatcher profiles', 'built', 'Tone, clarity, professionalism, how they run updates, typical messages, strengths, what to improve.', 'Telegram → Knowledge → Dispatch autopilot'),
           P('How our dispatchers work', 'built', 'Situation → what the dispatcher does; the team approves; the updater will follow them.', 'Telegram → Knowledge'),
           P('Dispatch autopilot readiness', 'built', 'Groups watched, updates read right, practices approved, promises kept.', 'Telegram → Knowledge'),
           P('Knowledge base', 'built', 'Answers the bot uses, approved by the team.', 'Telegram → Knowledge')
@@ -153,10 +180,15 @@
     { id: 'ai', title: 'AI (Claude)', icon: '🧠', runs: 'Two keys: one in the Chrome extension (auto-reply), one on Railway (website and bot). Pictures are read and forgotten; numbers like SSN or card numbers are never kept.',
       groups: [
         { title: 'What the AI does', items: [
+          P('Cheaper AI', 'built', 'Groups and daily summaries read by Haiku; Sonnet only for driver profiles and dispatcher reviews. Fixed instructions cached. Working, ELD and accounting groups read every 25 min (urgent words at once); onboarding groups fast. ok / thanks / 👍 need no AI call.', 'Everywhere'),
+          P('AI health', 'built', 'AI usage page: Is the AI working? with a Test AI now button and why calls failed, in plain words (wrong key, no credit, model not allowed, busy). Busy or network errors are tried again; a model the key cannot use is swapped; on key or credit problems the bot pauses 10 minutes and admins are told; messages missed meanwhile are read later.', 'AI usage'),
+          P('Free rules from repeated patterns', 'next', 'When the AI sees the same message many times ("Loaded, ETA 4 PM"), it becomes a rule the bot applies without AI; the AI only reads what the rules do not understand.', 'Bot'),
+          P('Half price for slow jobs', 'next', 'Daily summaries, profiles, reviews and re-reading history sent as a batch (Anthropic charges half for jobs that can wait).', 'Bot'),
+          P('Daily cap per AI job', 'next', 'Each job has its own daily limit; past it, the job reads less often instead of only warning.', 'AI usage'),
           P('Screening replies on Indeed', 'setup', 'In the extension, with its own key.', 'Extension'),
-          P('Group digests', 'built', 'Every few minutes after a conversation settles: notes, truck issues, alerts, load updates, promises, practices, who is who.', 'Bot'),
+          P('Group digests', 'built', 'Read by Haiku with cached instructions: onboarding groups within minutes, working, ELD and accounting groups every 25 minutes (urgent words at once), ok / thanks / 👍 skipped: notes, truck issues, alerts, load updates, promises, practices, who is who.', 'Bot'),
           P('Daily summaries', 'built', 'A few lines per group every evening.', 'Telegram → group page'),
-          P('Profiles', 'built', 'Driver profile for dispatchers, dispatcher profiles.', 'Bot'),
+          P('Profiles and reviews', 'built', 'Driver profile for dispatchers and the detailed dispatcher review, with Sonnet every few days.', 'Bot'),
           P('Documents', 'built', 'Reads CDL / medical card expiry and state, Amazon screenshots, background reports (results only).', 'Onboarding groups'),
           P('Cost and usage on the website', 'built', 'What Claude costs today, 7 days, this month and where the month is heading; by purpose, model and part (website, bot, extension); a monthly budget with alerts at 80% and 100%; prices editable.', 'Account → AI usage', '#/ai')
         ] }
@@ -165,10 +197,11 @@
 
   // things that need you (no code can do them)
   const TODO = [
-    ['Railway Variables: TELEGRAM_BOT_TOKEN and ANTHROPIC_API_KEY', 'The bot and every AI feature on the website stay off without them.'],
+    ['Read the playbook and add your own steps', 'Road cases → The playbook: your road service providers and phone numbers, how you deal with Amazon and brokers, who to call. The starting cases are general.'],
+    ['Give a login to dispatchers the bot made', 'Team → Dispatchers: "No login yet" → Give him a login (email and password), or remove the account if he is not a dispatcher.'],
     ['BotFather → /setprivacy → Disable', 'Otherwise the bot only sees commands in groups, not the conversation.'],
     ['Make the bot an admin in every group', 'Needed to read every message and to see emoji reactions.'],
-    ['Reload the extension (1.26.0) in every Chrome profile', 'chrome://extensions → reload; allow notifications if asked.'],
+    ['Install extension 1.28.1 (background.js and manifest.json) and reload it in every Chrome profile', 'chrome://extensions → reload; allow notifications if asked.'],
     ['Each recruiter: /me CODE to the bot', 'So management groups can tag them and they can use /onboard and /empty.'],
     ['Mark each driver Company driver or Owner-operator', 'The verified list splits by it.'],
     ['Approve the AI\'s suggestions', 'Knowledge → answers to approve, How our dispatchers work; ✓ / ✗ on load updates.']
