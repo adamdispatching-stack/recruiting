@@ -36,33 +36,35 @@ async function onboardText({ tagRecruiters = false } = {}) {
   if (!rows.length) return ['Nobody is in onboarding right now.'];
   const reach = await require('../reach').scoreMany(rows.map((d) => d.id));
   rows.sort((a, b) => ((reach[b.id] || {}).score || 0) - ((reach[a.id] || {}).score || 0)); // the most likely first
-  const line = async (d) => {
-    const s = d.ai_status || {};
-    const amz = d.amazon_step === 'verified' ? '' : `Amazon: ${esc(AMZ[d.amazon_step] || 'invite not sent')}${d.amazon_step && d.amazon_log && d.amazon_log[d.amazon_step] ? ` (${ago(d.amazon_log[d.amazon_step])})` : ''}`;
-    const rc = reach[d.id];
-    const parts = [
-      `• ${rc ? `${rc.icon} ${rc.score} ` : ''}<b>${esc(d.name)}</b>: ${tagRecruiters ? await who(d.owner_id, d.owner) : esc(d.owner || 'no recruiter')}, ${d.start ? `starts <b>${esc(nice(d.start))}</b>` : 'no start date'}`,
-      amz ? `   ${amz}` : '',
-      s.summary ? `   📝 ${esc(s.summary)}` : d.chat_id ? '' : '   No Telegram group yet',
-      s.waiting_on && s.waiting_on !== 'nobody' ? `   ⏳ Waiting on: ${esc(s.waiting_on)}${s.next_step ? `. Next: ${esc(s.next_step)}` : ''}` : s.next_step ? `   ➡️ Next: ${esc(s.next_step)}` : '',
-      (s.blockers || []).length ? `   ⚠️ ${esc(s.blockers.slice(0, 2).join('; '))}` : '',
-      s.driver_mood && !['good', 'unknown', 'neutral'].includes(s.driver_mood) ? `   😟 Mood: ${esc(s.driver_mood)}` : '',
-      rc && rc.silentDays >= 1 ? `   🔇 Silent ${rc.silentDays} day${rc.silentDays === 1 ? '' : 's'}${rc.unanswered ? `, ${rc.unanswered} of our messages unanswered` : ''}${rc.calls.noAnswer ? `, ${rc.calls.noAnswer} call${rc.calls.noAnswer === 1 ? '' : 's'} not answered` : ''}` : d.last_msg ? `   💬 Last message in the group ${ago(d.last_msg)} ago` : ''
-    ];
-    return parts.filter(Boolean).join('\n');
+  // one driver, short: "🟢80 Paul Penn · Rita · 🗓 Nov 24 · 2021 Cascadia", then a few short lines only when there is something to say
+  const short = (t) => { const x = String(t || ''); return x.length > 90 ? x.slice(0, 88) + '…' : x; };
+  const line = async (d, { truck = false } = {}) => {
+    const s = d.ai_status || {}; const rc = reach[d.id];
+    const step = d.amazon_step === 'verified' ? '' : `${esc(AMZ[d.amazon_step] || 'No invite')}${d.amazon_step && d.amazon_log && d.amazon_log[d.amazon_step] ? ` ${ago(d.amazon_log[d.amazon_step]).replace(/ (min|h|days)$/, (m, u) => (u === 'days' ? 'd' : u))}` : ''}`;
+    const first = (d.owner || '').split(/\s+/)[0];
+    const head = [`${rc ? `${rc.icon}${rc.score} ` : ''}<b>${esc(d.name)}</b>`, tagRecruiters ? await who(d.owner_id, first || d.owner) : esc(first || '—'),
+      d.start ? `🗓 ${esc(nice(d.start))}` : '🗓 ?', step, truck && (d.truck_year || d.truck_model) ? esc([d.truck_year, d.truck_model].filter(Boolean).join(' ')) : '', d.chat_id ? '' : '✈️❌'].filter(Boolean).join(' · ');
+    const more = [
+      s.summary ? `📝 ${esc(short(s.summary))}` : '',
+      s.waiting_on && s.waiting_on !== 'nobody' ? `⏳ ${esc(s.waiting_on)}${s.next_step ? ` → ${esc(short(s.next_step))}` : ''}` : s.next_step ? `➡️ ${esc(short(s.next_step))}` : '',
+      (s.blockers || []).length ? `⚠️ ${esc(short(s.blockers.slice(0, 2).join('; ')))}` : '',
+      s.driver_mood && !['good', 'unknown', 'neutral'].includes(s.driver_mood) ? `😟 ${esc(s.driver_mood)}` : '',
+      rc && rc.silentDays >= 1 ? `🔇 ${rc.silentDays}d${rc.unanswered ? ` · ${rc.unanswered} unanswered` : ''}${rc.calls.noAnswer ? ` · 📞${rc.calls.noAnswer} missed` : ''}` : d.last_msg ? `💬 ${ago(d.last_msg)}` : ''
+    ].filter(Boolean);
+    return `• ${head}${more.length ? '\n   ' + more.join('\n   ') : ''}`;
   };
   const ver = rows.filter((d) => d.amazon_step === 'verified'), pend = rows.filter((d) => d.amazon_step !== 'verified');
   const lv = (l) => rows.filter((d) => (reach[d.id] || {}).level === l).length;
-  const blocks = [`🧭 <b>${rows.length} in onboarding</b>: ${ver.length} Amazon verified, ${pend.length} pending Amazon\nChance to make it: 🟢 ${lv('likely')} likely, 🟡 ${lv('unsure')} unsure, 🔴 ${lv('risk')} at risk`];
-  blocks.push(`\n✅ <b>Amazon verified</b> (${ver.length})`); if (!ver.length) blocks.push('Nobody yet.');
-  // verified: company drivers first, then owner-operators (and anyone not marked yet)
-  const groups = [['🚛 Company drivers', ver.filter((d) => d.dtype === 'Company drivers')], ['🛻 Owner-operators', ver.filter((d) => d.dtype === 'Owner-operators')], ['❔ Not marked company or owner-operator', ver.filter((d) => d.dtype !== 'Company drivers' && d.dtype !== 'Owner-operators')]];
+  const blocks = [`🧭 <b>Onboarding ${rows.length}</b> · ✅ ${ver.length} · ⏳ ${pend.length} · 🟢${lv('likely')} 🟡${lv('unsure')} 🔴${lv('risk')}`];
+  blocks.push(`\n✅ <b>Amazon</b> (${ver.length})`);
+  // verified: company drivers (CD) first, then owner-operators (OO), then anyone not marked yet
+  const groups = [['CD', ver.filter((d) => d.dtype === 'Company drivers')], ['OO', ver.filter((d) => d.dtype === 'Owner-operators')], ['❔ Not marked', ver.filter((d) => d.dtype !== 'Company drivers' && d.dtype !== 'Owner-operators')]];
   for (const [label, ds] of groups) {
-    if (!ds.length && label.startsWith('❔')) continue;
-    blocks.push(`<b>${label}</b> (${ds.length})`); if (!ds.length) blocks.push('Nobody.');
-    for (const d of ds) blocks.push((await line(d)) + (d.dtype === 'Owner-operators' && (d.truck_year || d.truck_model) ? `\n   🚚 Own truck: ${esc([d.truck_year, d.truck_model].filter(Boolean).join(' '))}` : ''));
+    if (!ds.length) continue;
+    blocks.push(`<b>${label}</b> (${ds.length})`);
+    for (const d of ds) blocks.push(await line(d, { truck: label === 'OO' }));
   }
-  blocks.push(`\n⏳ <b>Pending Amazon</b> (${pend.length})`); for (const d of pend) blocks.push(await line(d)); if (!pend.length) blocks.push('Nobody.');
+  blocks.push(`\n⏳ <b>Amazon</b> (${pend.length})`); for (const d of pend) blocks.push(await line(d, { truck: d.dtype === 'Owner-operators' }));
   // Telegram allows 4096 characters a message: split between drivers
   const out = []; let cur = '';
   for (const b of blocks) { if ((cur + '\n' + b).length > 3800) { out.push(cur); cur = b; } else cur = cur ? cur + '\n' + b : b; }

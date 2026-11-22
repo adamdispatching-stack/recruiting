@@ -350,17 +350,16 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await pg.query(`UPDATE drivers SET amazon_step = 'accurate', amazon_log = jsonb_build_object('accurate', (now() - interval '6 hours')::text), owner_id = $2 WHERE id = $1`, [cody, rita]);
   await pg.query(`UPDATE tg_people SET user_id = $1 WHERE tg_id = 11`, [rita]); // Rita's Telegram is Rita on the website
   n = tg.sent.length; priv(RITA, '/onboard');
-  const ob = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /in onboarding/.test(m.text)), 20000);
-  ok(ob && /✅ <b>Amazon verified<\/b> \(\d+\)[\s\S]*Paul Penn[\s\S]*⏳ <b>Pending Amazon<\/b>[\s\S]*Cody Coming/.test(ob.text), '/onboard: Amazon verified (Paul), then pending Amazon (Cody)');
-  ok(ob && /✅ <b>Amazon verified<\/b> \(2\)\n<b>🚛 Company drivers<\/b> \(1\)\n• (?:🟢|🟡|🔴) \d+ <b>Cara Company<\/b>[\s\S]*<b>🛻 Owner-operators<\/b> \(1\)\n• (?:🟢|🟡|🔴) \d+ <b>Paul Penn<\/b>[\s\S]*Own truck: 2021 Freightliner Cascadia[\s\S]*⏳ <b>Pending Amazon/.test(ob.text), 'verified: company drivers first, then owner-operators (with their truck)');
-  ok(ob && /Amazon: Background check \(6 h\)/.test(ob.text) && /Paul Penn<\/b>: Rita Recruiter, starts/.test(ob.text), 'with the recruiter, the start date, the Amazon step and how long');
+  const ob = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Onboarding \d+<\/b>/.test(m.text)), 20000);
+  ok(ob && /✅ <b>Amazon<\/b> \(2\)\n<b>CD<\/b> \(1\)\n• (?:🟢|🟡|🔴)\d+ <b>Cara Company<\/b> · Admin · 🗓 \? · ✈️❌/.test(ob.text) && /<b>OO<\/b> \(1\)\n• (?:🟢|🟡|🔴)\d+ <b>Paul Penn<\/b> · Rita · 🗓 Nov \d+ · 2021 Freightliner Cascadia/.test(ob.text) && /⏳ <b>Amazon<\/b> \(2\)/.test(ob.text), 'short list: ✅ Amazon → CD, then OO with the truck; ✈️❌ for no group');
+  ok(ob && /<b>Cody Coming<\/b> · Rita · 🗓 \? · Background check 6h/.test(ob.text) && !/Own truck|Amazon verified|Pending Amazon|Last message in the group/.test(ob.text), 'pending: just the step and how long; no long words');
   const MCHAT = { id: -100740, type: 'supergroup', title: 'Management Team' };
   n = tg.sent.length; added(MCHAT, RITA);
   ok(await until(async () => ((await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [MCHAT.id])).rows[0] || {}).kind === 'management'), '"Management Team" added by Rita: our team\'s group');
   await sleep(500);
   ok(!inChat(n, MCHAT).length, 'silent when connected');
   n = tg.sent.length; say(RITA, '/onboard', MCHAT);
-  ok(await until(() => inChat(n, MCHAT).some((m) => /in onboarding/.test(m.text) && /@rita_r/.test(m.text))), '/onboard in the management group: posted there, the recruiter tagged');
+  ok(await until(() => inChat(n, MCHAT).some((m) => /Onboarding \d+<\/b>/.test(m.text) && /@rita_r/.test(m.text))), '/onboard in the management group: posted there, the recruiter tagged');
   // the morning report and follow-ups
   await pg.query(`UPDATE drivers SET callback_state = 'due', callback_at = now() - interval '1 hour', callback_said = '3 PM' WHERE id = $1`, [cody]);
   await pg.query(`UPDATE drivers SET amazon_log = jsonb_build_object('accurate', (now() - interval '6 days')::text) WHERE id = $1`, [cody]);
@@ -384,8 +383,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => inChat(0, MCHAT).some((m) => /🔔 @rita_r: Paul Penn has been silent 3 days \(2 of our messages unanswered\): please give a call/.test(m.text)), 15000), 'management group: the silence countdown tags Rita');
   await sleep(2500); ok(inChat(0, MCHAT).filter((m) => /Paul Penn has been silent/.test(m.text)).length === 1, 'once for this silence');
   n = tg.sent.length; priv(RITA, '/onboard');
-  const ob2 = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Chance to make it/.test(m.text)), 20000);
-  ok(ob2 && /🔇 Silent 3 days, 2 of our messages unanswered/.test(ob2.text) && /(?:🟢|🟡|🔴) \d+ <b>Paul Penn/.test(ob2.text), '/onboard: the chance for each driver, the silence count');
+  const ob2 = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Onboarding \d+<\/b>/.test(m.text)), 20000);
+  ok(ob2 && /🔇 3d · 2 unanswered/.test(ob2.text) && /(?:🟢|🟡|🔴)\d+ <b>Paul Penn/.test(ob2.text), '/onboard: the chance for each driver, the silence count');
 
   // someone not on the team adds the bot to a team group: the website connects it
   const OPS = { id: -100741, type: 'supergroup', title: 'Ops office' };
