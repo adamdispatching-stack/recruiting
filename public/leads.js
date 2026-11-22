@@ -10,12 +10,17 @@
   const people = () => S.me.people.filter((p) => p.active && p.role !== 'dispatcher');
 
   // ---------- the list ----------
-  const FILTERS = ['q', 'status', 'account', 'mode', 'due', 'cold', 'working', 'owner', 'source', 'company'];
-  const VIEWS = ['due', 'cold', 'working']; // work lists on the status strip; one chip is on at a time
-  const list = { q: '', status: '', account: '', mode: '', due: '', cold: '', working: '', owner: '', source: '', company: '', sort: 'updated', rows: [], total: 0, counts: [], accounts: [], sel: new Set() };
+  // The work views (one at a time): every lead, due today, overdue, going cold. The stage is a filter of its own
+  // (one stage, or "every lead in progress"). Old links still work: ?due=1 = due today and overdue, ?working=1 = in progress.
+  const FILTERS = ['q', 'status', 'account', 'mode', 'view', 'owner', 'source', 'company'];
+  const ACTIVE_STAGE = '__active';
+  const list = { q: '', status: '', account: '', mode: '', view: '', owner: '', source: '', company: '', sort: 'updated', rows: [], total: 0, counts: [], accounts: [], sel: new Set() };
 
   async function load(more) {
-    const p = new URLSearchParams({ q: list.q, status: list.status, account: list.account, mode: list.mode, due: list.due, cold: list.cold, working: list.working, owner: list.owner, source: list.source, company: list.company, sort: list.sort, limit: 100, offset: more ? list.rows.length : 0 });
+    const v = list.view, st = list.status;
+    const p = new URLSearchParams({ q: list.q, status: st === ACTIVE_STAGE ? '' : st, working: st === ACTIVE_STAGE ? 1 : '', account: list.account, mode: list.mode,
+      today: v === 'today' ? 1 : '', overdue: v === 'overdue' ? 1 : '', due: v === 'due' ? 1 : '', cold: v === 'cold' ? 1 : '',
+      owner: list.owner, source: list.source, company: list.company, sort: list.sort, limit: 100, offset: more ? list.rows.length : 0 });
     const r = await api('/api/drivers?' + p);
     list.rows = more ? list.rows.concat(r.drivers) : r.drivers; list.total = r.total; list.counts = r.counts; list.accounts = r.accounts;
     if (!more) list.sel.clear();
@@ -29,25 +34,54 @@
     if ([...params.keys()].length) { // a link from the dashboard, like "follow-ups due"
       FILTERS.forEach((k) => { list[k] = ''; });
       for (const [k, v] of params) if (FILTERS.includes(k)) list[k] = v;
+      if (params.get('due') === '1') list.view = 'due';
+      for (const k of ['today', 'overdue', 'cold']) if (params.get(k) === '1') list.view = k;
+      if (params.get('working') === '1') list.status = ACTIVE_STAGE;
+      if (list.view && params.get('sort') === null) list.sort = 'due';
       history.replaceState(null, '', '#/leads');
     }
     view.innerHTML = header('leads') + `<main>${App.pageHead('Driver leads', 'Track and move driver candidates from first contact to hire.', `<button class="btn primary lg" data-act="addLead">${App.plus} Add lead</button>`)}
       <section class="fcard" aria-label="Filters"><div class="tools">
         <label class="search">${ICON_SEARCH}<input id="q" type="search" placeholder="Search name, phone, email, city, notes" aria-label="Search leads"></label>
+        <select id="fStage" class="pick" aria-label="Stage"></select>
         <select id="fOwner" class="pick" aria-label="Recruiter">${S.me.role === 'admin' ? '<option value="">All recruiters</option><option value="me">My leads</option>' : '<option value="me">My leads</option><option value="">All recruiters</option>'}<option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id).map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
         <select id="fSource" class="pick" aria-label="Source"><option value="">All sources</option>${S.me.sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
         <select id="fAcct" class="pick" aria-label="Indeed account" hidden></select>
         <select id="fMode" class="pick" aria-label="Driver type"><option value="">All types</option><option value="Company drivers">Company drivers</option><option value="Owner-operators">Owner operators</option></select>
         ${(S.me.companies || []).length ? `<select id="fCo" class="pick" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="none">No company</option></select>` : ''}
-        <select id="fSort" class="pick" aria-label="Sort"><option value="updated">Newest activity</option><option value="followup">Follow-up date</option><option value="name">Name A to Z</option><option value="created">Newest added</option></select>
+
         </div>
-      <nav id="route" class="route" aria-label="Filter by status"></nav></section><div id="bulk" class="bulk" hidden></div><div id="lst"></div></main>`;
+      <div class="wvrow"><nav id="views" class="wviews" aria-label="Work views"></nav><label class="wvsort">Sort <select id="fSort" class="pick" aria-label="Sort"><option value="due">What's due first</option><option value="updated">Newest activity</option><option value="followup">Follow-up date</option><option value="name">Name A to Z</option><option value="created">Newest added</option></select></label></div></section><div id="bulk" class="bulk" hidden></div><div id="lst"></div></main>`;
     $('#q').value = list.q; $('#fMode').value = list.mode; $('#fSort').value = list.sort; $('#fOwner').value = list.owner; $('#fSource').value = list.source;
     let t; $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { list.q = e.target.value; refresh(); }, 250); };
     if ($('#fCo')) $('#fCo').value = list.company;
-    for (const [id, key] of [['fAcct', 'account'], ['fMode', 'mode'], ['fSort', 'sort'], ['fOwner', 'owner'], ['fSource', 'source'], ['fCo', 'company']]) if ($('#' + id)) $('#' + id).onchange = (e) => { list[key] = e.target.value; refresh(); };
+    for (const [id, key] of [['fAcct', 'account'], ['fMode', 'mode'], ['fSort', 'sort'], ['fOwner', 'owner'], ['fSource', 'source'], ['fCo', 'company'], ['fStage', 'status']]) if ($('#' + id)) $('#' + id).onchange = (e) => { list[key] = e.target.value; refresh(); };
     await refresh();
   }
+  // What to do next with a lead: a call-back the driver asked for first, then going cold, then the next step of its stage
+  const NEXT_SHORT = { Invited: 'Wait for his reply', Replied: 'Call him', Interested: 'Get his email', 'Email collected': 'Send the Relay invite', 'Relay invite sent': 'Check his Relay sign-up',
+    'Signed up on Relay': 'Start onboarding', Onboarding: 'Next onboarding step', Review: 'Review his details', Stalled: 'Try him again' };
+  function nextAction(d) {
+    const cb = d.callback && d.callback.state === 'due' ? d.callback : null;
+    if (cb) return { text: 'Call him back', strong: true, hint: cb.said ? `He said: "${cb.said}"` : '' };
+    if (d.cold) return { text: 'Reach out again', strong: true, hint: `Nothing new for ${S.me.coldDays}+ days` };
+    if (NEXT_SHORT[d.status]) return { text: NEXT_SHORT[d.status], strong: !!(d.overdue || d.dueToday), tip: NEXT[d.status] || '' };
+    return { text: '', none: d.status === 'Hired' ? 'Hired' : 'No action' };
+  }
+  // When: the call-back time, else the follow-up date (overdue in red, today in yellow), else going cold
+  function dueCell(d, t) {
+    const cb = d.callback && d.callback.state === 'due' ? d.callback : null;
+    if (cb) return `<span class="duet ${d.overdue ? 'late' : d.dueToday ? 'today' : ''}">📞 ${esc(App.cbTime(cb))}</span>${d.overdue ? '<div class="small cbad">Missed</div>' : ''}`;
+    if (d.followUp) {
+      const late = Math.round((Date.parse(t) - Date.parse(d.followUp)) / 864e5);
+      if (late > 0) return `<span class="duet late">Overdue</span><div class="small cbad">${plural(late, 'day')} late</div>`;
+      if (late === 0) return '<span class="duet today">Today</span>';
+      return `<span class="duet">${esc(fuText(d.followUp))}</span>`;
+    }
+    if (d.cold) return '<span class="coldtag">Going cold</span>';
+    return '<span class="none">No date</span>';
+  }
+  on('leadView', (b) => { const v = b.dataset.v; list.view = list.view === v && v ? '' : v; if (v && list.sort === 'updated') list.sort = 'due'; if (!v && list.sort === 'due') list.sort = 'updated'; const so = $('#fSort'); if (so) so.value = list.sort; refresh(); });
   // A small team's list stays short at first: invite them to add the next driver.
   const addMoreArt = () => `<div class="emptyart">${App.ART.truck}<h2>Your next great driver is one conversation away.</h2><p>Add a lead to start recruiting, track their progress, and move them toward hire.</p><button class="btn primary lg" data-act="addLead">${App.plus} Add a lead</button></div>`;
   async function refresh(more) {
@@ -55,36 +89,43 @@
     try { await load(more); } catch (e) { return fail(e); }
     if (!live() || !$('#lst')) return;
     const admin = S.me.role === 'admin';
-    const c = Object.fromEntries(list.counts.map((x) => [x.status, x.n])); const sum = (k) => list.counts.reduce((a, x) => a + x[k], 0);
-    const plain = !VIEWS.some((v) => list[v]);
-    const stop = (s, ring) => `<button class="stop${plain && list.status === s ? ' on' : ''}${c[s] ? '' : ' zero'}" data-f="${esc(s)}">${ring ? '<i></i>' : ''}<span>${esc(SHORT[s] || s)}</span><b>${c[s] || 0}</b></button>`;
-    $('#route').innerHTML = `<div class="main"><button class="stop${plain && !list.status ? ' on' : ''}" data-f=""><span>All</span><b>${sum('n')}</b></button><ol>${S.me.route.map((s) => `<li>${stop(s, true)}</li>`).join('')}</ol></div>
-      <div class="side">${S.me.other.map((s) => stop(s)).join('')}
-        <button class="stop work${list.working ? ' on' : ''}" data-view="working" title="Leads someone should be working: ${esc(S.me.active.join(', '))}"><span>In progress</span><b>${sum('working')}</b></button>
-        <button class="stop due${list.due ? ' on' : ''}" data-view="due" title="Leads whose follow-up date is today or earlier"><span>Follow-ups due</span><b>${sum('due')}</b></button>
-        <button class="stop due${list.cold ? ' on' : ''}" data-view="cold" title="Leads in progress with no follow-up date and nothing new for ${S.me.coldDays} days"><span>Going cold</span><b>${sum('cold')}</b></button></div>`;
+    // counts follow the search and the dropdowns; the views count within the stage picked, the stages within the view
+    const stageRows = list.status === ACTIVE_STAGE ? list.counts.filter((x) => S.me.active.includes(x.status)) : list.status ? list.counts.filter((x) => x.status === list.status) : list.counts;
+    const sum = (k, rows = list.counts) => rows.reduce((a, x) => a + (x[k] || 0), 0);
+    const vkey = { today: 'today', overdue: 'overdue', cold: 'cold', due: 'due' }[list.view] || 'n';
+    const per = Object.fromEntries(list.counts.map((x) => [x.status, x[vkey] || 0]));
+    const mine = list.owner === 'me' ? 'My leads' : list.owner === 'none' ? 'Unassigned leads' : +list.owner ? `${(person(+list.owner) || 'Their').split(' ')[0]}'s leads` : 'All leads';
+    const V = [['', mine, sum('n', stageRows), '', 'Every lead with these filters'], ['today', 'Due today', sum('today', stageRows), 'today', 'A follow-up date or a call-back time today'],
+      ['overdue', 'Overdue', sum('overdue', stageRows), 'late', 'A follow-up date that has passed, or a call-back time missed by 30+ minutes'],
+      ['cold', 'Going cold', sum('cold', stageRows), 'cold', `In progress, no follow-up date, nothing new for ${S.me.coldDays} days`]];
+    const onV = (k) => list.view === k || (list.view === 'due' && (k === 'today' || k === 'overdue'));
+    $('#views').innerHTML = V.map(([k, l, n, tone, tip]) => `<button type="button" class="wv${onV(k) ? ' on' : ''}${tone ? ' ' + tone : ''}${n ? '' : ' zero'}" data-act="leadView" data-v="${k}" title="${esc(tip)}" aria-pressed="${onV(k)}"><span>${esc(l)}</span><b>${n}</b></button>`).join('');
+    const opt = (v, l, n) => `<option value="${esc(v)}" ${list.status === v ? 'selected' : ''}>${esc(l)}${n !== undefined ? ` (${n})` : ''}</option>`;
+    $('#fStage').innerHTML = opt('', 'All stages') + opt(ACTIVE_STAGE, 'In progress (all)', S.me.active.reduce((a, st) => a + (per[st] || 0), 0))
+      + `<optgroup label="Pipeline">${S.me.route.map((st) => opt(st, SHORT[st] || st, per[st] || 0)).join('')}</optgroup><optgroup label="Other">${S.me.other.map((st) => opt(st, SHORT[st] || st, per[st] || 0)).join('')}</optgroup>`;
+    $('#fStage').classList.toggle('set', !!list.status);
     const acc = $('#fAcct'); acc.hidden = list.accounts.length < 2 && !list.account;
     acc.innerHTML = '<option value="">All Indeed accounts</option>' + list.accounts.map((a) => `<option ${a === list.account ? 'selected' : ''}>${esc(a)}</option>`).join('');
     const t = today();
     const rows = list.rows.map((d) => {
-      const contact = (d.phones || []).map((p) => App.phone(p)).join('') + (d.emails || []).slice(0, 1).map((e) => `<a class="em" href="mailto:${esc(e)}">${esc(e)}</a>`).join('');
+      const nx = nextAction(d);
       const note = d.redFlags ? `<span class="k flag">Flag</span>${esc(d.redFlags)}` : d.lastNote ? `<span class="k you">Note</span>${esc(d.lastNote)}` : d.aiSummary ? `<span class="k ai">AI</span>${esc(d.aiSummary)}` : '';
-      const isDue = d.followUp && d.followUp <= t;
       const where = [one(d.mode), d.location || (d.answers || {}).home].filter(Boolean).map(esc).join(', ');
-      return `<tr data-id="${d.id}">${admin ? `<td class="cb"><input type="checkbox" data-sel="${d.id}" ${list.sel.has(d.id) ? 'checked' : ''} aria-label="Select ${esc(d.name)}"></td>` : ''}
-        <td><div class="who1">${App.avatar(d.name)}<div><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div><div class="type">${where || '<span class="none">No details yet</span>'}</div></div></div></td>
-        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}<div class="small fuline">${App.cbChip(d.callback)}${d.followUp ? `Follow up <span class="fu${isDue ? ' due' : ''}">${esc(fuText(d.followUp))}</span>` : d.cold ? '<span class="coldtag">Going cold</span>' : ''}</div><div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
+      const owner = admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. An admin will give the lead to someone else.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>';
+      return `<tr data-id="${d.id}" class="${d.overdue ? 'is-late' : d.dueToday ? 'is-today' : ''}">${admin ? `<td class="cb w"><input type="checkbox" data-sel="${d.id}" ${list.sel.has(d.id) ? 'checked' : ''} aria-label="Select ${esc(d.name)}"></td>` : ''}
+        <td class="w wfirst"><div class="who1">${App.avatar(d.name)}<div><div class="nm"><a href="#/driver/${d.id}">${esc(d.name)}</a></div>${(d.phones || []).slice(0, 1).map((ph) => App.phone(ph)).join('')}<div class="type">${where || '<span class="none">No details yet</span>'}</div></div></div></td>
+        <td class="w"><div class="nx${nx.strong ? ' strong' : ''}"${nx.tip ? ` title="${esc(nx.tip)}"` : ''}>${nx.text ? esc(nx.text) : `<span class="none">${esc(nx.none)}</span>`}</div>${nx.hint ? `<div class="small mut clamp1">${esc(nx.hint)}</div>` : ''}</td>
+        <td class="w">${dueCell(d, t)}</td>
+        <td class="w wlast">${owner}${opensBtn(d.id, d.opens)}</td>
+        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}${d.relayBefore === true || d.relayBefore === false ? `<div class="small mut relay1" title="Has the driver run Amazon Relay loads before?">Relay before: ${relayTag(d.relayBefore)}</div>` : ''}<div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
-        <td>${contact || '<span class="none">No contact yet</span>'}</td>
-        <td>${relayTag(d.relayBefore)}</td>
-        <td>${esc(d.source || '') || '<span class="none">Not set</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}</td>
-        <td>${App.coTag(d.companyId) || '<span class="none">Not assigned</span>'}</td>
-        <td>${admin ? App.assignPick(d) : d.ownerId ? (hasAccess(d.ownerId) ? esc(person(d.ownerId)) : `<span class="none" title="This person no longer has access. An admin will give the lead to someone else.">${esc(person(d.ownerId))}, no access</span>`) : '<span class="none">Nobody yet</span>'}${opensBtn(d.id, d.opens)}</td>
+        <td>${esc(d.source || '') || '<span class="none">No source</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}<div class="coline">${App.coTag(d.companyId) || ''}</div></td>
         </tr>`;
     }).join('');
     const any = sum('n');
-    $('#lst').innerHTML = list.rows.length ? `<div class="sheet"><table class="leads"><colgroup>${admin ? '<col style="width:40px">' : ''}<col style="width:205px"><col style="width:150px"><col><col style="width:180px"><col style="width:115px"><col style="width:140px"><col style="width:190px"></colgroup>
-        <thead><tr>${admin ? '<th class="cb"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th>Driver</th><th>Status, follow-up</th><th>Notes</th><th>Contact</th><th title="Has the driver run Amazon Relay loads before?">Relay before</th><th>Source</th><th>Company</th><th>Recruiter</th></tr></thead><tbody>${rows}</tbody></table></div>
+    $('#lst').innerHTML = list.rows.length ? `<div class="sheet"><table class="leads wk"><colgroup>${admin ? '<col style="width:38px">' : ''}<col style="width:235px"><col style="width:170px"><col style="width:118px"><col style="width:${admin ? 165 : 140}px"><col style="width:150px"><col><col style="width:150px"></colgroup>
+        <thead><tr class="grp"><th colspan="${admin ? 5 : 4}" class="gw">Next up</th><th colspan="3" class="gd">Details</th></tr>
+          <tr>${admin ? '<th class="cb w"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th class="w">Driver</th><th class="w">Next action</th><th class="w">Due</th><th class="w wlast">Owner</th><th>Stage</th><th>Notes</th><th>Source, company</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${list.rows.length < list.total ? `<button class="btn plain more" data-act="moreLeads">Show more (${list.total - list.rows.length} left)</button>` : ''}
         ${any < 5 && !list.q ? addMoreArt() : ''}`
       : S.me.role !== 'admin' && list.owner === 'me' && !(any || list.q || list.source || list.mode || list.account || list.company) ? '<div class="empty"><p>No leads are assigned to you yet. New leads are shared between recruiters as they come in.</p><button class="btn plain" data-act="allLeads">See all leads</button></div>'
@@ -115,12 +156,6 @@
       <div class="dact"><button type="button" class="btn plain" data-act="closeDialog">Close</button></div></div>`);
   });
   document.addEventListener('click', (e) => {
-    const stop = e.target.closest('.route .stop');
-    if (stop) { // one chip at a time: a status, or one of the two work lists
-      if (stop.dataset.view) { const on = !list[stop.dataset.view]; VIEWS.forEach((v) => { list[v] = ''; }); list.status = ''; list[stop.dataset.view] = on ? '1' : ''; }
-      else { VIEWS.forEach((v) => { list[v] = ''; }); list.status = stop.dataset.f; }
-      refresh(); return;
-    }
     const row = e.target.closest('table.leads tbody tr[data-id]');
     if (row && !e.target.closest('a, input, button, select, label, .cb, .assign, .phw')) go('#/driver/' + row.dataset.id); // controls in a row never open the lead
   });

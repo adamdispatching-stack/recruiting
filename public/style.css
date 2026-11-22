@@ -1918,3 +1918,42 @@ table.active.compact tbody th{text-align:left;background:inherit}
 /* onboarding: the email column (long addresses are cut, the full one shows on hover and is copied whole) */
 table.obt td.emcell{overflow:hidden}
 .emcell .ph.em{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+
+/* ---------- Leads: work views + rows grouped (Next up | Details) ---------- */
+.wviews{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.wv{display:inline-flex;align-items:center;gap:10px;height:42px;padding:0 16px;border:1.5px solid #DCDFDA;border-radius:10px;background:#fff;color:var(--ink);font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+.wv b{min-width:26px;padding:1px 8px;border-radius:999px;background:#EDF0EE;color:var(--ink);font-size:13.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.wv:hover{border-color:var(--green)}
+.wv.on{border-color:var(--green);background:var(--green-t);color:var(--green-d)}
+.wv.on b{background:var(--green);color:#fff}
+.wv.today:not(.zero) b{background:var(--yellow-t);color:var(--yellow-ink)}
+.wv.late:not(.zero) b{background:var(--red);color:#fff}
+.wv.cold:not(.zero) b{background:var(--yellow-t);color:var(--yellow-ink)}
+.wv.on.today b,.wv.on.late b,.wv.on.cold b{box-shadow:0 0 0 2px #fff}
+.wv.zero{color:var(--mut)}
+#fStage.set{border:1.5px solid var(--green);color:var(--green-d);font-weight:600}
+table.leads.wk{min-width:1120px}
+table.leads.wk thead tr.grp th{height:26px;padding:4px 10px 0;border-bottom:0;font-size:11.5px;letter-spacing:.2px;color:var(--mut)}
+table.leads.wk thead tr.grp th.gw{background:#E6F0EA;color:var(--green-d)}
+table.leads.wk thead th.w{background:#E6F0EA}
+table.leads.wk tbody td.w{background:#F4F9F5}
+table.leads.wk .wlast{border-right:2px solid #C9DCD0}
+table.leads.wk tbody tr:hover td{background:#EEF5F0}
+table.leads.wk tbody tr:hover td.w{background:#E4F0E8}
+table.leads.wk tbody tr.is-late>td:first-child{box-shadow:inset 4px 0 0 var(--red)}
+table.leads.wk tbody tr.is-today>td:first-child{box-shadow:inset 4px 0 0 var(--yellow)}
+table.leads.wk .who1 .phw{margin-top:2px}
+table.leads.wk .nx{font-weight:500;line-height:1.3}
+table.leads.wk .nx.strong{font-weight:700}
+table.leads.wk .duet{display:inline-block;font-weight:700;white-space:nowrap}
+table.leads.wk .duet.today{padding:1px 8px;border-radius:6px;background:var(--yellow-t);color:var(--yellow-ink)}
+table.leads.wk .duet.late{padding:1px 8px;border-radius:6px;background:var(--red);color:#fff}
+table.leads.wk .relay1{margin-top:5px}
+table.leads.wk .relay1 .rbtag{font-size:11.5px}
+table.leads.wk .coline:empty{display:none}
+table.leads.wk .coline{margin-top:4px}
+table.leads.wk td.w .assign select{max-width:150px}
+
+.wvrow{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
+.wvrow .wviews{margin-top:0}
+.wvsort{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:13px;font-weight:600}

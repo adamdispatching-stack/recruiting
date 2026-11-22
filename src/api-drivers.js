@@ -68,7 +68,7 @@ const personName = async (id) => { const r = await q(`SELECT name FROM users WHE
 module.exports = (app) => {
   // ---------- list ----------
   app.get('/api/drivers', needUser, wrap(async (req, res) => {
-    const { q: text = '', status = '', account = '', mode = '', due = '', cold = '', working = '', owner = '', source = '', company = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
+    const { q: text = '', status = '', account = '', mode = '', due = '', today: dueToday = '', overdue = '', cold = '', working = '', owner = '', source = '', company = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
     const where = []; const params = [];
     const P = (v) => { params.push(v); return '$' + params.length; };
     const vis = visSql(req.user, params); if (vis) where.push(vis);
@@ -85,24 +85,32 @@ module.exports = (app) => {
       if (dg.length >= 3) s += ` OR array_to_string(d.phones,' ') LIKE ${P('%' + dg + '%')}`;
       where.push(s + ')');
     }
-    const dueSql = `(d.follow_up IS NOT NULL AND d.follow_up <= ${P(await lib.today())}::date)`;
+    const dayP = P(await lib.today()); // one parameter for today, used by every date check below
+    const dueSql = `(d.follow_up IS NOT NULL AND d.follow_up <= ${dayP}::date)`;
+    // the work views: overdue = a follow-up date before today, or a call-back time missed by 30+ minutes;
+    // due today = a follow-up date of today, or a call-back time today (and not overdue)
+    const cbOpen = `(d.callback_state = 'due' AND d.callback_at IS NOT NULL)`;
+    const overdueSql = `((d.follow_up IS NOT NULL AND d.follow_up < ${dayP}::date) OR (${cbOpen} AND d.callback_at < now() - interval '30 minutes'))`;
+    const todaySql = `(NOT ${overdueSql} AND ((d.follow_up IS NOT NULL AND d.follow_up = ${dayP}::date) OR (${cbOpen} AND (d.callback_at AT TIME ZONE ${P(db.settings.tz)}::text)::date = ${dayP}::date)))`;
     const workSql = `(d.status = ANY(${P(db.ACTIVE)}::text[]))`; // in progress: someone should be working these
     const coldSql = `(${workSql} AND d.follow_up IS NULL AND d.updated_at < now() - make_interval(days => ${P(db.COLD_DAYS)}::int))`;
     const base = where.length ? 'WHERE ' + where.join(' AND ') : '';
     // the counts on the status strip follow search and the dropdown filters, not the strip itself
-    const counts = await q(`SELECT d.status, count(*)::int n, count(*) FILTER (WHERE ${dueSql})::int due, count(*) FILTER (WHERE ${coldSql})::int cold, count(*) FILTER (WHERE ${workSql})::int working FROM drivers d ${base} GROUP BY d.status`, params);
+    const counts = await q(`SELECT d.status, count(*)::int n, count(*) FILTER (WHERE ${todaySql} OR ${overdueSql})::int due, count(*) FILTER (WHERE ${todaySql})::int today, count(*) FILTER (WHERE ${overdueSql})::int overdue, count(*) FILTER (WHERE ${coldSql})::int cold, count(*) FILTER (WHERE ${workSql})::int working FROM drivers d ${base} GROUP BY d.status`, params);
     const w = [...where]; const p2 = [...params];
-    if (due === '1') w.push(dueSql);
+    if (due === '1') w.push(`(${todaySql} OR ${overdueSql})`); // due today and overdue
+    if (dueToday === '1') w.push(todaySql);
+    if (overdue === '1') w.push(overdueSql);
     if (cold === '1') w.push(coldSql);
     if (working === '1') w.push(workSql);
     if (status) { p2.push(status); w.push(`d.status = $${p2.length}`); }
-    const sortSql = { updated: 'd.updated_at DESC', name: 'lower(d.name) ASC', followup: 'd.follow_up ASC NULLS LAST, d.updated_at DESC', created: 'd.created_at DESC' }[sort] || 'd.updated_at DESC';
-    const rows = await q(`SELECT d.*, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count, (SELECT count(*)::int FROM activity a WHERE a.driver_id = d.id AND a.type = 'open') opens,
+    const sortSql = { due: `${overdueSql} DESC, ${todaySql} DESC, coalesce(LEAST(d.follow_up::timestamptz, CASE WHEN ${cbOpen} THEN d.callback_at END), 'infinity') ASC, d.updated_at DESC`, updated: 'd.updated_at DESC', name: 'lower(d.name) ASC', followup: 'd.follow_up ASC NULLS LAST, d.updated_at DESC', created: 'd.created_at DESC' }[sort] || 'd.updated_at DESC';
+    const rows = await q(`SELECT d.*, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, ${todaySql} is_today, ${overdueSql} is_overdue, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count, (SELECT count(*)::int FROM activity a WHERE a.driver_id = d.id AND a.type = 'open') opens,
         (SELECT ${lib.NOTE_TEXT} FROM notes n WHERE n.driver_id = d.id ORDER BY n.updated_at DESC LIMIT 1) last_note
       FROM drivers d ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY ${sortSql}, d.id LIMIT ${Math.min(500, Math.max(1, +limit || 100))} OFFSET ${Math.max(0, +offset || 0)}`, p2);
     const pv = []; const v2 = visSql(req.user, pv);
     const accounts = await q(`SELECT DISTINCT account FROM drivers d WHERE account IS NOT NULL ${v2 ? 'AND ' + v2 : ''} ORDER BY 1`, pv);
-    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ ...toClient(d), cold: d.is_cold, opens: d.opens })), counts: counts.rows, accounts: accounts.rows.map((r) => r.account) });
+    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ ...toClient(d), cold: d.is_cold, dueToday: d.is_today, overdue: d.is_overdue, opens: d.opens })), counts: counts.rows, accounts: accounts.rows.map((r) => r.account) });
   }));
 
   // Who opened a lead, how many times (opening it again within 10 minutes counts once), and when
