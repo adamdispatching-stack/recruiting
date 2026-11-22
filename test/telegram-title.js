@@ -87,6 +87,8 @@ http.createServer((req, res) => {
       const shift_note = working && /Update for next shift/.test(fresh) ? { by: 'Dan Dispatch' } : undefined;
       if (working && /wake up at 10:30/.test(fresh)) desk_asks.push({ kind: 'rest', until: '10:30', quote: 'I will wake up at 10:30' });
       if (working && /I am empty in Harrisburg/.test(fresh)) desk_asks.push({ kind: 'needs_load', place: 'Harrisburg, PA', quote: 'I am empty, need a load' });
+      if (working && /trailer door is broken at the dock/.test(fresh)) desk_asks.push({ kind: 'problem', quote: 'trailer door is broken at the dock', ask: 'The trailer door is broken at the dock; the load may be refused. Who calls the broker?' });
+      if (working && /delivering in Hazleton at 4/.test(fresh)) desk_asks.push({ kind: 'prebook', place: 'Hazleton, PA', quote: 'delivering in Hazleton at 4' });
       if (working) {
         if (/Use Mikes Diesel/.test(fresh)) places.push({ name: 'Mikes Diesel Repair', kind: 'shop', services: ['DPF cleaning', 'air leaks'], phone: '(410) 555-0199', city: 'Baltimore', state: 'MD', area: 'Baltimore area', outcome: 'unknown' });
         if (/fixed at Mikes Diesel/.test(fresh)) places.push({ name: 'Mikes Diesel Repair', kind: 'shop', phone: '4105550199', outcome: 'good', cost: 850, note: 'Fixed the air leak', services: ['air leaks'] });
@@ -664,6 +666,51 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   dn = tg.sent.length;
   ok(await until(() => sentSince(dn).some((m) => String(m.chat_id) === String(DAN.id) && /Late shift shift notes: \d+ of \d+ groups/.test(m.text)), 40000), 'after the shift: who has an update note');
   await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ ...sh0, groups: [] }] } });
+
+  // ---------- dispatcher levels: each question to the right level ----------
+  const SAM = { id: 314, is_bot: false, first_name: 'Sam', last_name: 'Senior' };
+  const samU = (await web('/api/users', { method: 'POST', body: { name: 'Sam Senior', email: 'senior.sam@example.com', password: 'sam-pass-12345', role: 'dispatcher' } })).id;
+  await pg.query(`INSERT INTO tg_people (tg_id, name, user_id, role, seen_at) VALUES ($1, 'Sam Senior', $2, 'staff', now()) ON CONFLICT (tg_id) DO UPDATE SET user_id = $2`, [SAM.id, samU]);
+  push({ message: { message_id: mid++, from: SAM, chat: { id: SAM.id, type: 'private' }, date: Math.floor(Date.now() / 1000), text: '/start' } }); await sleep(1200);
+  await pg.query(`UPDATE trucks SET dispatcher_id = $1 WHERE driver_id = $2`, [danU.id, hank]);
+  const lvPut = await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ ...sh0, people: [danU.id, samU], groups: [] }], peopleLevels: { [danU.id]: 1, [samU]: 3 }, rolling: { on: true, hours: 6 } } });
+  const dkl = await web('/api/tg/desk');
+  ok(lvPut.ok && dkl.people.find((p) => p.id === danU.id).level === 1 && dkl.people.find((p) => p.id === samU).level === 3 && dkl.desk.levels.problem === 3 && dkl.desk.levels.rolling === 1 && dkl.desk.levels.prebook === 2, 'levels: Dan level 1 (updates), Sam level 3 (senior); hard situations go to level 3, "rolling to" to level 1');
+  ok((await web('/api/team/dispatchers')).people.find((p) => p.id === samU).level === 3, 'the Team page shows each dispatcher\'s level');
+  const toSam = (n) => sentSince(n).filter((m) => String(m.chat_id) === String(SAM.id)), toDan = (n) => sentSince(n).filter((m) => String(m.chat_id) === String(DAN.id));
+  // a hard situation: Hank's own dispatcher is Dan, but Dan is level 1 → Sam
+  dn = tg.sent.length; say(HANK, 'The trailer door is broken at the dock, they may not take it', HCHAT);
+  const qp = await until(() => toSam(dn).find((m) => /⚠️/.test(m.text) && /What is the plan/.test(m.text)), 15000, 'problem');
+  ok(qp && /Who calls the broker/.test(qp.text) && !toDan(dn).some((m) => /⚠️/.test(m.text)), 'a hard situation goes to Sam (level 3), not to Dan (level 1, though it is his truck)');
+  push({ message: { message_id: mid++, from: SAM, chat: { id: SAM.id, type: 'private' }, date: Math.floor(Date.now() / 1000), text: 'I call the broker now, driver takes photos, we ask for a TONU if refused', reply_to_message: { message_id: qp.message_id } } });
+  ok(await until(async () => /TONU/.test(((await pg.query(`SELECT answer FROM tg_checks WHERE driver_id = $1 AND kind = 'problem' ORDER BY id DESC LIMIT 1`, [hank])).rows[0] || {}).answer || '')), 'Sam\'s plan is saved');
+  // next load: level 2; nobody of level 2 on shift → the level up (Sam)
+  dn = tg.sent.length; say(HANK, 'I am delivering in Hazleton at 4 today', HCHAT);
+  const qb = await until(() => toSam(dn).find((m) => /pre-booked/.test(m.text)), 15000, 'prebook');
+  ok(qb && /Hazleton/.test(qb.text) && !toDan(dn).some((m) => /pre-booked/.test(m.text)), 'is the next load pre-booked (level 2): nobody of level 2 on shift, so the level up: Sam');
+  // where is he rolling to: level 1 (Dan), regular check for a working driver with no update for a while
+  await pg.query(`UPDATE tg_updates SET at = at - interval '1 day' WHERE driver_id = $1`, [hank]);
+  await pg.query(`UPDATE tg_checks SET created_at = created_at - interval '1 day', until_at = NULL WHERE driver_id = $1`, [hank]);
+  dn = tg.sent.length;
+  const qr = await until(() => toDan(dn).find((m) => /Where is <b>Hank Hired<\/b>/.test(m.text) && /rolling to/.test(m.text)), 15000, 'rolling');
+  ok(qr && !toSam(dn).some((m) => /rolling to/.test(m.text)), 'no update from Hank for hours: Dan (level 1) is asked where he is rolling to');
+  push({ message: { message_id: mid++, from: DAN, chat: { id: DAN.id, type: 'private' }, date: Math.floor(Date.now() / 1000), text: 'Rolling to Kearny, ETA 7:30 PM', reply_to_message: { message_id: qr.message_id } } });
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_updates WHERE driver_id = $1 AND status = 'rolling' AND text LIKE 'Rolling to Kearny%'`, [hank])).rows.length === 1), 'Dan\'s answer is kept as Hank\'s latest update');
+  // "Empty, no load" on a rolling question → the booking level is asked for a load
+  await pg.query(`UPDATE tg_updates SET at = at - interval '1 day' WHERE driver_id = $1`, [hank]);
+  await pg.query(`UPDATE tg_checks SET created_at = created_at - interval '1 day' WHERE driver_id = $1`, [hank]);
+  dn = tg.sent.length;
+  const qr2 = await until(() => toDan(dn).find((m) => /rolling to/.test(m.text)), 15000, 'rolling 2');
+  const rid = qr2 && /desk:(\d+):empty/.exec(JSON.stringify(qr2.reply_markup))[1];
+  dn = tg.sent.length; tap(DAN, `desk:${rid}:empty`, { id: DAN.id, type: 'private' }, qr2.message_id);
+  ok(await until(() => toSam(dn).some((m) => /needs a load/.test(m.text)), 15000, 'load after empty'), 'Dan taps "Empty, no load": the load question goes to the booking level (Sam, as nobody is level 2)');
+  // no answer in time: the level up
+  dn = tg.sent.length; const open = (await pg.query(`INSERT INTO tg_checks (chat_id, driver_id, kind, quote, level, asked_at) VALUES ($1, $2, 'question', 'Where do I park?', 1, now() - interval '30 minutes') RETURNING id`, [HCHAT.id, hank])).rows[0].id;
+  await pg.query(`INSERT INTO tg_check_asks (check_id, user_id, tg_id) VALUES ($1, $2, $3)`, [open, danU.id, DAN.id]);
+  ok(await until(() => toSam(dn).some((m) => /Where do I park/.test(m.text)), 15000, 'escalate'), 'Dan did not answer in 15 min: the level up (Sam) is asked');
+  ok((await web('/api/tg/desk')).checks.some((c) => c.kind === 'problem' && c.level === 3), 'the Shift desk shows each question\'s level');
+  await pg.query(`UPDATE tg_checks SET state = 'done' WHERE driver_id = $1`, [hank]);
+  await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ ...sh0, groups: [] }], rolling: { on: false, hours: 6 } } });
 
   // ---------- the contract and the Clearinghouse ----------
   ok((await pg.query(`SELECT count(*)::int n FROM checklist WHERE driver_id = $1 AND key IN ('contract_sent', 'contract_signed', 'ch_registered', 'ch_query', 'ch_consent')`, [zed])).rows[0].n === 5, 'onboarding has the contract and Clearinghouse steps');

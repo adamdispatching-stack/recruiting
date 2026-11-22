@@ -30,7 +30,7 @@
     const live = App.drawing(); const r = await api('/api/team/dispatchers?period=' + period); if (!live()) return;
     document.title = 'Dispatchers · Team · FleetHire';
     const score = (x) => (x === null || x === undefined ? '<span class="none">—</span>' : `<b class="sc s${Math.round(x)}">${x.toFixed(1)}</b><span class="small mut"> / 5</span>`);
-    const row = (p) => `<tr class="${p.active ? '' : 'off'}"><th scope="row"><a href="#/team/${p.id}">${esc(p.name)}</a>${p.noLogin ? '<span class="rtag warn">No login yet</span>' : ''}${p.active ? '' : '<span class="rtag">No access</span>'}
+    const row = (p) => `<tr class="${p.active ? '' : 'off'}"><th scope="row"><a href="#/team/${p.id}">${esc(p.name)}</a> <a class="lvl l${p.level}" href="#/shifts" title="Dispatcher level (set on the Shift desk)">L${p.level}</a>${p.noLogin ? '<span class="rtag warn">No login yet</span>' : ''}${p.active ? '' : '<span class="rtag">No access</span>'}
         <div class="small mut">${p.lastAt ? 'Seen ' + esc(teamTime(p.lastAt)) : p.noLogin ? 'Made by the bot from Telegram' : 'Not seen'}${p.tg ? '' : ' · Telegram not linked'}</div></th>
       <td class="n g">${num(p.msgs)}</td><td class="n">${num(p.groups)}</td><td class="n">${num(p.answered)}</td><td class="n">${mins(p.med)}</td><td class="n">${p.fast === null ? '<span class="none">—</span>' : p.fast + '%'}</td><td class="n${p.waited ? ' bad' : ''}">${num(p.waited)}</td>
       <td class="n g">${num(p.trucks)}</td><td class="n${p.empty ? ' bad' : ''}">${num(p.empty)}</td><td class="n${p.issues ? ' bad' : ''}">${num(p.issues)}</td>

@@ -542,6 +542,9 @@ async function migrate() {
     ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS tidied BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
     ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT false;
+    -- dispatcher levels (1 updates, 2 booking, 3 senior): which shift desk questions each one gets
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS dispatch_level INTEGER;
+    ALTER TABLE tg_checks ADD COLUMN IF NOT EXISTS level INTEGER;
     CREATE INDEX IF NOT EXISTS tg_knowledge_kind ON tg_knowledge (kind, active);
     -- a truck filled: its driver started (hired) in it; the recruiter whose driver it is gets the credit
     CREATE TABLE IF NOT EXISTS truck_fills (id SERIAL PRIMARY KEY, truck_id INT REFERENCES trucks(id) ON DELETE SET NULL, driver_id INT REFERENCES drivers(id) ON DELETE SET NULL,

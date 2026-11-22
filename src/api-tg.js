@@ -105,16 +105,20 @@ module.exports = (app) => {
   // the shift desk: the shifts, who is on now, who can be reached privately, and what the bot asked and was answered
   app.get('/api/tg/desk', needUser, needAdmin, wrap(async (req, res) => {
     const D = require('./tg/desk'); const sh = await D.shiftNow();
-    const people = (await q(`SELECT u.id, u.name, u.role, p.tg_id::text tg_id, (SELECT count(*) > 0 FROM tg_messages m WHERE m.chat_id = p.tg_id) private_ok
-      FROM users u LEFT JOIN LATERAL (SELECT tg_id FROM tg_people WHERE user_id = u.id ORDER BY seen_at DESC NULLS LAST LIMIT 1) p ON true WHERE u.active AND u.role IN ('dispatcher', 'admin') ORDER BY (u.role = 'dispatcher') DESC, u.name`)).rows;
-    const checks = (await q(`SELECT c.id, c.kind, c.quote, c.until_text, c.place, c.ask, c.state, c.asked_at, c.answered_at, c.answered_by, c.answer, c.escalated, c.created_at, c.chat_id::text chat_id, d.id driver_id, d.name driver,
+    const people = (await q(`SELECT u.id, u.name, u.role, coalesce(u.dispatch_level, 2) level, p.tg_id::text tg_id, (SELECT count(*) > 0 FROM tg_messages m WHERE m.chat_id = p.tg_id) private_ok, p.profile
+      FROM users u LEFT JOIN LATERAL (SELECT tg_id, profile FROM tg_people WHERE user_id = u.id ORDER BY profile_at DESC NULLS LAST, seen_at DESC NULLS LAST LIMIT 1) p ON true WHERE u.active AND u.role IN ('dispatcher', 'admin') ORDER BY (u.role = 'dispatcher') DESC, u.name`)).rows
+      .map(({ profile, ...x }) => { // the AI review's average score suggests a level: 4+ senior, 3+ booking, else updates
+        const sc = profile && Array.isArray(profile.scores) && profile.scores.length ? profile.scores.reduce((a, y) => a + (+y.score || 0), 0) / profile.scores.length : null;
+        return { ...x, score: sc === null ? null : Math.round(sc * 10) / 10, suggest: sc === null ? null : sc >= 4 ? 3 : sc >= 3 ? 2 : 1 };
+      });
+    const checks = (await q(`SELECT c.id, c.kind, c.level, c.quote, c.until_text, c.place, c.ask, c.state, c.asked_at, c.answered_at, c.answered_by, c.answer, c.escalated, c.created_at, c.chat_id::text chat_id, d.id driver_id, d.name driver,
         (SELECT string_agg(u.name, ', ') FROM tg_check_asks a JOIN users u ON u.id = a.user_id WHERE a.check_id = c.id) asked
       FROM tg_checks c LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.created_at > now() - interval '7 days' ORDER BY c.created_at DESC LIMIT 100`)).rows;
     const speed = (await q(`SELECT a.user_id, u.name, count(*)::int asked, count(a.said_at)::int answered, round((percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM a.said_at - a.asked_at) / 60) FILTER (WHERE a.said_at IS NOT NULL))::numeric)::int med
       FROM tg_check_asks a JOIN users u ON u.id = a.user_id WHERE a.asked_at > now() - interval '30 days' GROUP BY 1, 2 ORDER BY 3 DESC`)).rows;
     const groups = (await q(`SELECT chat_id::text chat_id, title, kind FROM tg_chats WHERE active AND driver_id IS NULL AND (kind IS NULL OR kind IN ('shift', 'management')) ORDER BY (kind = 'shift') DESC NULLS LAST, title`)).rows;
     const companies = (await q(`SELECT id, name FROM companies ORDER BY lower(name)`)).rows;
-    res.json({ desk: D.cfg(), tzs: D.TZS, now: sh ? sh.name : null, people, checks, speed, groups, companies });
+    res.json({ desk: D.cfg(), tzs: D.TZS, now: sh ? sh.name : null, people, checks, speed, groups, companies, levels: D.LEVELS, levelHelp: D.LEVEL_HELP, kinds: D.KINDS });
   }));
   app.put('/api/tg/desk', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const cur = require('./tg/desk').cfg(); const hm = (x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
@@ -125,7 +129,11 @@ module.exports = (app) => {
     if (shifts.some((s) => !hm(s.start) || !hm(s.end))) return res.status(400).json({ error: 'Write the shift times like 06:00 and 14:00' });
     const hubs = Array.isArray(b.hubs) ? [...new Set(b.hubs.map((h) => String(h).trim().slice(0, 40)).filter(Boolean))].slice(0, 10) : cur.hubs;
     const R = { ...(cur.routines || {}), ...(b.routines || {}) }; const routines = { board: R.board !== false, boardMin: Math.max(10, Math.min(240, Math.round(+R.boardMin || 45))), notes: R.notes !== false, notesMin: Math.max(10, Math.min(180, Math.round(+R.notesMin || 45))) };
-    const v = { ...cur, hubs, routines, on: b.on === undefined ? cur.on : !!b.on, where: ['group', 'shift'].includes(b.where) ? b.where : 'private', answerMin: Math.max(5, Math.min(120, Math.round(+b.answerMin || cur.answerMin))), shifts };
+    // which question goes to which level, the regular "where is he rolling to?", and each person's level
+    const levels = { ...cur.levels }; for (const k of D.KINDS) if (b.levels && [1, 2, 3].includes(+b.levels[k])) levels[k] = +b.levels[k];
+    const rolling = b.rolling ? { on: !!b.rolling.on, hours: Math.max(2, Math.min(24, Math.round(+b.rolling.hours || 6))) } : cur.rolling;
+    if (b.peopleLevels && typeof b.peopleLevels === 'object') for (const [id, l] of Object.entries(b.peopleLevels)) if ([1, 2, 3].includes(+l)) await q(`UPDATE users SET dispatch_level = $2 WHERE id = $1`, [+id, +l]);
+    const v = { ...cur, levels, rolling, hubs, routines, on: b.on === undefined ? cur.on : !!b.on, where: ['group', 'shift'].includes(b.where) ? b.where : 'private', answerMin: Math.max(5, Math.min(120, Math.round(+b.answerMin || cur.answerMin))), shifts };
     await db.saveSetting('tg', { ...db.settings.tg, desk: v });
     // the shift groups: marked as such (not a driver's group); a group no longer used for a shift is let go
     const ids = [...new Set(shifts.flatMap((s) => s.groups.map((g) => g.chatId)))];

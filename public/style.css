@@ -1886,3 +1886,32 @@ table.active.compact tbody th{text-align:left;background:inherit}
   .handbook{max-width:none}
   .hbpart h3{break-after:avoid} .hbpart dt{break-after:avoid}
 }
+
+/* ---------- Dispatcher levels ---------- */
+.lvl{display:inline-block;min-width:24px;padding:0 6px;border-radius:5px;font-size:11.5px;font-weight:800;line-height:18px;text-align:center;text-decoration:none;vertical-align:1px}
+.lvl.l1{background:var(--blue-t);color:var(--blue)} .lvl.l2{background:var(--green-t);color:var(--green-d)} .lvl.l3{background:var(--yellow-t);color:var(--yellow-ink)}
+.lvcard{margin-top:14px}
+.lvgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px 28px}
+.lvgrid h4{margin:4px 0 6px}
+.lvgrid td{padding:5px 8px 5px 0;vertical-align:top}
+.lvgrid select{height:32px;border:1px solid #C5CEC9;border-radius:7px;background:#fff;font:inherit}
+.lvhelp{margin:10px 0 0;padding:0;list-style:none} .lvhelp li{margin-bottom:4px}
+.lvgrid .chk{margin-top:10px}
+
+/* ---------- menu in groups (compact) ---------- */
+.railnav{margin-top:22px}
+.railnav nav{gap:1px}
+.railnav nav a,.railnav nav button{height:38px;padding:0 12px;gap:12px;font-size:15px}
+.railnav>.bell{margin-bottom:6px}
+.rgroup{display:flex;flex-direction:column;gap:1px;margin-top:10px}
+.railnav nav .rhead{display:flex;justify-content:space-between;align-items:center;height:26px;padding:0 12px;border-radius:6px;color:rgba(233,240,235,.62);font-size:12.5px;font-weight:700;letter-spacing:.2px;cursor:pointer}
+.railnav nav .rhead:hover{background:none;color:#fff}
+.rhead span{font-size:15px;font-weight:500}
+.ritems{display:flex;flex-direction:column;gap:1px}
+.rgroup.shut .ritems{display:none}
+.rmore>summary{display:flex;align-items:center;gap:12px;height:36px;padding:0 12px;border-radius:9px;color:#E9F0EB;font-size:15px;font-weight:500;list-style:none;cursor:pointer}
+.rmore>summary::-webkit-details-marker{display:none}
+.rmore>summary:hover{background:rgba(255,255,255,.08)}
+.rmore[open]>summary{color:#fff}
+.rmore>a{padding-left:24px!important}
+.acct nav a,.acct nav button{height:36px}

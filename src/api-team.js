@@ -148,7 +148,7 @@ module.exports = (app) => {
     const r = await range(req.query.period);
     const D = require('./tg/dispatchers'), acc = require('./tg/accounts');
     const site = Object.fromEntries((await teamStats(r)).map((p) => [p.id, p]));
-    const users = (await q(`SELECT id, name, email, active, last_seen_at FROM users WHERE role = 'dispatcher' ORDER BY active DESC, name`)).rows;
+    const users = (await q(`SELECT id, name, email, active, last_seen_at, coalesce(dispatch_level, 2) level FROM users WHERE role = 'dispatcher' ORDER BY active DESC, name`)).rows;
     const people = [];
     for (const u of users) {
       const tg = (await q(`SELECT tg_id, profile, profile_at FROM tg_people WHERE user_id = $1 ORDER BY profile_at DESC NULLS LAST, seen_at DESC NULLS LAST LIMIT 1`, [u.id])).rows[0];
@@ -157,7 +157,7 @@ module.exports = (app) => {
           (SELECT count(*)::int FROM truck_events e JOIN trucks t2 ON t2.id = e.truck_id WHERE t2.dispatcher_id = $1 AND e.status <> 'fixed') issues FROM trucks WHERE dispatcher_id = $1`, [u.id])).rows[0];
       const p = (tg && tg.profile) || null; const sc = p && p.scores && p.scores.length ? p.scores.reduce((a, x) => a + (+x.score || 0), 0) / p.scores.length : null;
       const s = site[u.id] || {};
-      people.push({ id: u.id, name: u.name, active: u.active, noLogin: acc.noLogin(u.email), tg: tg ? String(tg.tg_id) : null, activeSeconds: s.activeSeconds || 0, lastAt: s.lastAt || u.last_seen_at || null,
+      people.push({ id: u.id, name: u.name, level: u.level, active: u.active, noLogin: acc.noLogin(u.email), tg: tg ? String(tg.tg_id) : null, activeSeconds: s.activeSeconds || 0, lastAt: s.lastAt || u.last_seen_at || null,
         msgs: st ? st.msgs : 0, groups: st ? st.groups : 0, answered: st ? st.his : 0, med: st ? st.med : null, fast: st && st.his ? Math.round((st.fast / st.his) * 100) : null, waited: st ? st.slow : 0, night: st ? st.night : 0,
         trucks: tr.trucks, empty: tr.empty, issues: tr.issues,
         review: p ? { score: sc, trend: (p.trend || {}).direction || null, flags: (p.red_flags || []).length, goal: (p.feedback || {}).goal || '', at: tg.profile_at, confidence: p.confidence || null } : null });

@@ -303,6 +303,7 @@ window.App = (() => {
     active: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M3.8 10.5c2.6-.9 5.3-1.2 8.2-1.2s5.6.3 8.2 1.2M10.4 13.6 7 19.6M13.6 13.6l3.4 6"/>',
     companies: '<path d="M4 21V5.5L12 3v18M12 8.5l8 2.5v10"/><path d="M3 21h18M7.5 8h1.5M7.5 12h1.5M7.5 16h1.5M15.5 13h1.5M15.5 17h1.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    shifts: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     kb: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M9 8h7M9 11.5h5"/>',
     places: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>',
     cases: '<path d="M9 5h6M9 3h6a1 1 0 0 1 1 1v1H8V4a1 1 0 0 1 1-1z"/><path d="M8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2"/><path d="m9 13 2 2 4-4"/>',
@@ -316,17 +317,31 @@ window.App = (() => {
   function header(active, extra = '') {
     const admin = S.me.role === 'admin';
     const disp = S.me.role === 'dispatcher';
-    const items = disp ? [['#/trucks', 'Trucks', 'trucks'], ['#/active', 'Active drivers', 'active'], ['#/cases', 'Road cases', 'cases'], ['#/places', 'Shops & services', 'places'], ['#/kb', 'Knowledge base', 'kb'], ['#/telegram', 'Telegram', 'telegram'], ['#/team/me', 'My activity', 'team']] : [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ['#/places', 'Shops & services', 'places'], ['#/kb', 'Knowledge base', 'kb'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges'], ['#/telegram', 'Telegram', 'telegram'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
+    // the menu in groups: what a person uses most first; the rarely used admin pages under More
+    const groups = disp ? [
+      ['Dispatch', [['#/trucks', 'Trucks', 'trucks'], ['#/active', 'Active drivers', 'active'], ['#/cases', 'Road cases', 'cases'], ['#/telegram', 'Telegram', 'telegram']]],
+      ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places']]],
+    ] : [
+      ['', [['#/', admin ? 'Dashboard' : 'My day', 'home']]],
+      ['Recruiting', [['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges']]],
+      ['Dispatch', [['#/active', 'Active drivers', 'active'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ...(admin ? [['#/shifts', 'Shift desk', 'shifts']] : []), ['#/telegram', 'Telegram', 'telegram']]],
+      ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places']]],
+      ['Company', [['#/companies', 'Companies', 'companies'], ...(admin ? [['#/team', 'Team', 'team']] : [])]],
+    ];
+    let shut = []; try { shut = JSON.parse(localStorage.getItem('railShut') || '[]'); } catch (e) { /* storage off */ }
+    const section = ([label, list]) => { const here = list.some(([, , k]) => k === active); const closed = label && shut.includes(label) && !here;
+      return label ? `<div class="rgroup${closed ? ' shut' : ''}"><button type="button" class="rhead" data-act="railGroup" data-g="${esc(label)}" aria-expanded="${closed ? 'false' : 'true'}">${esc(label)}<span aria-hidden="true">${closed ? '+' : '–'}</span></button><div class="ritems">${list.map(link).join('')}</div></div>` : list.map(link).join(''); };
     const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
         <div class="brand"><a href="#/" aria-label="FleetHire Recruiting, home"><svg class="logo" viewBox="0 0 40 28" width="38" height="27" aria-hidden="true"><path d="M2 5.5h21v15H2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M23 10h8.5l5.5 5.6v4.9H23z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="9" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><path d="M6 10.5h9M6 14.5h6" stroke="#F4B400" stroke-width="2.4" stroke-linecap="round"/></svg><span><b>FleetHire</b><small>Recruiting</small></span></a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>
         <div class="railnav" id="railnav">
           <button type="button" class="bell" data-act="bellOpen" aria-haspopup="dialog">${icon('bell')}<span>Notifications</span><b class="bellcount" ${S.unread ? '' : 'hidden'}>${S.unread > 99 ? '99+' : S.unread || 0}</b></button>
-          <nav aria-label="Sections">${items.map(link).join('')}</nav>
+          <nav aria-label="Sections">${groups.map(section).join('')}</nav>
           <span class="grow"></span>
           ${goalRing()}
           <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : disp ? 'Dispatcher' : 'Recruiter'}${S.me.version ? ` · v${esc(S.me.version)}` : ''}</span></div>
-            <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + link(['#/shifts', 'Shift desk', 'shifts', 'team']) + link(['#/ai', 'AI usage', 'ai']) + link(['#/map', 'Product map', 'map']) + `<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a>` : link(['#/settings', 'Password', 'settings', 'password'])}
+            <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + `<details class="rmore"${['ai', 'map'].includes(active) ? ' open' : ''}><summary>${icon('menu')}<span>More</span></summary>${link(['#/ai', 'AI usage', 'ai'])}${link(['#/map', 'Product map', 'map'])}<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a></details>`
+              : link(['#/team/me', 'My activity', 'team']) + link(['#/settings', 'Password', 'settings', 'password'])}
               <button data-act="logout">${icon('out')}<span>Sign out</span></button></nav></div>
         </div></div></div></aside>${extra ? `<header class="sign"><div class="o"><div class="plate">${extra}</div></div></header>` : ''}`;
   }
@@ -374,6 +389,8 @@ window.App = (() => {
     if (onOpen) onOpen(d);
     return d;
   }
+  on('railGroup', (b) => { const g = b.dataset.g; const el = b.closest('.rgroup'); const shutNow = !el.classList.contains('shut'); el.classList.toggle('shut', shutNow); b.setAttribute('aria-expanded', String(!shutNow)); b.lastElementChild.textContent = shutNow ? '+' : '–';
+    try { const list = JSON.parse(localStorage.getItem('railShut') || '[]').filter((x) => x !== g); if (shutNow) list.push(g); localStorage.setItem('railShut', JSON.stringify(list)); } catch (e) { /* storage off */ } });
   on('closeDialog', () => { const d = $('#dlg'); if (d) d.close(); });
   const dropNotice = (b) => { const el = b.closest('.notice'); const id = +el.dataset.n; el.remove(); seen([id]); const box = $('#notices'); if (box && !box.querySelector('.notice')) box.remove(); };
   on('noticeSeen', (b) => dropNotice(b));
