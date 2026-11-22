@@ -46,30 +46,32 @@
     const sortD = (a, b) => (moody(b) - moody(a)) || a.d.name.localeCompare(b.d.name);
     const groups = [...(S.me.companies || []).map((c) => [c, shown.filter((x) => x.d.companyId === c.id)]), [null, shown.filter((x) => !x.d.companyId || !(S.me.companies || []).some((c) => c.id === x.d.companyId))]]
       .filter(([, l]) => l.length).map(([c, l]) => [c, l.sort(sortD)]);
+    // one line per driver: short dates, the tags only when something needs attention
+    const short = (ymd) => (ymd ? dateText(ymd, { month: 'short', day: 'numeric', year: '2-digit' }) : '');
+    const doc = (ymd, x) => (!ymd ? '<span class="none">—</span>' : `<span class="${x.state === 'expired' ? 'cbad' : x.state === 'soon' ? 'cwarn' : ''}" title="${esc(long(ymd))}${x.state === 'expired' ? ', expired' : x.state === 'soon' ? ', expires soon' : ''}">${esc(short(ymd))}</span>`);
+    const roadCell = (d, rd) => { if (!d.outSince) return `<span class="none">${esc(periodText(d)) || '—'}</span>`;
+      const on = days(d.outSince, t) + 1; const tag = rd.state === 'over' ? '<span class="dtag bad">Home overdue</span>' : rd.state === 'due' ? '<span class="dtag warn">Due home</span>' : '';
+      return `<span title="Out since ${esc(long(d.outSince))}${periodText(d) ? '. ' + esc(periodText(d)) : ''}">Day ${on}${d.weeksOut ? ` of ${Math.round(d.weeksOut * 7)}` : ''}</span> ${tag}`; };
     const row = ({ d, cdl, med, road: rd }) => `<tr data-id="${d.id}">
-      <td><a class="nml" href="#/active/${d.id}"><b>${esc(d.name)}</b></a>${d.phone ? `<div class="small">${App.phone(d.phone, '')}</div>` : ''}<div class="small mut">${[esc(one(d.mode)), d.truck ? `truck ${d.truck.id ? `<a href="#/truck/${d.truck.id}"><b>${esc(d.truck.unit)}</b></a>` : `<b>${esc(d.truck.unit)}</b>`}` : d.ownTruck ? `own truck: ${esc(d.ownTruck)}` : 'no truck'].filter(Boolean).join(', ')}</div></td>
-      <td class="exp ${cdl.state}">${cdl.html}</td><td class="exp ${med.state}">${med.html}</td>
-      <td>${esc(periodText(d)) || '<span class="none">Not entered</span>'}</td>
-      <td>${rd.html}</td>
-      <td class="small">${d.hiredAt ? esc(dateText(dayOf(d.hiredAt), { year: 'numeric' })) : ''}${d.ownerId ? `<div class="mut">${esc(person(d.ownerId))}</div>` : ''}</td>
-      <td>${App.moodDots(d.mood)}${d.openAlerts ? `<div class="small"><a class="latetag" href="#/active/${d.id}">${plural(d.openAlerts, 'alert')}</a></div>` : ''}</td>
-      <td class="tgcell">${['dispatch', 'eld', 'accounting'].map((k) => (d.groups && d.groups[k] ? `<a class="tgdot on" href="#/telegram/${d.groups[k]}" title="${TGK[k]} group">${TGK[k]}</a>` : `<span class="tgdot" title="No ${TGK[k]} group yet: in Telegram, type register ${k} in it">${TGK[k]}</span>`)).join('')}</td>
+      <th scope="row"><a class="nml" href="#/active/${d.id}"><b>${esc(d.name)}</b></a>${d.mode === 'Owner-operators' ? ' <span class="mtag" title="Owner operator">OO</span>' : d.mode === 'Company drivers' ? ' <span class="mtag" title="Company driver">CD</span>' : ''}${d.openAlerts ? ` <a class="latetag" href="#/active/${d.id}">${plural(d.openAlerts, 'alert')}</a>` : ''}</th>
+      <td class="nowrap">${d.truck ? (d.truck.id ? `<a href="#/truck/${d.truck.id}">${esc(d.truck.unit)}</a>` : esc(d.truck.unit)) : '<span class="none">—</span>'}</td>
+      <td class="nowrap small">${d.phone ? App.phone(d.phone, '') : ''}</td>
+      <td class="exp nowrap">${doc(d.cdlExpires, cdl)}</td><td class="exp nowrap">${doc(d.medExpires, med)}</td>
+      <td class="nowrap">${roadCell(d, rd)}</td>
+      <td class="nowrap small mut" title="${d.ownerId ? 'Recruiter: ' + esc(person(d.ownerId)) : ''}">${d.hiredAt ? esc(short(dayOf(d.hiredAt))) : ''}</td>
+      <td>${App.moodDots(d.mood)}</td>
+      <td class="tgmini">${['dispatch', 'eld', 'accounting'].map((k) => (d.groups && d.groups[k] ? `<a class="on" href="#/telegram/${d.groups[k]}" title="${TGK[k]} group">${TGK[k][0]}</a>` : `<span title="No ${TGK[k]} group yet">${TGK[k][0]}</span>`)).join('')}</td>
       <td>${S.me.role === 'dispatcher' ? '' : '<button class="linkbtn" data-act="activeEdit">Edit</button>'}</td></tr>`;
-    const seg = [['', `All ${n(() => true)}`], ['mood', `Needs attention ${n(moody)}`], ['expiring', `Expiring ${n(bad)}`], ['missing', `Dates missing ${n(missing)}`], ['home', `Due home ${n(due)}`]];
-    view.innerHTML = header('active') + `<main>${App.pageHead('Active drivers', 'Hired drivers on the road: their documents, working period and home time.')}
-      <div class="tiles">${App.tile('wheel', n(() => true), 'active drivers', { on: !filter, href: '#/active' })}
-        ${App.tile('warn', n((x) => x.cdl.state === 'expired' || x.med.state === 'expired'), 'with an expired CDL or medical card', { tone: n((x) => x.cdl.state === 'expired' || x.med.state === 'expired') ? 'r' : '' })}
-        ${App.tile('cal', n((x) => x.cdl.state === 'soon'), `CDLs expiring in ${SOON} days`, { tone: n((x) => x.cdl.state === 'soon') ? 'y' : '' })}
-        ${App.tile('clip', n((x) => x.med.state === 'soon'), `medical cards expiring in ${SOON} days`, { tone: n((x) => x.med.state === 'soon') ? 'y' : '' })}
-        ${App.tile('people', n(due), 'due home in 3 days or overdue')}</div>
+    const seg = [['', `All ${n(() => true)}`], ['mood', `Needs attention ${n(moody)}`], ['expiring', `Expiring ${n(bad)}${n((x) => x.cdl.state === 'expired' || x.med.state === 'expired') ? ` (${n((x) => x.cdl.state === 'expired' || x.med.state === 'expired')} expired)` : ''}`], ['missing', `Dates missing ${n(missing)}`], ['home', `Due home ${n(due)}`]];
+    view.innerHTML = header('active') + `<main>${App.pageHead('Active drivers', `${plural(n(() => true), 'hired driver')} on the road: documents, days on the road and home time.`)}
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${seg.map(([k, l]) => `<button data-act="activeFilter" data-k="${k}" class="${filter === k ? 'on' : ''}" aria-pressed="${filter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="activeCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === coFilter ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${coFilter === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>
       ${r.drivers.length ? `${groups.map(([co, list]) => `<section class="cotable"><h3 class="cohead">${co ? App.coTag(co.id, true) : '<span class="co none">No company</span>'}<span class="small mut">${plural(list.length, 'driver')}</span></h3>
-        <div class="sheet"><table class="active"><colgroup><col><col style="width:140px"><col style="width:140px"><col style="width:120px"><col style="width:160px"><col style="width:110px"><col style="width:110px"><col style="width:100px"><col style="width:50px"></colgroup>
-        <thead><tr><th>Driver</th><th>CDL expires</th><th>Medical card expires</th><th>Working period</th><th>On the road</th><th>Hired</th><th>Last 3 days</th><th>Telegram</th><th></th></tr></thead>
+        <div class="sheet"><table class="active compact"><colgroup><col><col style="width:70px"><col style="width:150px"><col style="width:96px"><col style="width:96px"><col style="width:150px"><col style="width:82px"><col style="width:80px"><col style="width:76px"><col style="width:44px"></colgroup>
+        <thead><tr><th>Driver</th><th>Truck</th><th>Phone</th><th title="CDL expires">CDL</th><th title="Medical card expires">Medical</th><th title="Days on the road this stretch, of the planned days out">On the road</th><th>Hired</th><th title="Mood the last 3 days">Mood</th><th title="Telegram groups: Dispatch, ELD, Accounting">Groups</th><th></th></tr></thead>
         <tbody>${list.map(row).join('')}</tbody></table></div></section>`).join('') || '<div class="empty"><p>No drivers in this group.</p></div>'}
-        <p class="hint foot">Last 3 days: the driver's mood each day, from the evening summary of his Telegram groups (a red edge means an alert that day). Dates turn yellow ${SOON} days before they expire and red once expired. Enter only the expiry dates here, never license numbers. A driver is listed here once marked hired.</p>`
+        <p class="hint foot">Mood: the driver's mood each of the last 3 days, from the evening summary of his Telegram groups (a red edge means an alert that day). Dates turn yellow ${SOON} days before they expire and red once expired. Enter only the expiry dates here, never license numbers. A driver is listed here once marked hired.</p>`
         : '<div class="empty"><p>No active drivers yet.</p>Drivers appear here once they are marked hired at the end of onboarding.</div>'}
       ${r.left.length ? `<section class="card" style="margin-top:14px"><h3>Left in the last 6 months</h3><ul class="list">${r.left.map((d) => `<li data-id="${d.id}"><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> ${App.coTag(d.companyId)}
           <span class="small mut">left ${esc(long(d.leftOn))}${d.leftReason ? `: ${esc(d.leftReason)}` : ''}</span></span><button class="btn plain sm" data-act="activeBack">Active again</button></li>`).join('')}</ul></section>` : ''}

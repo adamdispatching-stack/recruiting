@@ -1776,3 +1776,16 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 
 .agt td,.agt th{vertical-align:top}.agt select,.agt .agdrv{width:100%;font:inherit;padding:6px 8px;border:1px solid #D8D3C8;border-radius:6px}.agt td.acts{white-space:nowrap}
 .agsearch input{width:100%;max-width:420px;font:inherit;padding:8px 10px;border:1px solid #D8D3C8;border-radius:8px}
+
+/* Active drivers, compact: one line per driver */
+table.active.compact th,table.active.compact td{padding:6px 8px;line-height:1.3;vertical-align:middle;font-size:14px}
+table.active.compact tbody th{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.active.compact .nowrap{white-space:nowrap}
+table.active.compact .mtag{font-size:11px;font-weight:600;color:#6B665C;background:#EFEBE3;border-radius:4px;padding:0 5px}
+table.active.compact .cbad{color:#A3261B;font-weight:600}table.active.compact .cwarn{color:#8A6100;font-weight:600}
+table.active.compact .dtag{font-size:11px;padding:0 6px}
+.tgmini{white-space:nowrap}.tgmini a,.tgmini span{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;border-radius:5px;font-size:11px;font-weight:700;margin-right:3px;border:1px dashed #CFCAC0;color:#A8A397;text-decoration:none}
+.tgmini a.on{border:1px solid #1F6F43;background:#E7F2EA;color:#1F6F43}
+.pagehead h1 .cnt,h1 .cnt{font-size:16px;vertical-align:middle;background:#EFEBE3;border-radius:10px;padding:2px 10px;margin-left:6px;color:#5E594F}
+table.active.compact tbody th{text-align:left;background:inherit}
+.cotable h3.cohead{display:flex;flex-direction:row;justify-content:flex-start;align-items:center;gap:10px;margin:14px 0 6px;text-align:left}
