@@ -50,7 +50,10 @@ async function digestChat(chatId) {
       today: ob.today || (await q(`SELECT to_char(now() AT TIME ZONE $1, 'Dy YYYY-MM-DD') t`, [db.settings.tz])).rows[0].t };
   }
   // messages brought in from an export (before the bot joined): read and learned from, never acted on
-  const quiet = fresh.every((m) => m.imported);
+  const imported = fresh.every((m) => m.imported);
+  // read late (more than 3 hours after the newest message, e.g. read again after the AI was down): learned from, nobody is told
+  const late = !imported && fresh.every((m) => new Date(m.at) < Date.now() - 3 * 3600e3);
+  const quiet = imported || late;
   let r;
   const unknown = [...new Set(fresh.filter((m) => !m.is_bot && !m.role && m.from_id && m.from_name).map((m) => m.from_name))].slice(0, 12);
   const working = chat.kind === 'dispatch' && !onboarding;
@@ -137,17 +140,17 @@ async function digestChat(chatId) {
     out.learned = (out.learned || 0) + 1;
   }
   // where the onboarding stands, and the steps the conversation shows are done
-  if (onboarding && r.onboarding && r.onboarding.summary) await onboardingStatus(chat, r.onboarding, onb.steps, quiet);
+  if (onboarding && r.onboarding && r.onboarding.summary) await onboardingStatus(chat, r.onboarding, onb.steps, quiet, { imported, late });
   return out;
 }
-async function dropFlag(chat, x) {
+async function dropFlag(chat, x, silent = false) {
   const quote = bot.redact(String(x.quote)).slice(0, 300);
   const r = await q(`UPDATE onb_cases SET drop_flag = $2, drop_dismissed_at = NULL WHERE driver_id = $1 AND (drop_flag IS NULL OR drop_dismissed_at IS NOT NULL) RETURNING driver_id`,
     [chat.driver_id, JSON.stringify({ quote, reason: x.reason || null, at: new Date().toISOString() })]);
   if (!r.rows[0]) return;
   const d = (await q(`SELECT name, owner_id FROM drivers WHERE id = $1`, [chat.driver_id])).rows[0];
   const to = new Set([...(d.owner_id ? [d.owner_id] : []), ...(await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows.map((u) => u.id)]);
-  for (const id of to) await db.notify(db.pool, id, 'tg', `${d.name} says he is not coming: "${quote}". Mark as dropped out on the onboarding page?`, '#/onboarding', { driverId: chat.driver_id });
+  if (!silent) for (const id of to) await db.notify(db.pool, id, 'tg', `${d.name} says he is not coming: "${quote}". Mark as dropped out on the onboarding page?`, '#/onboarding', { driverId: chat.driver_id });
   await bot.log('fact', `Says he is not coming: "${quote}"`, { chatId: chat.chat_id, driverId: chat.driver_id });
   await require('../lib').history(chat.driver_id, `Telegram: says he is not coming ("${quote}")`, 'AI', 'telegram').catch(() => {});
 }
@@ -165,13 +168,11 @@ async function startFromChat(chat, o, quiet) {
       await q(`UPDATE drivers SET updated_at = now() WHERE id = $1`, [chat.driver_id]);
       await lib.history(chat.driver_id, `Start date: ${lib.niceDate(sd)} (from the Telegram group${ob.ea ? `, was ${lib.niceDate(ob.ea)}` : ''})`, 'AI', 'telegram').catch(() => {});
       await bot.log('fact', `Saved the start date ${lib.niceDate(sd)}${ob.ea ? ` (was ${lib.niceDate(ob.ea)})` : ''} from the chat`, { chatId: chat.chat_id, driverId: chat.driver_id });
-      if (!quiet) await tell(`${ob.name}: start date set to ${lib.niceDate(sd)} from the Telegram group${ob.ea ? ` (was ${lib.niceDate(ob.ea)})` : ''}.`);
     } else if (!quiet) {
       const said = ((await q(`SELECT sent FROM onb_cases WHERE driver_id = $1`, [chat.driver_id])).rows[0] || {}).sent || {};
       if (said.startSaid !== sd) {
         await q(`UPDATE onb_cases SET sent = coalesce(sent, '{}'::jsonb) || $2::jsonb WHERE driver_id = $1`, [chat.driver_id, JSON.stringify({ startSaid: sd })]);
-        await bot.log('fact', `The chat says the start is ${lib.niceDate(sd)}, the website says ${lib.niceDate(ob.ea)}: the recruiter is told`, { chatId: chat.chat_id, driverId: chat.driver_id });
-        await tell(`${ob.name}: the Telegram group says the start is ${lib.niceDate(sd)}, but the website says ${lib.niceDate(ob.ea)}. Check and change it if needed.`);
+        await bot.log('fact', `The chat says the start is ${lib.niceDate(sd)}, the website says ${lib.niceDate(ob.ea)} (shown here, no notification)`, { chatId: chat.chat_id, driverId: chat.driver_id });
       }
     }
   }
@@ -182,13 +183,13 @@ async function startFromChat(chat, o, quiet) {
     await bot.log('fact', `Saved the arrival details: ${tv}`, { chatId: chat.chat_id, driverId: chat.driver_id });
   }
 }
-async function onboardingStatus(chat, o, steps, quiet) {
+async function onboardingStatus(chat, o, steps, quiet, { imported = quiet, late = false } = {}) {
   const s = { summary: bot.redact(String(o.summary)).slice(0, 800), waitingOn: o.waiting_on || null, nextStep: o.next_step ? String(o.next_step).slice(0, 200) : null,
     blockers: (o.blockers || []).map((x) => bot.redact(String(x)).slice(0, 200)).slice(0, 6), openQuestions: (o.open_questions || []).map((x) => bot.redact(String(x)).slice(0, 200)).slice(0, 6), mood: o.driver_mood || null };
   await q(`INSERT INTO onb_cases (driver_id, chat_id, mode, ai_status, ai_status_at) VALUES ($1, $2, 'watch', $3, now()) ON CONFLICT (driver_id) DO UPDATE SET ai_status = $3, ai_status_at = now()`, [chat.driver_id, chat.chat_id, JSON.stringify(s)]);
   // the CDL state and the ZIP (for the MVR and the drug test): fills gaps only
   // the driver says he is not coming: flag it for the team to confirm (never changes the status by itself)
-  if (o.dropping_out && o.dropping_out.quote && !quiet) await dropFlag(chat, o.dropping_out).catch((e) => console.error('drop', e.message));
+  if (o.dropping_out && o.dropping_out.quote && !imported) await dropFlag(chat, o.dropping_out, late).catch((e) => console.error('drop', e.message));
   // the start date and how the driver travels, from what was said
   if (o.start_date || o.travel) await startFromChat(chat, o, quiet).catch((e) => console.error('start date', e.message));
   if (o.license_state || o.zip) await require('./mvr').setFacts(chat.driver_id, { state: o.license_state || undefined, zip: o.zip || undefined }, 'AI', { onlyEmpty: true }).catch((e) => console.error('mvr', e.message));
@@ -205,7 +206,6 @@ async function onboardingStatus(chat, o, steps, quiet) {
     } else await q(`INSERT INTO onb_ai_steps (driver_id, checklist_id, label, evidence) VALUES ($1, $2, $3, $4)`, [chat.driver_id, step.id, step.label, ev]);
     found.push(step.label);
   }
-  if (found.length && chat.owner_id && !quiet) await db.notify(db.pool, chat.owner_id, 'tg', `${chat.driver}: the AI ${auto ? 'ticked' : 'thinks these are done'}: ${found.join(', ')}${auto ? '' : '. Confirm on the onboarding card.'}`, `#/driver/${chat.driver_id}`, { driverId: chat.driver_id });
 }
 async function tick() {
   if (!bot.state.me) return;

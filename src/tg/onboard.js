@@ -205,7 +205,6 @@ async function qa(c, chat, m, who, text, opts) {
     else {
       const b = await send(chat.chat_id, `Good question. Let me check with ${await opts.escalate()}.`, { replyTo: m.message_id });
       await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, bot_msg_id, text) VALUES ($1, $2, $3, $4, $5)`, [chat.chat_id, c.driver_id, m.message_id, b.message_id, bot.redact(text).slice(0, 1000)]);
-      await tell(c, `${c.name} asked in Telegram: "${bot.redact(text).slice(0, 160)}"`, false);
     }
   }
 }

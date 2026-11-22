@@ -611,6 +611,12 @@ async function migrate() {
     up.onbWatch = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
+  if (!up.quietNotices) {
+    // the re-read of old group messages sent a notification for every old change: mark those as seen (they stay in the bot history)
+    await q(`UPDATE notices SET seen_at = now() WHERE kind = 'tg' AND seen_at IS NULL AND created_at > now() - interval '12 hours' AND text NOT LIKE '%says he is not coming%'`).catch((e) => console.error('quiet notices', e.message));
+    up.quietNotices = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   if (!up.reread) {
     // reading the groups never worked (Sonnet 5.5 refused the forced tool call), and failed batches were marked as read:
     // put the last 14 days back so the bot reads them now

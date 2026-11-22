@@ -52,6 +52,13 @@ app.post('/api/logout', wrap(async (req, res) => {
   res.set('Set-Cookie', 'sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'); res.json({ ok: true });
 }));
 // Who I am, plus what every screen needs: the team's time zone, lead sources, and the people leads can belong to.
+// a dispatcher's own coaching: how the AI sees the way he writes to drivers (from the driver groups). Only his own.
+app.get('/api/me/coaching', needUser, wrap(async (req, res) => {
+  const p = (await db.q(`SELECT profile, profile_at FROM tg_people WHERE user_id = $1 AND role = 'dispatch' AND profile IS NOT NULL ORDER BY profile_at DESC NULLS LAST LIMIT 1`, [req.user.id])).rows[0];
+  if (!p) return res.json({ coaching: null });
+  const x = p.profile || {};
+  res.json({ coaching: { summary: x.summary || '', strengths: x.strengths || [], improve: x.improve || [], updates: x.update_habits || '', at: p.profile_at } });
+}));
 app.get('/api/me', needUser, wrap(async (req, res) => {
   const people = await q(`SELECT id, name, role, active FROM users ORDER BY lower(name)`);
   const companies = await q(`SELECT id, name, color FROM companies ORDER BY lower(name)`);

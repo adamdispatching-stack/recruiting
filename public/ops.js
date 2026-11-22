@@ -255,8 +255,17 @@
     parts.push(o.daysLeft <= 0 ? `${-o.daysLeft}d over` : `${o.daysLeft}d`);
     return `<span class="oil ${o.state}">${o.state === 'overdue' ? 'Overdue' : o.state === 'soon' ? 'Due soon' : 'OK'}</span><div class="small mut">${parts.join(' · ')}</div>`;
   };
+  // a dispatcher's own coaching from the driver groups (only he and the admins see it)
+  function coachCard(c) {
+    if (!c || !(c.summary || c.strengths.length || c.improve.length)) return '';
+    const li = (a) => a.map((x) => `<li>${esc(typeof x === 'string' ? x : x.text || x.tip || JSON.stringify(x))}</li>`).join('');
+    return `<section class="card coach"><h3>How you write to drivers</h3><p class="hint">What the AI sees in the driver groups. Only you and the admins see this.</p>
+      ${c.summary ? `<p>${esc(c.summary)}</p>` : ''}<div class="twocol">${c.strengths.length ? `<div><h4>Keep doing</h4><ul>${li(c.strengths)}</ul></div>` : ''}${c.improve.length ? `<div><h4>Try this</h4><ul>${li(c.improve)}</ul></div>` : ''}</div>
+      ${c.updates ? `<p class="small"><b>Updates:</b> ${esc(c.updates)}</p>` : ''}</section>`;
+  }
   async function viewTrucks() {
-    const live = App.drawing(); const [r, fe, fg] = await Promise.all([api('/api/trucks'), api('/api/fleet/empty').catch(() => null), api('/api/fleet/goal').catch(() => null)]); if (!live()) return;
+    const live = App.drawing(); const [r, fe, fg, co] = await Promise.all([api('/api/trucks'), api('/api/fleet/empty').catch(() => null), api('/api/fleet/goal').catch(() => null),
+      S.me.role === 'dispatcher' ? api('/api/me/coaching').catch(() => null) : null]); if (!live()) return;
     trucks = r.trucks; const sum = r.summary; const admin = S.me.role === 'admin'; const disp = S.me.role === 'dispatcher'; const canEdit = true; // anyone adds and edits trucks; only an admin removes one
     document.title = 'Trucks · FleetHire';
     const n = (s) => trucks.filter((t) => t.state === s).length;
@@ -271,7 +280,7 @@
       .filter(([, l]) => l.length).map(([c, l]) => [c, l.sort(byUnit)]);
     const mine = trucks.filter((t) => t.dispatcherId === S.me.id).length;
     const tile = (k, v, l, cls) => `<button type="button" class="ftile ${cls || ''}" data-act="truckFilter" data-k="${k}" aria-pressed="${truckFilter === k}"><b>${v}</b><span>${l}</span></button>`;
-    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck: its company and driver, oil changes, shop visits and what it costs.', `${admin || disp ? '<button class="btn plain" data-act="fleetSettings">Truck settings</button>' : ''}${canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : ''}`)}
+    view.innerHTML = header('trucks') + `<main>${App.pageHead('Trucks', 'Every truck: its company and driver, oil changes, shop visits and what it costs.', `${admin || disp ? '<button class="btn plain" data-act="fleetSettings">Truck settings</button>' : ''}${canEdit ? `<button class="btn primary lg" data-act="truckAdd">${App.plus} Add truck</button>` : ''}`)}${coachCard(co && co.coaching)}
       ${fe && fg && trucks.length ? `<section class="card eboard"><div class="ebhead">${App.goalRing(fg)}<div class="grow"><h3>${fe.count ? `${plural(fe.count, 'empty truck')}: about ${App.money(fe.losingPerDay)} lost every day` : 'Every truck has a driver'}</h3>
         <p class="small mut">Lease, insurance and fees: ${App.money(fe.monthly)} a month per truck, ${App.money(fe.perDay)} a day, running or not.${fe.lost ? ` So far these empty trucks have cost ${App.money(fe.lost)}.` : ''} ${fg.filled} filled this month, goal ${fg.target}.</p></div></div>
         ${App.emptyList(fe, 50)}</section>` : ''}

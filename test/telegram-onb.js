@@ -123,7 +123,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   n = tg.sent.length; say(OLGA, 'Can I bring my dog?');
   const ask = await until(() => sentSince(n).find((m) => /Good question. Let me check with @rita_r/.test(m.text)));
   ok(!!ask, 'a question it cannot answer: it tags the recruiter');
-  ok(await until(async () => ((await R('/api/notices')).notices || []).some((x) => /Olga Onb asked in Telegram: "Can I bring my dog\?"/.test(x.text))), 'and the recruiter gets a notification');
+  await new Promise((r) => setTimeout(r, 1500)); ok(!((await R('/api/notices')).notices || []).some((x) => /Olga Onb asked in Telegram/.test(x.text)), 'no notification for each question (only when it waits too long)');
   say(RITA, 'Yes, one small dog is fine.', { reply_to_message: { message_id: ask.message_id } });
   ok(await until(async () => ((await R('/api/tg/knowledge')).knowledge || []).some((k) => k.source === 'learned' && /dog/.test(k.question) && /small dog/.test(k.answer))), 'her answer is learned');
   await pg.query(`UPDATE tg_messages SET at = at - interval '15 minutes' WHERE from_id = 11`); // Rita stopped chatting

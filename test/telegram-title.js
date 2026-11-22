@@ -201,14 +201,14 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(ob1 && ob1.dow === 1 && ob1.arrival_by === 'ai', '"ready to roll on Monday": the start date is set to Monday');
   const note1 = await until(async () => (await pg.query(`SELECT arrival_note FROM onboarding WHERE driver_id = $1 AND arrival_note IS NOT NULL`, [paul])).rows[0]);
   ok(note1 && /Greyhound/.test(note1.arrival_note) && !/88812345/.test(note1.arrival_note), 'and the travel details (no ticket number)');
-  ok((await pg.query(`SELECT text FROM notices WHERE user_id = $1 AND text LIKE 'Paul Penn: start date set to%'`, [rita])).rows.length === 1, 'Rita is told');
+  ok((await pg.query(`SELECT text FROM notices WHERE user_id = $1 AND text LIKE 'Paul Penn: start date%'`, [rita])).rows.length === 0, 'no notification for it (it is in the bot history)');
   ok((await pg.query(`SELECT done FROM checklist WHERE driver_id = $1 AND key = 'arrival_date'`, [paul])).rows[0].done, 'the "Arrival date set" step ticks itself');
   // the team sets another date: the chat never overwrites it, the recruiter is told instead
   const tue = new Date(new Date(ob1.ea + 'T12:00:00Z').getTime() + 864e5).toISOString().slice(0, 10);
   await web(`/api/drivers/${paul}/onboarding`, { method: 'PATCH', body: { expectedArrival: tue } });
   ok(!(await pg.query(`SELECT arrival_by FROM onboarding WHERE driver_id = $1`, [paul])).rows[0].arrival_by, 'Rita changes it on the website (Tuesday): the team\'s date now');
   say(PAUL, 'actually Wednesday is better', PCHAT);
-  ok(await until(async () => (await pg.query(`SELECT text FROM notices WHERE user_id = $1 AND text LIKE 'Paul Penn: the Telegram group says the start is%'`, [rita])).rows.length === 1, 15000), 'the driver says Wednesday: Rita is told the chat and the website differ');
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_log WHERE text LIKE 'The chat says the start is%'`)).rows.length === 1, 15000), 'the driver says Wednesday: the bot history shows the chat and the website differ (no notification)');
   ok((await pg.query(`SELECT extract(dow FROM expected_arrival)::int d FROM onboarding WHERE driver_id = $1`, [paul])).rows[0].d === 2, 'the team\'s date (Tuesday) stays');
   ok((await web(`/api/drivers/${paul}/ssn4`)).ssn4 === '6789', 'Show: the admin sees the 4 digits');
   ok((await pg.query(`SELECT 1 FROM driver_events WHERE driver_id = $1 AND text LIKE '%looked at the last 4 of SSN%'`, [paul])).rows.length === 1, 'and the look is in the history');
