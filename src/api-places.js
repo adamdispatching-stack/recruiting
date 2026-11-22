@@ -17,6 +17,7 @@ module.exports = (app) => {
     state: P.st(b.state), area: String(b.area || '').trim().slice(0, 60) || null, notes: String(b.notes || '').trim().slice(0, 500) || null });
   app.post('/api/places', needUser, wrap(async (req, res) => {
     const x = clean(req.body || {}); if (!x.name) return res.status(400).json({ error: 'Give it a name' });
+    if (require('./places').looksLikeSite(x) && !(req.body || {}).isService) return res.status(400).json({ error: 'This looks like an Amazon or customer location, not a shop or service. Add it to the knowledge base (Places & roads) instead. If it really is a shop or service, give it a kind and what it fixes or does.' });
     const id = (await q(`INSERT INTO places (name, kind, services, phone, address, city, state, area, notes, source, verified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'team', true) RETURNING id`, [x.name, x.kind, x.services, x.phone, x.address, x.city, x.state, x.area, x.notes])).rows[0].id;
     res.json({ ok: true, id });
   }));
@@ -31,5 +32,12 @@ module.exports = (app) => {
     const x = clean(b); if (!x.name) return res.status(400).json({ error: 'Give it a name' });
     await q(`UPDATE places SET name = $2, kind = $3, services = $4, phone = $5, address = $6, city = $7, state = $8, area = $9, notes = $10, updated_at = now() WHERE id = $1`, [id, x.name, x.kind, x.services, x.phone, x.address, x.city, x.state, x.area, x.notes]);
     res.json({ ok: true });
+  }));
+  // not a shop or a service (an Amazon facility, a customer): to the knowledge base, hidden here
+  app.post('/api/places/:id/to-kb', needUser, wrap(async (req, res) => {
+    const p = (await q(`SELECT * FROM places WHERE id = $1`, [+req.params.id || 0])).rows[0]; if (!p) return res.status(404).json({ error: 'Not found' });
+    const r = await require('./places').toKnowledge(p, req.user.name, true); // a person said so: in use right away
+    await q(`UPDATE places SET hidden = true, notes = trim(coalesce(notes, '') || ' (moved to the knowledge base: not a shop or service)'), updated_at = now() WHERE id = $1`, [p.id]);
+    res.json({ ok: true, kb: r && r.id });
   }));
 };

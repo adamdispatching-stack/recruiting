@@ -711,6 +711,12 @@ async function migrate() {
     up.reread = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
+  if (!up.placesSites) {
+    // Shops & services is for shops and services only: Amazon facilities and customer sites move to the knowledge base
+    try { const n = await require('./places').cleanup(); if (n) console.log(`Moved ${n} sites from Shops & services to the knowledge base`); } catch (e) { console.error('places cleanup', e.message); }
+    up.placesSites = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   if (!up.kb) {
     // the knowledge base: give the old entries a topic and their group; the AI tidy cleans them up over the next hours
     await require('./kb').backfill().catch((e) => console.error('kb backfill', e.message));

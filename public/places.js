@@ -19,8 +19,8 @@
       <td class="nowrap">${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a>` : '<span class="none">—</span>'}</td>
       <td>${mapLink(p)}</td>
       <td class="nowrap">${p.good ? `<span title="Went well">👍 ${p.good}</span> ` : ''}${p.bad ? `<span title="Went badly">👎 ${p.bad}</span> ` : ''}${p.uses ? `<div class="small mut">used ${plural(p.uses, 'time')}${p.last_used_at ? ', last ' + esc(when(p.last_used_at)) : ''}</div>` : '<span class="small mut">not used yet</span>'}${p.last_cost ? `<div class="small">last $${Math.round(p.last_cost).toLocaleString()}</div>` : ''}</td>
-      <td class="nowrap"><button class="linkbtn" data-act="plEdit">Edit</button> <button class="linkbtn" data-act="plTrust">${p.verified ? 'Untrust' : 'Trust'}</button> <button class="linkbtn" data-act="plHide">Hide</button></td></tr>`;
-    view.innerHTML = header('places') + `<main>${App.pageHead('Shops & services', 'Truck shops, tire service, towing, road service, mobile mechanics, detailing, locksmiths and more. The bot adds the ones shared or used in the driver groups, with what they fix and how it went; trusted ones come first. Breakdown and flat tire cases show the ones in the same state.', `<button class="btn primary lg" data-act="plAdd">${App.plus} Add a place</button>`)}
+      <td class="nowrap"><button class="linkbtn" data-act="plEdit">Edit</button> <button class="linkbtn" data-act="plToKb" title="An Amazon or customer location, not a shop or service: move it to the knowledge base">Not a shop</button> <button class="linkbtn" data-act="plTrust">${p.verified ? 'Untrust' : 'Trust'}</button> <button class="linkbtn" data-act="plHide">Hide</button></td></tr>`;
+    view.innerHTML = header('places') + `<main>${App.pageHead('Shops & services', 'Truck shops, tire service, towing, road service, mobile mechanics, detailing, locksmiths and more. Only businesses that fix or serve trucks and their contacts; Amazon and customer locations are in the knowledge base. The bot adds the ones shared or used in the driver groups, with what they fix and how it went; trusted ones come first. Breakdown and flat tire cases show the ones in the same state.', `<button class="btn primary lg" data-act="plAdd">${App.plus} Add a place</button>`)}
       <div class="pagebar"><div class="seg" role="group" aria-label="Kind"><button data-act="plKind" data-k="" class="${kind ? '' : 'on'}">All ${all.length}</button>${Object.entries(K).filter(([k]) => cnt(k)).map(([k, l]) => `<button data-act="plKind" data-k="${k}" class="${kind === k ? 'on' : ''}">${esc(l.split(' (')[0])} ${cnt(k)}</button>`).join('')}</div>
         <select class="pick line" data-ch="plState" aria-label="State"><option value="">All states</option>${states.map((s) => `<option ${s === state ? 'selected' : ''}>${s}</option>`).join('')}</select>
         <input type="search" id="plFind" class="pick line" placeholder="Find: DPF, lockout, Baltimore…" value="${esc(words)}" aria-label="Find"><span class="grow"></span></div>
@@ -48,6 +48,8 @@
   }
   on('plAdd', () => placeDialog(null));
   on('plEdit', (b) => placeDialog(byId(b)));
+  on('plToKb', async (b) => { const p = byId(b); if (!confirm(`${p.name} is not a shop or service? It moves to the knowledge base (Places & roads) and is hidden here.`)) return;
+    try { await api(`/api/places/${p.id}/to-kb`, { method: 'POST' }); toast('Moved to the knowledge base'); viewPlaces(); } catch (e) { fail(e); } });
   on('plTrust', async (b) => { const p = byId(b); try { await api('/api/places/' + p.id, { method: 'PUT', body: { verified: !p.verified } }); viewPlaces(); } catch (e) { fail(e); } });
   on('plHide', async (b) => { const p = byId(b); if (!confirm(`Hide ${p.name}? It stays saved, the bot does not suggest it any more.`)) return; try { await api('/api/places/' + p.id, { method: 'PUT', body: { hidden: true } }); viewPlaces(); } catch (e) { fail(e); } });
   App.route(/^#\/places$/, viewPlaces);

@@ -477,6 +477,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(ob && /<b>Amazon verified<\/b> \(2\)\nCD \(1\)\nCara Company — no start date\nOO \(1\)\nPaul Penn — Nov \d+\n/.test(ob.text), 'plain: Amazon verified → CD, OO; name and start date');
   ok(ob && /<b>Amazon pending<\/b> \(2\)/.test(ob.text) && /Cody Coming — no start date/.test(ob.text) && !/[🟢🟡🔴✈️🗓📝💬]|Rita|Background check/.test(ob.text), 'Amazon pending too; no icons, scores, recruiters or stats');
   const MCHAT = { id: -100740, type: 'supergroup', title: 'Management Team' };
+  // the morning report window (3 hours from its time) must not be now, or it posts the moment the group connects
+  await web('/api/tg/autopilot', { method: 'PUT', body: { teamReportAt: new Date(Date.now() + 6 * 3600000).toLocaleTimeString('en-GB', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) } });
   n = tg.sent.length; added(MCHAT, RITA);
   ok(await until(async () => ((await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [MCHAT.id])).rows[0] || {}).kind === 'management'), '"Management Team" added by Rita: our team\'s group');
   await sleep(500);
@@ -487,6 +489,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await pg.query(`UPDATE drivers SET callback_state = 'due', callback_at = now() - interval '1 hour', callback_said = '3 PM' WHERE id = $1`, [cody]);
   await pg.query(`UPDATE drivers SET amazon_log = jsonb_build_object('accurate', (now() - interval '6 days')::text) WHERE id = $1`, [cody]);
   const nowT = new Date(Date.now() - 60000).toLocaleTimeString('en-GB', { timeZone: (await pg.query(`SELECT value FROM settings WHERE key = 'tz'`)).rows[0]?.value || 'America/New_York', hour: '2-digit', minute: '2-digit' });
+  await pg.query(`DELETE FROM tg_state WHERE key LIKE 'mreport:%'`); // run between 9 and 12 ET, the default 9:00 report already went out earlier in this test
   n = tg.sent.length; ok((await web('/api/tg/autopilot', { method: 'PUT', body: { teamReportAt: nowT } })).ok, 'morning report time set');
   ok(await until(() => inChat(n, MCHAT).some((m) => /Good morning, team/.test(m.text)), 15000), 'the morning report is posted');
   ok(await until(() => inChat(n, MCHAT).some((m) => /🔔 @rita_r: Cody Coming has been on "Background check" with Amazon for 6 days/.test(m.text)), 15000), 'follow-up: Amazon stuck, Rita tagged');
