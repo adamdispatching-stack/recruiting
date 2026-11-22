@@ -302,6 +302,8 @@ async function tick() {
       await q(`UPDATE onb_cases SET sent = sent || $2::jsonb WHERE driver_id = $1`, [id, JSON.stringify({ ['arr_' + c.arrive]: true })]);
     }
   }
+  // the contract and the Clearinghouse: reminders for the driver (every mode; Watch: waiting on the website)
+  await require('./paperwork').tick(day).catch((e) => console.error('paperwork', e.message));
   // questions nobody answered for 2 hours (daytime): the recruiter hears again
   if (day) {
     const qs = (await q(`SELECT q.*, c.driver_id cd FROM tg_questions q JOIN onb_cases c ON c.chat_id = q.chat_id WHERE q.answer IS NULL AND q.asked_at < now() - interval '2 hours' AND q.asked_at > now() - interval '3 days' AND NOT coalesce((SELECT (sent ->> ('q' || q.id))::boolean FROM onb_cases WHERE driver_id = c.driver_id), false)`)).rows;
@@ -319,7 +321,7 @@ async function sendDraft(dr, text, user) {
   const edited = text.trim() !== String(dr.draft).trim();
   await q(`UPDATE tg_drafts SET state = 'sent', sent_text = $2, sent_by = $3, decided_at = now() WHERE id = $1`, [dr.id, text.slice(0, 1500), user.name]);
   await bot.log('reply', `${user.name} sent the bot's reply${edited ? ' (changed)' : ''}: "${text.slice(0, 120)}"`, { chatId: dr.chat_id, driverId: dr.driver_id, who: user.name });
-  if (edited && dr.driver_text) {
+  if (edited && dr.driver_text && ['reply', 'answer', 'upset'].includes(dr.kind)) {
     const qn = (await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, text) VALUES ($1, $2, $3, $4) RETURNING *`, [dr.chat_id, dr.driver_id, dr.msg_id, dr.driver_text])).rows[0];
     const k = (await q(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [dr.chat_id])).rows[0];
     await learn(qn, text, user.name, k && k.kind === 'accounting' ? 'accounting' : 'general');

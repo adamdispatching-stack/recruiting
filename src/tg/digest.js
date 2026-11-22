@@ -63,7 +63,10 @@ async function digestChat(chatId) {
   const promises = working ? (await q(`SELECT id, what, due FROM tg_promises WHERE chat_id = $1 AND state = 'open' AND at > now() - interval '10 days' ORDER BY at DESC LIMIT 15`, [chatId])).rows : [];
   const cs = require('./cases');
   const playbook = working ? await cs.forAi() : '', cases = working ? await cs.openFor(chatId) : '';
-  try { r = await ai.digest({ playbook, cases, promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
+  const orOpen = chat.kind === 'dispatch' ? await require('../orientation').openFor(chat.driver_id) : [];
+  const orientation = orOpen.length ? `ORIENTATION DAY steps still open (key: step): ${orOpen.map((x) => `${x.key}: ${x.label}`).join('; ')}\n` : '';
+  const today = working ? (await q(`SELECT to_char(now() AT TIME ZONE $1, 'Dy YYYY-MM-DD') t`, [db.settings.tz])).rows[0].t : '';
+  try { r = await ai.digest({ today, orientation, playbook, cases, promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
   catch (e) { console.error('tg digest', e.message); if (e.kind === 'bad' && (badTries[chatId + ':' + fresh[0].id] = (badTries[chatId + ':' + fresh[0].id] || 0) + 1) >= 3) await done(); return null; } // a bad batch is skipped; key, credit, network or busy: the messages wait and are read later
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
@@ -145,6 +148,14 @@ async function digestChat(chatId) {
     await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', $5, $3, $4, false, true)`, [qn, an, chatId, chat.kind === 'accounting' ? 'accounting' : 'general', "AI, from the team's replies"]);
     out.learned = (out.learned || 0) + 1;
   }
+  // signs he may leave
+  if (working && (r.leaving_signs || []).length && !quiet) await require('../leaving').fromGroup({ ...chat, chat_id: chatId }, r.leaving_signs).catch((e) => console.error('leaving', e.message));
+  // home time: going home, at home, coming back, back on the road
+  if (working && r.home_time && !imported) await require('../hometime').fromGroup({ ...chat, chat_id: chatId }, r.home_time).catch((e) => console.error('home time', e.message));
+  // shops and services shared or used in the group
+  if ((r.places || []).length && chat.kind === 'dispatch') await require('../places').learn(r.places, { chatId, driverId: chat.driver_id }).catch((e) => console.error('places', e.message));
+  // orientation day steps the group shows done
+  for (const k of (r.orientation_done || []).slice(0, 10)) if (orOpen.some((x) => x.key === k)) await require('../orientation').tick(chat.driver_id, k, true, 'AI, from Telegram').catch(() => {});
   // the case playbook: cases that started, steps done, the next message for the driver
   if (working) await cs.apply({ ...chat, chat_id: chatId }, r, fresh, { quiet, mode: cm.mode === 'updater' ? 'updater' : 'watch' }).catch((e) => console.error('tg cases', e.message));
   // where the onboarding stands, and the steps the conversation shows are done

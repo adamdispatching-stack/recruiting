@@ -204,6 +204,7 @@
         : d.truck ? `<b>${esc(d.truck.unit)}</b>${d.truck.details ? ` <span class="small mut">${esc(d.truck.details)}</span>` : ''}` : '<span class="latetag">No truck yet</span>';
       const azv = d.amazonStep === 'verified'; const az = (S.me.amazon || []).find((x) => x.key === d.amazonStep);
       return `<tr class="brow${alt}${azv ? ' azrow' : ''}${d.drop ? ' droprow' : ''}${isOpen ? ' open' : ''}" data-driver="${d.id}" title="Open ${esc(d.name)}"><th scope="row"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a><span class="obday">day ${daysSince(d.startedAt) + 1}</span>
+          ${d.orientation && d.orientation.done < d.orientation.total ? `<a class="replyready orient" href="#/driver/${d.id}">Orientation day ${d.orientation.done} of ${d.orientation.total}</a>` : ''}
           ${d.drafts ? `<a class="replyready" href="#/driver/${d.id}">💬 Reply ready to send</a>` : ''}
           ${d.drop ? `<div class="dropline" data-drop="${d.id}" data-name="${esc(d.name)}" data-quote="${esc(d.drop.quote)}" data-reason="${esc(d.drop.reason || '')}"><b>Says he is not coming:</b> "${esc(d.drop.quote)}" <button type="button" class="btn danger sm" data-act="dropIt">Dropped out</button> <button type="button" class="btn plain sm" data-act="dropKeep">Still with us</button></div>` : ''}
           <div class="small mut ofacts">${App.chance(d.reach)} ${azv ? '<span class="azv sm">✓ Amazon verified</span>' : `<span class="azpend" title="Amazon Relay">Amazon: ${az ? esc(az.label) : 'not started'}</span>`}${(d.needed || []).length ? ` <span class="needtag" title="Verified on Amazon: this must be set">Set: ${esc(d.needed.join(', '))}</span>` : ''}${facts ? ` ${facts}` : ''}</div>${d.bot && (d.bot.nextStep || d.bot.suggested) ? `<div class="small obai" title="What the Telegram bot sees">🤖 ${d.bot.waitingOn && d.bot.waitingOn !== 'nobody' ? `Waiting on ${esc(d.bot.waitingOn)}${d.bot.nextStep ? ': ' : ''}` : ''}${esc(d.bot.nextStep || '')}${d.bot.suggested ? ` <a class="latetag" href="#/driver/${d.id}">${plural(d.bot.suggested, 'step')} to confirm</a>` : ''}</div>` : ''}</th>
@@ -264,7 +265,7 @@
     const li = (a) => a.map((x) => `<li>${esc(typeof x === 'string' ? x : x.text || x.tip || JSON.stringify(x))}</li>`).join('');
     return `<section class="card coach"><h3>How you write to drivers</h3><p class="hint">What the AI sees in the driver groups. Only you and the admins see this.</p>
       ${c.summary ? `<p>${esc(c.summary)}</p>` : ''}<div class="twocol">${c.strengths.length ? `<div><h4>Keep doing</h4><ul>${li(c.strengths)}</ul></div>` : ''}${c.improve.length ? `<div><h4>Try this</h4><ul>${li(c.improve)}</ul></div>` : ''}</div>
-      ${c.goal ? `<p><b>Goal for the next 2 weeks:</b> ${esc(c.goal)}</p>` : ''}</section>`;
+      ${c.tip ? `<p class="tipline"><b>Tip this week:</b> ${esc(c.tip)}</p>` : ''}${c.goal ? `<p><b>Goal for the next 2 weeks:</b> ${esc(c.goal)}</p>` : ''}</section>`;
   }
   async function viewTrucks() {
     const live = App.drawing(); const [r, fe, fg, co] = await Promise.all([api('/api/trucks'), api('/api/fleet/empty').catch(() => null), api('/api/fleet/goal').catch(() => null),

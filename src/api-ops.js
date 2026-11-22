@@ -47,6 +47,7 @@ module.exports = (app) => {
       FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
       WHERE d.status = 'Onboarding' ${vis ? 'AND ' + vis : ''} ORDER BY (d.amazon_step = 'verified') DESC NULLS LAST, o.expected_arrival NULLS LAST, o.started_at`, params); // verified on Amazon first
     const ids = rows.rows.map((r) => r.id);
+    const orient = ids.length ? Object.fromEntries((await q(`SELECT driver_id, count(*) FILTER (WHERE done)::int done, count(*)::int total FROM orientation WHERE driver_id = ANY($1::int[]) GROUP BY 1`, [ids])).rows.map((x) => [x.driver_id, x])) : {};
     const needed = await require('./needed').neededFor(ids);
     const reach = await require('./reach').scoreMany(ids);
     const items = ids.length ? (await q(`SELECT id, driver_id, key, label, auto, done, note FROM checklist WHERE driver_id = ANY($1::int[]) ORDER BY position, id`, [ids])).rows : [];
@@ -57,7 +58,7 @@ module.exports = (app) => {
       WHERE d.status = 'Hired' AND o.completed_at > now() - interval '30 days' ${v2 ? 'AND ' + v2 : ''} ORDER BY o.completed_at DESC LIMIT 30`, p2);
     const empty = await q(`SELECT count(*)::int n FROM trucks WHERE driver_id IS NULL AND driver_name IS NULL AND NOT out_of_service`);
     res.json({ today: await lib.today(), template: db.settings.checklist, emptyTrucks: empty.rows[0].n,
-      drivers: rows.rows.map((r) => ({ drafts: bots[r.id] ? bots[r.id].drafts || 0 : 0, drop: bots[r.id] ? bots[r.id].drop_flag || null : null, reach: reach[r.id] || null, bot: bots[r.id] ? { mode: bots[r.id].mode, waitingOn: (bots[r.id].ai_status || {}).waitingOn || null, nextStep: (bots[r.id].ai_status || {}).nextStep || null, suggested: bots[r.id].sugg } : null, id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
+      drivers: rows.rows.map((r) => ({ orientation: orient[r.id] || null, drafts: bots[r.id] ? bots[r.id].drafts || 0 : 0, drop: bots[r.id] ? bots[r.id].drop_flag || null : null, reach: reach[r.id] || null, bot: bots[r.id] ? { mode: bots[r.id].mode, waitingOn: (bots[r.id].ai_status || {}).waitingOn || null, nextStep: (bots[r.id].ai_status || {}).nextStep || null, suggested: bots[r.id].sugg } : null, id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
         arrivedOn: r.arrived_on, telegramLink: r.telegram_link, progressAt: r.progress_at, companyId: r.company_id, truck: r.truck_unit ? { unit: r.truck_unit, details: r.truck_details } : null,
         amazonStep: r.amazon_step, relayBefore: r.relay_before, ownTruck: [r.truck_year, r.truck_model].filter(Boolean).join(' ') || null, expYears: r.exp_years === null ? null : +r.exp_years, weeksOut: r.weeks_out === null ? null : +r.weeks_out, daysHome: r.days_home,
         needed: needed[r.id] || [], items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),

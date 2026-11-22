@@ -139,7 +139,7 @@ module.exports = (app) => {
     const opens = (await q(`SELECT count(*)::int n FROM activity WHERE driver_id = $1 AND type = 'open'`, [d.id])).rows[0].n;
     res.json({ opens, driver: toClient(d),
       notes: notes.rows.map((n) => ({ id: n.id, body: n.body, kind: n.kind, outcome: n.outcome, author: n.author || (n.source ? 'Chrome extension (' + n.source.slice(4) + ')' : 'Unknown'), mine: n.user_id === req.user.id, fromExtension: !!n.source, createdAt: n.created_at, updatedAt: n.updated_at })),
-      events: ev.rows, onboarding: await ops.onboardingOf(d.id), lostReasons: LOST_REASONS, needed: (await require('./needed').neededFor([d.id]))[d.id] || [], indeedMsgs: await outbox.ofDriver(d.id),
+      events: ev.rows, onboarding: await ops.onboardingOf(d.id), orientation: await require('./orientation').list(d.id), lostReasons: LOST_REASONS, needed: (await require('./needed').neededFor([d.id]))[d.id] || [], indeedMsgs: await outbox.ofDriver(d.id),
       indeedChat: !!(d.conversation_url && /[?&]conversationId=/.test(d.conversation_url)),
       reach: d.status === 'Onboarding' ? await require('./reach').scoreOne(d.id) : null,
       dropFlag: d.status === 'Onboarding' ? ((await q(`SELECT drop_flag FROM onb_cases WHERE driver_id = $1 AND drop_dismissed_at IS NULL`, [d.id])).rows[0] || {}).drop_flag || null : null,

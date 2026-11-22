@@ -77,18 +77,30 @@ http.createServer((req, res) => {
       if (working) {
         AI.playbook = /CASE PLAYBOOK/.test(j.system);
         const pbid = (/\n(\d+): Breakdown on the NJ Turnpike/.exec(j.system) || [])[1];
-        const bd = /\[#(\d+) [^\]]*\] [^:]+: Truck broke down on the turnpike/.exec(fresh); if (bd && pbid) cases_opened.push({ playbook_id: +pbid, msg_id: +bd[1], summary: 'Truck broke down on the NJ Turnpike near exit 7A' });
+        const bd = /\[#(\d+) [^\]]*\] [^:]+: Truck broke down on the turnpike/.exec(fresh); if (bd && pbid) cases_opened.push({ playbook_id: +pbid, msg_id: +bd[1], summary: 'Truck broke down on the NJ Turnpike near exit 7A', city: 'Elizabeth', state: 'NJ' });
         const oc = (/case (\d+): Breakdown on the NJ Turnpike/.exec(j.system) || [])[1];
         if (oc && /moved to the service area/.test(fresh)) case_updates.push({ case_id: +oc, steps_done: [1, 2], note: 'At the Molly Pitcher service area', resolved: false });
       }
+      // shops, home time, leaving signs, the orientation day
+      const places = [], leaving_signs = [], orientation_done = []; let home_time;
+      if (working) {
+        if (/Use Mikes Diesel/.test(fresh)) places.push({ name: 'Mikes Diesel Repair', kind: 'shop', services: ['DPF cleaning', 'air leaks'], phone: '(410) 555-0199', city: 'Baltimore', state: 'MD', area: 'Baltimore area', outcome: 'unknown' });
+        if (/fixed at Mikes Diesel/.test(fresh)) places.push({ name: 'Mikes Diesel Repair', kind: 'shop', phone: '4105550199', outcome: 'good', cost: 850, note: 'Fixed the air leak', services: ['air leaks'] });
+        const today = (/Today is \w+ (\d{4}-\d{2}-\d{2})/.exec(j.system) || [])[1];
+        const plus = (n) => { const d = new Date(today + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+        if (/going home tomorrow, back in 2 days, need a ticket/.test(fresh) && today) home_time = { event: 'going_home', leave_on: plus(1), back_on: plus(2), needs_ticket: true, quote: 'going home tomorrow' };
+        if (/back on the road now/.test(fresh)) home_time = { event: 'back_on_road', quote: 'back on the road now' };
+        if (/offer from another company/.test(fresh)) leaving_signs.push({ kind: 'other_offer', strength: 'strong', quote: 'Got an offer from another company' });
+        if (/ELD works, I am logged in/.test(fresh) && /or_eld:/.test(j.system)) orientation_done.push('or_eld');
+      }
       AI.working = (AI.working || 0) + (working ? 1 : 0);
-      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], cases_opened, case_updates, people, load_updates, dispatch_lessons, promises, promise_results } }] }));
+      res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { truck_events: [], driver_notes: [], alerts, learned: [], places, leaving_signs, orientation_done, ...(home_time ? { home_time } : {}), cases_opened, case_updates, people, load_updates, dispatch_lessons, promises, promise_results } }] }));
     }
     if (tool === 'dispatcher_profile') { AI.disp = (AI.disp || 0) + 1; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input: { summary: 'Short, clear messages.', tone: 'friendly', clarity: 'clear', professionalism: 'high', update_habits: ['Asks for the BOL photo once loaded'], phrases: ['Send me the BOL once loaded'], strengths: ['Answers fast'], improve: ['Ask for the ETA earlier'],
       scores: [{ area: 'speed', score: 4, seen: 'Answers within 20 minutes.', example: 'Send me the ETA please' }, { area: 'driver_care', score: 2, seen: 'Pushed a tired driver.' }],
       issues: [{ situation: 'Driver late to the receiver', what_he_did: 'Asked for a new ETA', verdict: 'ok', better_way: 'Call the receiver first' }], thinking: 'Reacts more than he plans.', drivers_view: 'Drivers trust him.',
       red_flags: AI.disp > 1 ? ['Told a driver to keep driving past his hours'] : [], feedback: { praise_first: 'You answer fast.', main_point: 'Ask for the ETA before the driver is late.', how_to_say_it: 'Dan, you answer fast. Ask for the ETA earlier.', goal: 'ETA asked at every pickup', check_how: 'Look for ETA questions after loaded' },
-      trend: { direction: AI.disp > 1 ? 'better' : 'first', what_changed: '' }, confidence: 'low' } }] })); }
+      tip: 'Ask for the ETA as soon as the driver says loaded.', trend: { direction: AI.disp > 1 ? 'better' : 'first', what_changed: '' }, confidence: 'low' } }] })); }
     const input = tool === 'group_digest' ? { truck_events: [], driver_notes: [], alerts: [], learned: [] } : tool === 'reply_plan' ? { is_question: false, confident: false, answer: '', progress: 'none', mood: 'neutral' } : { summary: 'A day.', issues: [], mood: 'good' };
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input }] }));
   });
@@ -309,10 +321,12 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(AI.lastDigest && AI.lastDigest.model === 'claude-haiku-5-5' && AI.lastDigest.cached, 'the groups are read by Haiku, with the instructions cached');
   // the case playbook: a breakdown on the NJ Turnpike
   ok((await web('/api/playbooks')).playbooks.length >= 11, 'the playbook starts with the common road cases');
+  const njTow = (await web('/api/places', { method: 'POST', body: { name: 'Turnpike Towing', kind: 'tow', services: 'heavy tow', phone: '7325550188', city: 'Edison', state: 'NJ' } })).id;
   say(HANK, 'Truck broke down on the turnpike near exit 7A, waiting for amazon roadside', HCHAT);
   const cs = await until(async () => ((await web('/api/cases')).cases || []).find((c) => c.driver_id === hank), 15000);
   ok(AI.playbook && cs && /Turnpike/.test(cs.title) && cs.next === 1 && cs.steps.length === 6 && cs.rules.some((r) => /never leave him waiting on the shoulder/.test(r)), 'the bot opens the case "Breakdown on the NJ Turnpike" with its steps and if/else rules');
   ok(cs.draft && /Are you safe/.test(cs.draft.text) && !tg.sent.some((m) => /Are you safe/.test(m.text)), 'Watch: the message for the driver waits on the website');
+  ok(cs.state === 'NJ' && (cs.nearby || []).some((p) => p.name === 'Turnpike Towing'), 'the case knows it is in NJ and shows the towing we have there');
   ok((await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Hank Hired: Breakdown on the NJ Turnpike%'`)).rows.length >= 1, 'the team is told, with the first step');
   say(HANK, 'Ok I moved to the service area, truck still runs rough', HCHAT);
   const cs2 = await until(async () => { const c = ((await web('/api/cases')).cases || []).find((x) => x.id === cs.id); return c && c.next === 3 ? c : null; }, 15000);
@@ -324,12 +338,42 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(cs3.next === 5, 'next: tell Amazon about the delay');
   const n5 = tg.sent.length; const d4 = (await pg.query(`SELECT id FROM tg_drafts WHERE chat_id = $1 AND kind = 'case' AND state = 'open'`, [HCHAT.id])).rows[0];
   if (d4) await web('/api/cases/drafts/' + d4.id + '/skip', { method: 'POST' });
-  ok((await web('/api/cases/' + cs.id + '/close', { method: 'POST', body: { note: 'Fixed at the service area', lesson: 'On the Turnpike, move the truck off before calling road service.' } })).ok, 'resolved, with what to do next time');
+  ok((await web('/api/cases/' + cs.id + '/close', { method: 'POST', body: { note: 'Fixed at the service area', lesson: 'On the Turnpike, move the truck off before calling road service.', cost: 1200, placeId: njTow, rate: 'good' } })).ok, 'resolved, with what to do next time');
+  const cst = await web('/api/cases/stats?days=30'); const k1 = cst.kinds.find((x) => /Turnpike/.test(x.label));
+  ok(k1 && k1.cases === 1 && +k1.cost === 1200 && cst.places.some((x) => x.label === 'Turnpike Towing'), 'Times and costs: the case, its cost and the towing company');
+  ok(((await web('/api/places')).places.find((p) => p.id === njTow) || {}).good === 1, 'the towing company gets a 👍');
   ok((await pg.query(`SELECT 1 FROM tg_knowledge WHERE question = 'Case: Breakdown on the NJ Turnpike or Garden State Parkway' AND review AND NOT active`)).rows.length === 1, 'the lesson waits in Knowledge to approve');
   ok(((await web('/api/cases?status=closed')).cases || []).some((x) => x.id === cs.id), 'listed under Closed, last 7 days');
   const pbs = (await web('/api/playbooks')).playbooks; const tp = pbs.find((x) => x.key === 'breakdown_toll_road');
   ok((await web('/api/playbooks/' + tp.id, { method: 'PUT', body: { title: tp.title, when: tp.when_text, steps: [...tp.steps, { text: 'Send the repair invoice to accounting', driver: '', wait: 0 }], rules: tp.rules } })).ok
     && (await web('/api/playbooks')).playbooks.find((x) => x.id === tp.id).steps.length === 7, 'an admin adds a step to the playbook');
+  // shops and services from the group
+  say(DAN, 'Use Mikes Diesel in Baltimore for the DPF, (410) 555-0199', HCHAT);
+  const md = await until(async () => ((await web('/api/places')).places || []).find((p) => p.name === 'Mikes Diesel Repair'), 15000);
+  ok(md && md.state === 'MD' && md.services.includes('DPF cleaning') && md.source === 'ai' && md.area === 'Baltimore area', 'a shop shared in the group goes to Shops & services: what they fix, where');
+  say(HANK, 'Truck fixed at Mikes Diesel, $850, good job', HCHAT);
+  const md2 = await until(async () => { const p = ((await web('/api/places')).places || []).find((x) => x.name === 'Mikes Diesel Repair'); return p && p.good === 1 ? p : null; }, 15000);
+  ok(md2 && +md2.last_cost === 850 && md2.uses === 1 && (await web('/api/places')).places.filter((x) => x.name === 'Mikes Diesel Repair').length === 1, 'how it went and what it cost, on the same shop (no duplicate)');
+  // the orientation day
+  await pg.query(`INSERT INTO onboarding (driver_id, arrived_on) VALUES ($1, (now() AT TIME ZONE 'America/New_York')::date) ON CONFLICT (driver_id) DO UPDATE SET arrived_on = EXCLUDED.arrived_on`, [hank]);
+  ok(((await web('/api/active/' + hank)).orientation || []).length === 8, 'he arrived: the orientation day list (8 steps)');
+  say(HANK, 'ELD works, I am logged in', HCHAT);
+  ok(await until(async () => ((await web('/api/active/' + hank)).orientation || []).some((x) => x.key === 'or_eld' && x.done && /AI/.test(x.done_by)), 15000), 'the bot ticks "ELD works" from the group');
+  ok((await web('/api/orientation/' + hank + '/or_fuel', { method: 'POST', body: { done: true } })).orientation.some((x) => x.key === 'or_fuel' && x.done), 'the dispatcher ticks "Fuel card given"');
+  // home time: going home, the question 2 days before he comes back, back on the road
+  say(HANK, 'I am going home tomorrow, back in 2 days, need a ticket', HCHAT);
+  const ht = await until(async () => ((await web('/api/hometime')).now || []).find((h) => h.driver_id === hank), 15000);
+  ok(ht && ht.status === 'planned' && ht.back_on && ht.needs_ticket, 'home time: going home, back date, needs a ticket');
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_drafts WHERE driver_id = $1 AND kind = 'remind' AND draft LIKE '%coming back on%'`, [hank])).rows.length === 1, 15000), '2 days before he comes back: the question for him waits on the website (Watch)');
+  ok((await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Hank Hired comes back%book his ticket%'`)).rows.length >= 1, 'and the recruiter / dispatcher is told to confirm and book the ticket');
+  say(HANK, 'I am back on the road now', HCHAT);
+  ok(await until(async () => !((await web('/api/hometime')).now || []).some((h) => h.driver_id === hank), 15000), 'back on the road: off the home time list');
+  // leaving signs
+  say(HANK, 'Got an offer from another company, thinking about it', HCHAT);
+  const rkd = await until(async () => { const x = ((await web('/api/active')).drivers || []).find((d) => d.id === hank); return x && x.risk && x.risk.level === 'high' ? x : null; }, 15000);
+  ok(rkd && rkd.risk.reasons.some((r) => /another offer/.test(r)), 'May leave: another offer (high)');
+  ok((await pg.query(`SELECT 1 FROM notices WHERE kind = 'leaving' AND text LIKE 'Hank Hired may leave%'`)).rows.length >= 1, 'his recruiter and the admins are told to call him');
+  ok((await web('/api/active/' + hank + '/leaving-ok', { method: 'POST' })).ok && !(((await web('/api/active')).drivers.find((d) => d.id === hank) || {}).risk || { reasons: [] }).reasons.some((r) => /another offer/.test(r)), 'Talked to him: the signs are cleared');
   // the driver's word
   say(HANK, 'I will be at the receiver by 6 AM', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_promises WHERE driver_id = $1 AND state = 'open'`, [hank])).rows.length, 15000), 'a promise: "be at the receiver by 6 AM"');
@@ -366,7 +410,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok((await web('/api/users/' + danU.id, { method: 'PATCH', body: { email: 'dan@example.com', password: 'dan-pass-12345' } })).ok, 'the admin gives Dan an email and password');
   const dnl = await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'dan@example.com', password: 'dan-pass-12345' }) });
   const dco = dnl.status === 200 ? await web('/api/me/coaching', { cookie: dnl.headers.get('set-cookie').split(';')[0] }) : {};
-  ok(dco.coaching && dco.coaching.goal === 'ETA asked at every pickup' && dco.coaching.improve.length, 'Dan signs in and sees his own coaching and goal');
+  ok(dco.coaching && dco.coaching.goal === 'ETA asked at every pickup' && dco.coaching.improve.length && /ETA as soon as/.test(dco.coaching.tip), 'Dan signs in and sees his own coaching, goal and this week\'s tip');
   ok((await web('/api/tg/dispatchers/' + DAN.id, { cookie: dnl.headers.get('set-cookie').split(';')[0] })).status === 403, 'but not the admin review');
   // someone with an account already: linked by name, no second account
   await pg.query(`INSERT INTO tg_people (tg_id, name, role) VALUES (64, 'Dee Dispatch', 'dispatch') ON CONFLICT (tg_id) DO UPDATE SET role = 'dispatch', user_id = NULL`);
@@ -548,6 +592,14 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const zm2 = Object.fromEntries((await pg.query(`SELECT chat_id::text id, kind, driver_id FROM tg_chats WHERE chat_id IN ($1, $2)`, [ZD.id, ZE.id])).rows.map((x) => [x.id, x]));
   ok(fx.ok && fx.restored.length === 1 && zm2[ZE.id].kind === 'eld' && zm2[ZD.id].kind === 'dispatch' && zm2[ZD.id].driver_id === zed, 'fixed on the group page: ELD again, and the real Dispatch group is back');
   ok(+((await pg.query(`SELECT chat_id FROM onb_cases WHERE driver_id = $1`, [zed])).rows[0] || {}).chat_id === ZD.id, 'the onboarding conversation is in the right group');
+
+  // ---------- the contract and the Clearinghouse ----------
+  ok((await pg.query(`SELECT count(*)::int n FROM checklist WHERE driver_id = $1 AND key IN ('contract_sent', 'contract_signed', 'ch_registered', 'ch_query', 'ch_consent')`, [zed])).rows[0].n === 5, 'onboarding has the contract and Clearinghouse steps');
+  await pg.query(`UPDATE onb_cases SET started_at = now() - interval '2 hours' WHERE driver_id = $1`, [zed]);
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_drafts WHERE driver_id = $1 AND kind = 'remind' AND draft LIKE '%clearinghouse.fmcsa.dot.gov/register%'`, [zed])).rows.length === 1, 15000), 'Watch: how to register in the Clearinghouse waits on the website for the driver');
+  await pg.query(`UPDATE checklist SET done = true, done_at = now() - interval '25 hours' WHERE driver_id = $1 AND key = 'contract_sent'`, [zed]);
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_drafts WHERE driver_id = $1 AND kind = 'remind' AND draft LIKE '%contract from our safety team%'`, [zed])).rows.length === 1, 15000), 'the contract was sent a day ago, not signed: a reminder for him');
+  ok((await web('/api/tg/drafts?driverId=' + zed)).drafts.some((x) => x.kind === 'remind'), 'shown on his lead page as Reply ready to send');
 
   // ---------- All groups: every group, connected or not, changed in the row ----------
   const RC = { id: -100803, type: 'supergroup', title: 'Random chat' }; added(RC, RITA);

@@ -29,6 +29,37 @@
 
   let filter = '', coFilter = '', data = null;
   const TGK = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Acct' };
+  // Home time planner: at home and coming back (confirm 2 days before; ticket?), going home, weeks out nearly up
+  const hnice = (d) => (d ? dateText(d, { weekday: 'short', month: 'short', day: 'numeric' }) : '');
+  let hp = null;
+  async function homePlan(el) {
+    if (!el) return; try { hp = await api('/api/hometime'); } catch (e) { return; }
+    const t = today(); const inD = (d) => { const n = days(t, d); return n === 0 ? 'today' : n === 1 ? 'tomorrow' : n > 0 ? `in ${n} days` : `${-n} days ago`; };
+    const home = hp.now.filter((h) => h.status === 'home'), going = hp.now.filter((h) => h.status === 'planned');
+    const five = (items) => `<ul class="hlist">${items.slice(0, 5).join('')}</ul>${items.length > 5 ? `<details><summary class="small">${items.length - 5} more</summary><ul class="hlist">${items.slice(5).join('')}</ul></details>` : ''}`;
+    if (!home.length && !going.length && !hp.due.length) { el.innerHTML = ''; return; }
+    const li = (h) => `<li data-h="${h.driver_id}"><a href="#/active/${h.driver_id}"><b>${esc(h.name)}</b></a>${h.truck ? ` <span class="small mut">truck ${esc(h.truck)}</span>` : ''}
+        <span class="small">${h.status === 'planned' && h.leave_on ? `Leaves ${esc(hnice(h.leave_on))} · ` : ''}${h.back_on ? `Back <b>${esc(hnice(h.back_on))}</b> (${inD(h.back_on)})` : '<span class="cwarn">Return date not known</span>'}
+        ${h.needs_ticket ? ' · <span class="dtag warn">Needs a ticket</span>' : ''}${h.confirmed_at ? ' · <span class="okt">Confirmed</span>' : h.confirm_asked_at ? ' · <span class="small mut">asked, not confirmed yet</span>' : ''}${h.back_on && days(t, h.back_on) < 0 ? ' · <span class="dtag bad">Late</span>' : ''}</span>
+        <span class="hact"><button class="linkbtn" data-act="hBack">Back on the road</button> <button class="linkbtn" data-act="hEdit">Change</button></span></li>`;
+    el.innerHTML = `<section class="card homeplan"><h3>Home time</h3><div class="hcols">
+      <div><h4>At home <span class="cnt">${home.length}</span></h4>${home.length ? five(home.map(li)) : '<p class="small mut">Nobody.</p>'}</div>
+      <div><h4>Going home <span class="cnt">${going.length}</span></h4>${going.length ? five(going.map(li)) : '<p class="small mut">Nobody planned.</p>'}</div>
+      <div><h4>Weeks out nearly up <span class="cnt">${hp.due.length}</span></h4>${hp.due.length ? five(hp.due.map((d) => `<li data-h="${d.driver_id}"><a href="#/active/${d.driver_id}"><b>${esc(d.name)}</b></a>
+        <span class="small">${+d.days_left < 0 ? `<span class="dtag bad">${-d.days_left} days overdue</span>` : `home by ${esc(hnice(d.home_by))} (${inD(d.home_by)})`}</span> <span class="hact"><button class="linkbtn" data-act="hEdit">Plan</button></span></li>`)) : '<p class="small mut">Nobody in the next 2 weeks.</p>'}</div></div>
+      <p class="small mut">From the driver groups. Two days before he comes back the bot asks him to confirm (ticket?) and tells his recruiter and dispatcher.</p></section>`;
+  }
+  on('hBack', async (b) => { const id = +b.closest('[data-h]').dataset.h; try { await api('/api/hometime', { method: 'POST', body: { driverId: id, status: 'back' } }); toast('Back on the road: his days on the road start today'); viewActive(); } catch (e) { App.fail(e); } });
+  on('hEdit', (b) => { const id = +b.closest('[data-h]').dataset.h; const h = hp.now.find((x) => x.driver_id === id) || { driver_id: id, status: 'planned', name: (hp.due.find((x) => x.driver_id === id) || {}).name };
+    dialog(`<form id="hForm" class="dform"><h2>Home time: ${esc(h.name || '')}</h2>
+      <label class="fld">Now<select name="status"><option value="planned" ${h.status === 'planned' ? 'selected' : ''}>Going home</option><option value="home" ${h.status === 'home' ? 'selected' : ''}>At home</option><option value="cancelled">Called off</option></select></label>
+      <div class="frow"><label class="fld">Leaves<input type="date" name="leaveOn" value="${esc(h.leave_on || '')}"></label><label class="fld">Comes back<input type="date" name="backOn" value="${esc(h.back_on || '')}"></label></div>
+      <label class="chk"><input type="checkbox" name="needsTicket" ${h.needs_ticket ? 'checked' : ''}> Needs a ticket to come back</label>
+      <label class="chk"><input type="checkbox" name="confirmed" ${h.confirmed_at ? 'checked' : ''}> He confirmed the date</label>
+      <p class="err" id="hErr" role="alert"></p><div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (d) => {
+      $('#hForm', d).onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target);
+        try { await api('/api/hometime', { method: 'POST', body: { driverId: id, status: f.get('status'), leaveOn: f.get('leaveOn'), backOn: f.get('backOn'), needsTicket: !!f.get('needsTicket'), confirmed: !!f.get('confirmed') } }); d.close(); toast('Saved'); viewActive(); } catch (er) { $('#hErr').textContent = er.message; } };
+    }); });
   async function viewActive() {
     const live = App.drawing(); const r = await api('/api/active'); if (!live()) return; data = r;
     document.title = 'Active drivers · FleetHire';
@@ -39,11 +70,12 @@
     const due = (x) => ['due', 'over'].includes(x.road.state);
     const inCo = (x) => !coFilter || (coFilter === 'none' ? !x.d.companyId : x.d.companyId === +coFilter);
     const moody = (x) => x.d.moodIssue || x.d.openAlerts > 0;
-    const tests = { '': () => true, mood: moody, expiring: bad, missing, home: due };
+    const leaving = (x) => x.d.risk && x.d.risk.level !== 'low';
+    const tests = { '': () => true, mood: moody, leaving, expiring: bad, missing, home: due };
     const shown = rows.filter((x) => inCo(x) && tests[filter](x));
     const n = (f) => rows.filter((x) => inCo(x) && f(x)).length;
     // one table per company; drivers who need attention first
-    const sortD = (a, b) => (moody(b) - moody(a)) || a.d.name.localeCompare(b.d.name);
+    const sortD = (a, b) => (((b.d.risk || {}).score || 0) >= 50) - (((a.d.risk || {}).score || 0) >= 50) || (moody(b) - moody(a)) || a.d.name.localeCompare(b.d.name);
     const groups = [...(S.me.companies || []).map((c) => [c, shown.filter((x) => x.d.companyId === c.id)]), [null, shown.filter((x) => !x.d.companyId || !(S.me.companies || []).some((c) => c.id === x.d.companyId))]]
       .filter(([, l]) => l.length).map(([c, l]) => [c, l.sort(sortD)]);
     // one line per driver: short dates, the tags only when something needs attention
@@ -53,7 +85,7 @@
       const on = days(d.outSince, t) + 1; const tag = rd.state === 'over' ? '<span class="dtag bad">Home overdue</span>' : rd.state === 'due' ? '<span class="dtag warn">Due home</span>' : '';
       return `<span title="Out since ${esc(long(d.outSince))}${periodText(d) ? '. ' + esc(periodText(d)) : ''}">Day ${on}${d.weeksOut ? ` of ${Math.round(d.weeksOut * 7)}` : ''}</span> ${tag}`; };
     const row = ({ d, cdl, med, road: rd }) => `<tr data-id="${d.id}">
-      <th scope="row"><a class="nml" href="#/active/${d.id}"><b>${esc(d.name)}</b></a>${d.mode === 'Owner-operators' ? ' <span class="mtag" title="Owner operator">OO</span>' : d.mode === 'Company drivers' ? ' <span class="mtag" title="Company driver">CD</span>' : ''}${d.openAlerts ? ` <a class="latetag" href="#/active/${d.id}">${plural(d.openAlerts, 'alert')}</a>` : ''}</th>
+      <th scope="row"><a class="nml" href="#/active/${d.id}"><b>${esc(d.name)}</b></a>${d.mode === 'Owner-operators' ? ' <span class="mtag" title="Owner operator">OO</span>' : d.mode === 'Company drivers' ? ' <span class="mtag" title="Company driver">CD</span>' : ''}${d.openAlerts ? ` <a class="latetag" href="#/active/${d.id}">${plural(d.openAlerts, 'alert')}</a>` : ''}${d.risk && d.risk.level !== 'low' ? ` <a class="dtag ${d.risk.level === 'high' ? 'bad' : 'warn'}" href="#/active/${d.id}" title="${esc(d.risk.reasons.join('\n'))}">May leave</a>` : ''}</th>
       <td class="nowrap">${d.truck ? (d.truck.id ? `<a href="#/truck/${d.truck.id}">${esc(d.truck.unit)}</a>` : esc(d.truck.unit)) : '<span class="none">—</span>'}</td>
       <td class="nowrap small">${d.phone ? App.phone(d.phone, '') : ''}</td>
       <td class="exp nowrap">${doc(d.cdlExpires, cdl)}</td><td class="exp nowrap">${doc(d.medExpires, med)}</td>
@@ -62,8 +94,9 @@
       <td>${App.moodDots(d.mood)}</td>
       <td class="tgmini">${['dispatch', 'eld', 'accounting'].map((k) => (d.groups && d.groups[k] ? `<a class="on" href="#/telegram/${d.groups[k]}" title="${TGK[k]} group">${TGK[k][0]}</a>` : `<span title="No ${TGK[k]} group yet">${TGK[k][0]}</span>`)).join('')}</td>
       <td>${S.me.role === 'dispatcher' ? '' : '<button class="linkbtn" data-act="activeEdit">Edit</button>'}</td></tr>`;
-    const seg = [['', `All ${n(() => true)}`], ['mood', `Needs attention ${n(moody)}`], ['expiring', `Expiring ${n(bad)}${n((x) => x.cdl.state === 'expired' || x.med.state === 'expired') ? ` (${n((x) => x.cdl.state === 'expired' || x.med.state === 'expired')} expired)` : ''}`], ['missing', `Dates missing ${n(missing)}`], ['home', `Due home ${n(due)}`]];
+    const seg = [['', `All ${n(() => true)}`], ['mood', `Needs attention ${n(moody)}`], ['leaving', `May leave ${n(leaving)}`], ['expiring', `Expiring ${n(bad)}${n((x) => x.cdl.state === 'expired' || x.med.state === 'expired') ? ` (${n((x) => x.cdl.state === 'expired' || x.med.state === 'expired')} expired)` : ''}`], ['missing', `Dates missing ${n(missing)}`], ['home', `Due home ${n(due)}`]];
     view.innerHTML = header('active') + `<main>${App.pageHead('Active drivers', `${plural(n(() => true), 'hired driver')} on the road: documents, days on the road and home time.`)}
+      <div id="homePlan"></div>
       <div class="pagebar"><div class="seg" role="group" aria-label="Show">${seg.map(([k, l]) => `<button data-act="activeFilter" data-k="${k}" class="${filter === k ? 'on' : ''}" aria-pressed="${filter === k}">${l}</button>`).join('')}</div>
         ${(S.me.companies || []).length ? `<select class="pick line" data-ch="activeCo" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}" ${String(c.id) === coFilter ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="none" ${coFilter === 'none' ? 'selected' : ''}>No company</option></select>` : ''}
         <span class="grow"></span></div>
@@ -76,6 +109,7 @@
       ${r.left.length ? `<section class="card" style="margin-top:14px"><h3>Left in the last 6 months</h3><ul class="list">${r.left.map((d) => `<li data-id="${d.id}"><span class="grow"><a class="nml" href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> ${App.coTag(d.companyId)}
           <span class="small mut">left ${esc(long(d.leftOn))}${d.leftReason ? `: ${esc(d.leftReason)}` : ''}</span></span><button class="btn plain sm" data-act="activeBack">Active again</button></li>`).join('')}</ul></section>` : ''}
     </main>`;
+    homePlan(document.getElementById('homePlan'));
   }
   on('activeFilter', (b) => { filter = b.dataset.k; viewActive(); });
   onChange('activeCo', (el) => { coFilter = el.value; viewActive(); });

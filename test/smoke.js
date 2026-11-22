@@ -135,7 +135,7 @@ const sql = async (text, params) => {
   ok((await patch(don, `/api/drivers/${frank}/onboarding`, { truckId: t104 })).status === 400, 'no truck before onboarding starts');
   ok((await patch(don, '/api/drivers/' + frank, { status: 'Onboarding' })).status === 200, 'status Onboarding starts the checklist');
   let ob = (await don('/api/drivers/' + frank)).body.onboarding;
-  ok(ob && ob.items.length === 11 && ob.items.every((i) => !i.done) && ob.freeTrucks.length === 2, 'checklist has the 11 standard steps, 2 trucks to pick from');
+  ok(ob && ob.items.length === 16 && ob.items.every((i) => !i.done) && ob.freeTrucks.length === 2, 'checklist has the 16 standard steps (with the contract and the Clearinghouse), 2 trucks to pick from');
   const item = (key) => ob.items.find((i) => i.key === key);
   ok((await patch(don, '/api/checklist/' + item('truck').id, { done: true })).status === 400, 'the truck step cannot be ticked by hand');
   ok((await patch(don, '/api/checklist/' + item('mvr').id, { done: true, note: 'Clean, pulled 11/19' })).status === 200, 'step ticked with a note');
@@ -151,7 +151,7 @@ const sql = async (text, params) => {
   ok((await patch(sam, `/api/drivers/${frank2}/onboarding`, { truckId: t220 })).status === 409, 'a truck with a current driver cannot be given');
   ok((await patch(sam, `/api/drivers/${frank2}/onboarding`, { truckId: t9 })).status === 200, 'second driver gets the other truck');
   const board = (await admin('/api/onboarding')).body;
-  ok(board.drivers.length === 2 && board.template.length === 11 && board.emptyTrucks === 0 && board.drivers.find((x) => x.id === frank).items.length === 12 && board.drivers.find((x) => x.id === frank).truck.unit === '104', 'board lists both drivers with their steps and trucks');
+  ok(board.drivers.length === 2 && board.template.length === 16 && board.emptyTrucks === 0 && board.drivers.find((x) => x.id === frank).items.length === 17 && board.drivers.find((x) => x.id === frank).truck.unit === '104', 'board lists both drivers with their steps and trucks');
   ok((await patch(sam, '/api/drivers/' + frank2, { status: 'Rejected', lostReason: 'Not qualified' })).status === 200, 'driver rejected with a reason');
   trucks = (await admin('/api/trucks')).body.trucks;
   ok(trucks.find((t) => t.unit === '9').state === 'empty', 'the rejected driver\'s truck is free again');

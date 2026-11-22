@@ -62,8 +62,8 @@
           P('Early warning: leaving signs', 'idea', 'AI flags "another offer", repeated pay questions, family trouble.', 'Lead page, management group')
         ] },
         { title: 'Onboarding', items: [
-          P('Sign the lease or contract online', 'idea', 'Owner-operator lease and company driver agreement sent to sign from the lead page; the signed copy kept with the driver papers.', 'Lead page'),
-          P('Orientation day plan', 'idea', 'A checklist for the first day (truck, ELD login, fuel card, Relay app) the dispatcher ticks; the driver group is told when it is done.', 'Onboarding'),
+          P('Contract and Clearinghouse', 'built', 'Contract sent by the safety team and signed, Clearinghouse registered, query sent, consent given: onboarding steps the bot ticks from the group. It reminds the driver how to register (clearinghouse.fmcsa.dot.gov/register) and to approve the consent, and about an unsigned contract (Watch: waiting on the website).', 'Onboarding, lead page'),
+          P('Orientation day plan', 'built', 'The first day (truck handed over, ELD, fuel card, Relay app, tolls, safety talk, pay, first load) made when he arrives; the dispatcher ticks, the bot ticks what the group shows.', 'Active driver page, lead page, onboarding list'),
           P('Onboarding board', 'built', 'Drivers in onboarding, Amazon verified first, arrival, truck, checklist progress, recruiter.', 'Onboarding', '#/onboarding'),
           P('Dropped out', 'built', 'One button on the onboarding list, the lead page and the dashboard: saves the driver as Rejected with why. When a driver writes he is not coming, the AI flags him (Dropped out / Still with us) and tells the recruiter.', 'Onboarding, lead page, dashboard'),
           P('Checklist per driver', 'built', 'Steps from the template (Settings), some tick themselves (Telegram group created, Amazon verified, arrival date set…).', 'Lead page → Onboarding'),
@@ -78,7 +78,7 @@
           P('Service plan beyond oil', 'idea', 'DD15 service intervals (filters, DPF cleaning, valve adjustment) by mileage, a due list like /oil.', 'Truck profile, /oil'),
           P('Profit per truck', 'idea', 'Revenue from Amazon Relay and brokers against the fixed cost, fuel and repairs: money per truck per week and per mile.', 'Trucks'),
           P('Fuel and tolls import', 'idea', 'Fuel card and toll statements matched to trucks; odd purchases flagged.', 'Truck profile'),
-          P('Shops we trust', 'idea', 'Shops and road services we used, where, what they cost and how they did; the nearest good one offered in a breakdown case.', 'Trucks, Road cases'),
+          P('Shops we trust', 'built', 'Shops & services: truck shops, tire, towing, road service, mobile mechanics, detailing, locksmiths… built by the AI from the groups (what they fix, phone, where, how it went, cost) and by the team; trusted first; shown in road cases in the same state.', 'Shops & services, Road cases'),
           P('Trucks by company', 'built', 'One table per company, empty trucks on top, the driver on each truck.', 'Trucks', '#/trucks'),
           P('Truck profile', 'built', 'Drivers and companies over time, shop history, oil changes, mileage, costs, open issues.', 'Trucks → a truck'),
           P('Truck papers', 'built', 'Registration, insurance card, lease and other paperwork per truck.', 'Truck page → Truck papers'),
@@ -88,8 +88,8 @@
           P('Dispatchers on trucks', 'built', 'Dispatchers see trucks and active drivers, log oil changes and shop visits.', 'Trucks (dispatcher)')
         ] },
         { title: 'Active drivers', items: [
-          P('Leaving risk', 'idea', 'Mood trend, home time not kept, pay questions and silence turned into a "may leave" flag, so someone calls him first.', 'Active drivers'),
-          P('Home time planner', 'idea', 'Who is due home in the next 2 weeks against free trucks and drivers in onboarding, so no truck sits.', 'Active drivers'),
+          P('Leaving risk', 'built', 'Another offer, quitting, pay, home time, the truck, the dispatcher (from the groups), plus mood, upset alerts, home time overdue, not back from home, silence: a May leave flag with reasons; a strong sign tells the recruiter and admins.', 'Active drivers, active driver page'),
+          P('Home time planner', 'built', 'The AI follows going home, at home, coming back and back on the road; 2 days before he comes back the bot asks him to confirm and if he needs a ticket, and tells his recruiter and dispatcher; late back: told again. Planner: at home, going home, weeks out nearly up.', 'Active drivers'),
           P('Driver scorecard', 'idea', 'On time, promises kept, safety events, road cases and Amazon score in one card per driver.', 'Active driver page'),
           P('Active drivers by company', 'built', 'CDL and medical card expiry, working period (weeks out, days home), 14-day mood.', 'Active drivers', '#/active'),
           P('Active driver page', 'built', 'Mood day by day, alerts, truck issues, notes from the bot, load updates, keeps his word, Telegram groups.', 'Active drivers → a driver')
@@ -97,7 +97,7 @@
         { title: 'Team and motivation', items: [
           P('Recruiters and Dispatchers tabs', 'built', 'Team splits recruiters (leads, calls, hires) and dispatchers (answer speed in the groups, their trucks, review score, goal).', 'Team'),
           P('Weekly dispatcher ranking', 'idea', 'Every Monday in the management group: dispatchers by review score, answer speed and road cases handled.', 'Management groups'),
-          P('Weekly tip to each dispatcher', 'idea', 'A short private message from the bot: one tip from his review and his 2-week goal.', 'Private chat with the bot'),
+          P('Weekly tip to each dispatcher', 'partial', 'A tip for this week is kept in his review and shown on his coaching card; sending it to him privately each week is not on yet.', 'Dispatcher review, Trucks (dispatcher)'),
           P('Cost per hire per recruiter', 'idea', 'Indeed and ad spend divided by the hires each recruiter brought.', 'Team → Recruiters'),
           P('Activity and working hours', 'built', 'Active time, sign-ins, idle time alerts, days off, monthly report.', 'Team', '#/team'),
           P('Morning plan and coaching', 'built', 'Plan the day first; manager tips acknowledged by the recruiter.', 'My day'),
@@ -145,9 +145,9 @@
         ] },
         { title: 'Road cases', items: [
           P('Road cases and the playbook', 'built', 'The bot opens a case from the driver groups (breakdown, breakdown on the NJ Turnpike / Garden State Parkway, flat tire, accident, running late, out of hours, detention, wrong trailer, load refused, inspection, ELD down), follows its steps and if/else rules, writes the message to the driver (Updater sends it), raises steps that wait too long with the truck\'s dispatcher and the admins, and keeps what was learned. Admins edit the playbook.', 'Road cases, dashboard, trucks, group, driver'),
-          P('Case times and costs', 'idea', 'How long each kind of case takes to end and what it cost, by driver, truck and dispatcher.', 'Road cases'),
+          P('Case times and costs', 'built', 'Per kind of case, driver, truck and dispatcher: cases, still open, time to resolve, cost; shops used. The cost comes from the group or from Resolved.', 'Road cases → Times and costs'),
           P('Detention claim', 'idea', 'From the case times (arrived, checked in, left), the detention claim written for Amazon or the broker.', 'Road cases'),
-          P('Road service phone book', 'idea', 'Our road service providers and phone numbers per state inside the playbook steps, so the message to the driver says exactly who to call.', 'The playbook'),
+          P('Road service phone book', 'built', 'Part of Shops & services: road services and towing by state; a breakdown case shows the ones near it.', 'Shops & services, Road cases'),
           P('Voice messages read', 'idea', 'Drivers\' voice notes turned into text (a cheap speech-to-text service), so the bot and the cases see them too.', 'Driver groups'),
           P('Photos checked against the case', 'idea', 'A breakdown photo or dash code read and added to the case (which light, which code).', 'Road cases')
         ] },

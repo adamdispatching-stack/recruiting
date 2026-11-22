@@ -370,6 +370,24 @@ async function migrate() {
       summary TEXT, msg_id BIGINT, opened_at TIMESTAMPTZ NOT NULL DEFAULT now(), done INTEGER[] NOT NULL DEFAULT '{}', step_since TIMESTAMPTZ, warned_step INTEGER, long_warned BOOLEAN NOT NULL DEFAULT false,
       last_at TIMESTAMPTZ, status TEXT NOT NULL DEFAULT 'open', closed_at TIMESTAMPTZ, closed_by TEXT, note TEXT, lesson TEXT);
     CREATE INDEX IF NOT EXISTS tg_cases_open ON tg_cases(status, chat_id);
+    -- the first day of a new driver: a short checklist the dispatcher (or the bot, from the group) ticks
+    CREATE TABLE IF NOT EXISTS orientation (driver_id INTEGER NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, key TEXT NOT NULL, label TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+      done BOOLEAN NOT NULL DEFAULT false, done_at TIMESTAMPTZ, done_by TEXT, PRIMARY KEY (driver_id, key));
+    -- shops and services we use (shops, tire, tow, road service, detailing, locksmith...): built by the AI from the groups and by the team
+    CREATE TABLE IF NOT EXISTS places (id SERIAL PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'shop', services TEXT[] NOT NULL DEFAULT '{}', phone TEXT, address TEXT, city TEXT, state TEXT, area TEXT, notes TEXT,
+      good INTEGER NOT NULL DEFAULT 0, bad INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0, last_cost NUMERIC, last_used_at TIMESTAMPTZ, source TEXT NOT NULL DEFAULT 'team', verified BOOLEAN NOT NULL DEFAULT false,
+      hidden BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE TABLE IF NOT EXISTS place_events (id SERIAL PRIMARY KEY, place_id INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE, at TIMESTAMPTZ NOT NULL DEFAULT now(), driver_id INTEGER, chat_id BIGINT, what TEXT, outcome TEXT, cost NUMERIC, by TEXT);
+    -- home time: going home, at home, coming back (from the groups); confirmed 2 days before he comes back
+    CREATE TABLE IF NOT EXISTS home_time (id SERIAL PRIMARY KEY, driver_id INTEGER NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'planned', leave_on DATE, back_on DATE, needs_ticket BOOLEAN,
+      note TEXT, confirm_asked_at TIMESTAMPTZ, confirmed_at TIMESTAMPTZ, late_told_at TIMESTAMPTZ, chat_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE INDEX IF NOT EXISTS home_time_driver ON home_time(driver_id, status);
+    -- signs a working driver may leave (another offer, pay, home time...), from the groups
+    CREATE TABLE IF NOT EXISTS tg_leaving (id SERIAL PRIMARY KEY, driver_id INTEGER NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, chat_id BIGINT, at TIMESTAMPTZ NOT NULL DEFAULT now(), kind TEXT, strength TEXT, quote TEXT, dismissed_at TIMESTAMPTZ);
+    ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS cost NUMERIC;
+    ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS place_id INTEGER;
+    ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS city TEXT;
+    ALTER TABLE tg_cases ADD COLUMN IF NOT EXISTS state TEXT;
     -- the reply the bot would send to a driver in onboarding (Watch and learn: shown on the website with a Send button)
     CREATE TABLE IF NOT EXISTS tg_drafts (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, msg_id BIGINT, driver_text TEXT, draft TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'reply', state TEXT NOT NULL DEFAULT 'open', sent_text TEXT, sent_by TEXT, decided_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
@@ -631,6 +649,21 @@ async function migrate() {
     up.onbWatch = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
+  if (!up.paperwork) {
+    const NEW = [['contract_sent', 'Contract sent (safety team)'], ['contract_signed', 'Contract signed by the driver'], ['ch_registered', 'Clearinghouse: driver registered'], ['ch_query', 'Clearinghouse: query sent (safety team)'], ['ch_consent', 'Clearinghouse: driver gave consent, query clear']];
+    const cl = (await q(`SELECT value FROM settings WHERE key = 'checklist'`)).rows[0];
+    if (cl && Array.isArray(cl.value)) {
+      const list = cl.value.filter((x) => !NEW.some(([k]) => k === x.key)); const at = Math.max(0, list.findIndex((x) => x.key === 'mvr') + 1) || list.length;
+      list.splice(at, 0, ...NEW.map(([key, label]) => ({ key, label })));
+      await q(`UPDATE settings SET value = $1::jsonb WHERE key = 'checklist'`, [JSON.stringify(list)]);
+    }
+    const tpl = cl && Array.isArray(cl.value) ? (await q(`SELECT value FROM settings WHERE key = 'checklist'`)).rows[0].value : DEFAULTS.checklist;
+    for (const { id } of (await q(`SELECT d.id FROM drivers d JOIN onboarding o ON o.driver_id = d.id WHERE d.status = 'Onboarding'`)).rows) {
+      let i = 0; for (const it of tpl) await q(`INSERT INTO checklist (driver_id, key, label, position, auto) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (driver_id, key) DO UPDATE SET position = EXCLUDED.position`, [id, it.key, it.label, i++, it.auto || null]);
+    }
+    up.paperwork = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   if (!up.quietNotices) {
     // the re-read of old group messages sent a notification for every old change: mark those as seen (they stay in the bot history)
     await q(`UPDATE notices SET seen_at = now() WHERE kind = 'tg' AND seen_at IS NULL AND created_at > now() - interval '12 hours' AND text NOT LIKE '%says he is not coming%'`).catch((e) => console.error('quiet notices', e.message));
@@ -658,6 +691,11 @@ const DEFAULTS = {
     { key: 'relay', label: 'Amazon Relay verified', auto: 'amazon' },
     { key: 'insurance', label: 'Insurance approved' },
     { key: 'mvr', label: 'MVR checked' },
+    { key: 'contract_sent', label: 'Contract sent (safety team)' },
+    { key: 'contract_signed', label: 'Contract signed by the driver' },
+    { key: 'ch_registered', label: 'Clearinghouse: driver registered' },
+    { key: 'ch_query', label: 'Clearinghouse: query sent (safety team)' },
+    { key: 'ch_consent', label: 'Clearinghouse: driver gave consent, query clear' },
     { key: 'truck', label: 'Truck assigned', auto: 'truck' },
     { key: 'arrival_date', label: 'Arrival date set', auto: 'arrival' },
     { key: 'arrived', label: 'Driver arrived', auto: 'arrived' },
@@ -673,6 +711,17 @@ const DEFAULTS = {
   fbTargets: { picture: 5, post: 5, comment: 15, contact: 20, chat: 2, ppost: 1, pcomment: 5 },
   // Trucks: an oil change every oilMiles or oilDays, whichever comes first; "due soon" warnMiles / warnDays before.
   // askDriver: when it is due, the bot asks for the mileage in the driver's dispatch group.
+  // the first day of a new driver (Orientation day): made when he arrives
+  orientation: [
+    { key: 'or_truck', label: 'Truck handed over: walk-around, keys, papers in the truck' },
+    { key: 'or_eld', label: 'ELD works: he logged in on the tablet' },
+    { key: 'or_fuel', label: 'Fuel card given, PIN works' },
+    { key: 'or_relay', label: 'Amazon Relay app signed in on his phone' },
+    { key: 'or_tolls', label: 'Toll transponder / PrePass checked' },
+    { key: 'or_safety', label: 'Safety talk: rules, accidents, breakdowns, who to call' },
+    { key: 'or_pay', label: 'Pay, settlements and home time explained once more' },
+    { key: 'or_load', label: 'First load assigned' }
+  ],
   ai: { budget: 0 },          // AI cost: a monthly budget in USD (0 = none); admins are told at 80% and 100%
   aiPrices: {},               // USD per million tokens per model, over the built-in list (ai-usage.js)
   fleet: { oilMiles: 25000, oilDays: 90, warnMiles: 2500, warnDays: 10, askDriver: false, costLease: 5000, costInsurance: 2000, costOther: 1000 },
@@ -945,6 +994,7 @@ async function syncAuto(c, driverId, userId) {
   if (groups.has('accounting')) await tick('acct_group');
   if ((await c.query(`SELECT 1 FROM eld_cases WHERE driver_id = $1 AND setup_done_at IS NOT NULL`, [driverId])).rows[0]) await tick('eld_profile');
   if ((await c.query(`SELECT 1 FROM tg_reports WHERE driver_id = $1 AND kind = 'mvr' AND review = 'ok'`, [driverId])).rows[0]) await tick('mvr');
+  if (o.arrived_on) await require('./orientation').ensure(driverId).catch((e) => console.error('orientation', e.message)); // the first day's checklist
 }
 async function releaseTruck(c, driverId) {
   const r = await c.query(`UPDATE trucks SET driver_id = NULL, updated_at = now() WHERE driver_id = $1 RETURNING unit`, [driverId]);

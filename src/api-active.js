@@ -25,6 +25,8 @@ async function moods(ids, n, admin) {
 const issue = (m) => (m || []).some((x) => x.mood === 'unhappy' || x.mood === 'angry' || x.high > 0);
 
 module.exports = (app) => {
+  // he was called about the leaving signs: they are cleared
+  app.post('/api/active/:id/leaving-ok', needUser, wrap(async (req, res) => { await require('./leaving').dismiss(+req.params.id, req.user.name); res.json({ ok: true }); }));
   app.get('/api/active', needUser, wrap(async (req, res) => {
     const params = []; const vis = visSql(req.user, params);
     const cols = `d.id, d.name, d.phones, d.mode, d.location, d.company_id, d.owner_id, d.truck_year, d.truck_model, d.cdl_expires, d.med_expires, d.weeks_out, d.days_home, d.out_since,
@@ -42,7 +44,8 @@ module.exports = (app) => {
     const md = await moods(ids, 3, req.user.role === 'admin');
     const oa = ids.length ? (await q(`SELECT driver_id, count(*)::int n FROM tg_alerts WHERE resolved_at IS NULL AND driver_id = ANY($1::int[]) ${req.user.role === 'admin' ? '' : "AND kind <> 'unprofessional_dispatcher'"} GROUP BY 1`, [ids])).rows : [];
     const openA = Object.fromEntries(oa.map((r) => [r.driver_id, r.n]));
-    res.json({ today: await lib.today(), drivers: active.rows.map((d) => ({ ...row(d), groups: tg[d.id] || {}, mood: md[d.id], moodIssue: issue(md[d.id]), openAlerts: openA[d.id] || 0 })), left: left.rows.map(row) });
+    const rk = await require('./leaving').risk(ids);
+    res.json({ today: await lib.today(), drivers: active.rows.map((d) => ({ ...row(d), groups: tg[d.id] || {}, mood: md[d.id], moodIssue: issue(md[d.id]), openAlerts: openA[d.id] || 0, risk: rk[d.id] || null })), left: left.rows.map(row) });
   }));
 
   // One active driver's own page: his three groups, his mood, what the bot noticed, alerts, his truck
@@ -68,6 +71,8 @@ module.exports = (app) => {
         hiredAt: (o && o.completed_at) || d.status_at, ownTruck: [d.truck_year, d.truck_model].filter(Boolean).join(' ') || null },
       truck: t ? { id: t.id, unit: t.unit, details: t.details, oil: fl.oilStatus(t, (await fl.lastOils([t.id]))[t.id]) } : null,
       groups: groups.map((g) => ({ id: g.id, kind: g.kind, title: g.title, lastAt: g.last_at, today: g.today })),
+      orientation: await require('./orientation').ensure(d.id).then(() => require('./orientation').list(d.id)),
+      risk: (await require('./leaving').risk([d.id]))[d.id] || null,
       mood: md, moodIssue: issue(md.slice(-3)), summaries: sums.map((x) => ({ day: x.day, kind: x.kind, summary: x.summary, mood: x.mood, issues: x.issues || [] })),
       alerts: alerts.map((a) => ({ id: a.id, chatId: a.chat_id, kind: a.kind, severity: a.severity, text: a.text, at: a.at, resolved_at: a.resolved_at, resolved_by: a.resolved_by })),
       notes, updates, promises, word, truckEvents: evs.map((e) => ({ id: e.id, kind: e.kind, title: e.title, status: e.status, cost: e.cost === null ? null : +e.cost, paid: e.paid, day: e.done_on || null, at: e.at, unit: e.unit })),

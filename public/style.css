@@ -1789,3 +1789,18 @@ table.active.compact .dtag{font-size:11px;padding:0 6px}
 .pagehead h1 .cnt,h1 .cnt{font-size:16px;vertical-align:middle;background:#EFEBE3;border-radius:10px;padding:2px 10px;margin-left:6px;color:#5E594F}
 table.active.compact tbody th{text-align:left;background:inherit}
 .cotable h3.cohead{display:flex;flex-direction:row;justify-content:flex-start;align-items:center;gap:10px;margin:14px 0 6px;text-align:left}
+.orient .olist{list-style:none;padding:0;margin:8px 0}.orient .olist li{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px solid #F0ECE4}
+.orient .olist label{display:flex;gap:8px;align-items:flex-start}.orient .olist li.done span:not(.small){color:#8A857B;text-decoration:line-through}
+.replyready.orient{color:#1F6F43;background:#E7F2EA}
+.plt td,.plt th{vertical-align:top}.plt .chip{display:inline-block;font-size:12px;background:#EFEBE3;border-radius:10px;padding:1px 8px;margin:0 3px 3px 0}
+.pkind{font-size:12px;font-weight:600;border-radius:6px;padding:2px 8px;background:#EEF2F7;color:#2E4A6B;white-space:nowrap}
+.pkind.k-tow,.pkind.k-roadside{background:#FBE9E5;color:#8C2F1E}.pkind.k-tire{background:#F3EEDC;color:#6B5310}.pkind.k-detailing,.pkind.k-truck_wash{background:#E5F1F6;color:#1E5C73}.pkind.k-locksmith{background:#EFE8F6;color:#5B3A80}
+.frow{display:flex;gap:12px}.frow .fld{flex:1}
+.nearby{margin:8px 0;padding:8px 10px;background:#F7F5EF;border-radius:8px}.nearby li{margin:3px 0}
+.homeplan .hcols{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.homeplan h4{margin:4px 0 6px}.homeplan .hlist{list-style:none;padding:0;margin:0}.homeplan .hlist li{padding:6px 0;border-top:1px solid #F0ECE4}
+.homeplan .drow{display:flex;gap:10px;margin-top:2px}.homeplan .cnt{font-size:12px;background:#EFEBE3;border-radius:9px;padding:0 7px}
+@media (max-width:900px){.homeplan .hcols{grid-template-columns:1fr}}
+.leavecard{border-left:4px solid #D4A017}.leavecard.high{border-left-color:#C0392B}.leavecard ul{margin:6px 0 10px;padding-left:18px}
+.tipline{background:#FFF8E6;border-radius:8px;padding:8px 10px;margin:8px 0}
+.homeplan .hlist li{padding:4px 0;line-height:1.35}.homeplan .hact{white-space:nowrap;margin-left:4px}.homeplan .hact .linkbtn{font-size:13px}.homeplan details summary{cursor:pointer;color:#2B6CB0;margin:4px 0}
+.homeplan{padding-bottom:10px}

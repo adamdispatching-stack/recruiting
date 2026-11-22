@@ -57,7 +57,7 @@ app.get('/api/me/coaching', needUser, wrap(async (req, res) => {
   const p = (await db.q(`SELECT profile, profile_at FROM tg_people WHERE user_id = $1 AND profile IS NOT NULL ORDER BY profile_at DESC NULLS LAST LIMIT 1`, [req.user.id])).rows[0];
   if (!p) return res.json({ coaching: null });
   const x = p.profile || {};
-  res.json({ coaching: { summary: x.summary || '', strengths: x.strengths || [], improve: x.improve || [], updates: x.update_habits || '', goal: (x.feedback || {}).goal || '', at: p.profile_at } });
+  res.json({ coaching: { summary: x.summary || '', strengths: x.strengths || [], improve: x.improve || [], updates: x.update_habits || '', goal: (x.feedback || {}).goal || '', tip: x.tip || '', at: p.profile_at } });
 }));
 app.get('/api/me', needUser, wrap(async (req, res) => {
   const people = await q(`SELECT id, name, role, active FROM users ORDER BY lower(name)`);
@@ -86,6 +86,7 @@ require('./indeed-outbox')(app);
 require('./badges')(app);
 require('./api-tg')(app);
 require('./api-cases')(app);
+require('./api-places')(app);
 require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-fleet')(app);

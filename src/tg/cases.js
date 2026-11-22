@@ -145,8 +145,9 @@ async function apply(chat, r, fresh, { quiet = false, mode = 'watch' } = {}) {
     const p = pbs[+o.playbook_id]; if (!p || !chat.driver_id) continue;
     if ((await q(`SELECT 1 FROM tg_cases WHERE chat_id = $1 AND playbook_id = $2 AND status = 'open'`, [chat.chat_id, p.id])).rows[0]) continue;
     const m = fresh.find((x) => +x.msg_id === +o.msg_id) || fresh[fresh.length - 1];
-    const c = (await q(`INSERT INTO tg_cases (chat_id, driver_id, playbook_id, summary, opened_at, msg_id, done, step_since) VALUES ($1, $2, $3, $4, $5, $6, '{}', $5) RETURNING *`,
-      [chat.chat_id, chat.driver_id, p.id, bot.redact(String(o.summary || p.title)).slice(0, 400), m ? m.at : new Date(), m ? m.msg_id : null])).rows[0];
+    const P = require('../places');
+    const c = (await q(`INSERT INTO tg_cases (chat_id, driver_id, playbook_id, summary, opened_at, msg_id, done, step_since, city, state) VALUES ($1, $2, $3, $4, $5, $6, '{}', $5, $7, $8) RETURNING *`,
+      [chat.chat_id, chat.driver_id, p.id, bot.redact(String(o.summary || p.title)).slice(0, 400), m ? m.at : new Date(), m ? m.msg_id : null, o.city ? String(o.city).slice(0, 60) : null, P.st(o.state)])).rows[0];
     c.title = p.title;
     await bot.log('case', `Case opened: ${p.title}${o.summary ? ` (${String(o.summary).slice(0, 120)})` : ''}`, { chatId: chat.chat_id, driverId: chat.driver_id });
     await require('../lib').history(chat.driver_id, `Case opened: ${p.title}`, 'AI', 'telegram').catch(() => {});
@@ -162,6 +163,10 @@ async function apply(chat, r, fresh, { quiet = false, mode = 'watch' } = {}) {
     const before = nextStep(c, c.steps);
     const done = [...new Set([...(c.done || []), ...add])].sort((a, b) => a - b);
     const note = u.note ? bot.redact(String(u.note)).slice(0, 300) : null;
+    // what it cost, who did it, where (for the case times and costs, and Shops & services)
+    const P = require('../places'); const cost = typeof u.cost === 'number' && u.cost > 0 ? u.cost : null;
+    let placeId = null; if (u.shop) { const pl = (await q(`SELECT id FROM places WHERE lower(name) = lower($1) LIMIT 1`, [String(u.shop).trim()])).rows[0]; placeId = pl ? pl.id : null; }
+    if (cost || placeId || P.st(u.state)) await q(`UPDATE tg_cases SET cost = coalesce($2, cost), place_id = coalesce($3, place_id), state = coalesce(state, $4) WHERE id = $1`, [c.id, cost, placeId, P.st(u.state)]);
     if (u.resolved) {
       await q(`UPDATE tg_cases SET done = $2, status = 'resolved', closed_at = now(), note = coalesce($3, note), lesson = $4 WHERE id = $1`, [c.id, done, note, u.lesson ? bot.redact(String(u.lesson)).slice(0, 500) : null]);
       await bot.log('case', `Case resolved: ${c.title}${note ? ` (${note})` : ''}`, { chatId: chat.chat_id, driverId: chat.driver_id });
@@ -199,5 +204,5 @@ async function tick() {
     if (Date.now() - new Date(c.last_at || c.opened_at) > 72 * 3600e3) await q(`UPDATE tg_cases SET status = 'stale', closed_at = now() WHERE id = $1`, [c.id]);
   }
 }
-function start() { seed().catch((e) => console.error('playbook seed', e.message)); setInterval(() => tick().catch((e) => console.error('case tick', e.message)), +process.env.TG_CASE_MS || 60000); }
+function start() { seed().catch((e) => console.error('playbook seed', e.message)); setInterval(() => { tick().catch((e) => console.error('case tick', e.message)); require('../hometime').tick().catch((e) => console.error('home time tick', e.message)); }, +process.env.TG_CASE_MS || 60000); }
 module.exports = { STARTERS, seed, list, forAi, openFor, apply, tick, start, nextStep };

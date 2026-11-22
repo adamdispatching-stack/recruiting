@@ -273,7 +273,7 @@ window.App = (() => {
     const [path, qs] = h.split('?');
     // a dispatcher's screens: trucks, active drivers, their Telegram groups, their own activity and password
     if (S.me.role === 'dispatcher' && /^#\/driver\/\d+$/.test(path)) return go(path.replace('#/driver/', '#/active/'));
-    if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active(\/\d+)?|cases|playbook|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
+    if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active(\/\d+)?|cases|playbook|places|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
     pageOpened(h);
     for (const [re, fn] of routes) { const m = path.match(re); if (m) { try { return await fn(...m.slice(1), new URLSearchParams(qs || '')); } catch (e) { return fail(e); } } }
     go('#/');
@@ -303,6 +303,7 @@ window.App = (() => {
     active: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M3.8 10.5c2.6-.9 5.3-1.2 8.2-1.2s5.6.3 8.2 1.2M10.4 13.6 7 19.6M13.6 13.6l3.4 6"/>',
     companies: '<path d="M4 21V5.5L12 3v18M12 8.5l8 2.5v10"/><path d="M3 21h18M7.5 8h1.5M7.5 12h1.5M7.5 16h1.5M15.5 13h1.5M15.5 17h1.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    places: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>',
     cases: '<path d="M9 5h6M9 3h6a1 1 0 0 1 1 1v1H8V4a1 1 0 0 1 1-1z"/><path d="M8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2"/><path d="m9 13 2 2 4-4"/>',
     telegram: '<path d="m21.5 4.5-3.2 15.1c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.2 13.4l-4.7-1.5c-1-.3-1-1 .2-1.5L20.2 3.3c.9-.3 1.6.2 1.3 1.2z"/>',
     badges: '<circle cx="12" cy="9" r="6"/><path d="m8.5 13.8-1.5 7.2 5-2.6 5 2.6-1.5-7.2"/><path d="m12 6.3.9 1.8 2 .3-1.4 1.4.3 2-1.8-.9-1.8.9.3-2-1.4-1.4 2-.3z"/>',
@@ -314,7 +315,7 @@ window.App = (() => {
   function header(active, extra = '') {
     const admin = S.me.role === 'admin';
     const disp = S.me.role === 'dispatcher';
-    const items = disp ? [['#/trucks', 'Trucks', 'trucks'], ['#/active', 'Active drivers', 'active'], ['#/cases', 'Road cases', 'cases'], ['#/telegram', 'Telegram', 'telegram'], ['#/team/me', 'My activity', 'team']] : [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges'], ['#/telegram', 'Telegram', 'telegram'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
+    const items = disp ? [['#/trucks', 'Trucks', 'trucks'], ['#/active', 'Active drivers', 'active'], ['#/cases', 'Road cases', 'cases'], ['#/places', 'Shops & services', 'places'], ['#/telegram', 'Telegram', 'telegram'], ['#/team/me', 'My activity', 'team']] : [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ['#/places', 'Shops & services', 'places'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges'], ['#/telegram', 'Telegram', 'telegram'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
     const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
         <div class="brand"><a href="#/" aria-label="FleetHire Recruiting, home"><svg class="logo" viewBox="0 0 40 28" width="38" height="27" aria-hidden="true"><path d="M2 5.5h21v15H2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M23 10h8.5l5.5 5.6v4.9H23z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="9" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><path d="M6 10.5h9M6 14.5h6" stroke="#F4B400" stroke-width="2.4" stroke-linecap="round"/></svg><span><b>FleetHire</b><small>Recruiting</small></span></a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>
@@ -480,10 +481,10 @@ window.App = (() => {
   // replies the bot wrote for a driver (Watch and learn): Send as written or after a change, or Not needed
   const draftsBox = async (el, qs) => {
     if (!el) return; let r; try { r = await api('/api/tg/drafts?' + qs); } catch (e) { el.innerHTML = ''; return; }
-    const KIND = { answer: 'Answer the bot is sure of', reply: 'Suggested reply', upset: 'He sounds upset: suggested reply' };
+    const KIND = { answer: 'Answer the bot is sure of', reply: 'Suggested reply', upset: 'He sounds upset: suggested reply', remind: 'Reminder for the driver' };
     el.innerHTML = r.drafts.length ? `<section class="card draftbox"><h3>Reply ready to send${r.drafts.length > 1 ? ` (${r.drafts.length})` : ''}</h3>
       <p class="hint">The bot is in Watch and learn, so it did not write in the group. Send its reply as it is, change it first, or skip it. When the group is switched to Run, replies like these go out by themselves.</p>
-      ${r.drafts.map((x) => `<div class="draft" data-draft="${x.id}">${x.name && !/driverId/.test(qs) ? `<b>${esc(x.name)}</b>` : ''}<div class="dq"><span class="small mut">Driver wrote:</span> “${esc(x.driver_text || '')}”</div>
+      ${r.drafts.map((x) => `<div class="draft" data-draft="${x.id}">${x.name && !/driverId/.test(qs) ? `<b>${esc(x.name)}</b>` : ''}${x.kind === 'remind' ? `<div class="dq small mut">${esc(x.driver_text || '')}</div>` : `<div class="dq"><span class="small mut">Driver wrote:</span> “${esc(x.driver_text || '')}”</div>`}
         <label class="small mut">${KIND[x.kind] || 'Suggested reply'}<textarea rows="3">${esc(x.draft)}</textarea></label>
         <div class="drow"><button class="btn primary sm" data-act="draftSend">Send in the group</button><button class="btn plain sm" data-act="draftSkip">Not needed</button></div></div>`).join('')}
       ${r.stats && (r.stats.as_is + r.stats.changed + r.stats.not_needed) ? `<p class="small mut">Last 30 days: ${r.stats.as_is} sent as written, ${r.stats.changed} changed, ${r.stats.not_needed} not needed. Most sent as written means the bot is ready for Run.</p>` : ''}</section>` : '';
@@ -493,6 +494,11 @@ window.App = (() => {
     catch (e) { fail(e); btn.disabled = false; } });
   on('draftSkip', async (btn) => { const box = btn.closest('[data-draft]');
     try { await api(`/api/tg/drafts/${box.dataset.draft}/dismiss`, { method: 'POST' }); box.remove(); } catch (e) { fail(e); } });
+  // Orientation day: the first day's checklist (ticked here, or by the bot from the group)
+  const orientationCard = (driverId, items) => (!items || !items.length ? '' : `<section class="card orient" data-orient="${driverId}"><h3>Orientation day <span class="cnt">${items.filter((x) => x.done).length} of ${items.length}</span></h3>
+    <ul class="olist">${items.map((x) => `<li class="${x.done ? 'done' : ''}"><label><input type="checkbox" data-ch="orTick" data-k="${esc(x.key)}" ${x.done ? 'checked' : ''}><span>${esc(x.label)}</span></label>${x.done && x.done_by ? `<span class="small mut">${esc(x.done_by)}</span>` : ''}</li>`).join('')}</ul></section>`);
+  onChange('orTick', async (el) => { const box = el.closest('[data-orient]');
+    try { const r = await api(`/api/orientation/${box.dataset.orient}/${el.dataset.k}`, { method: 'POST', body: { done: el.checked } }); box.outerHTML = orientationCard(box.dataset.orient, r.orientation); } catch (e) { fail(e); el.checked = !el.checked; } });
   const dropsCard = (x) => (!x || (!x.dropping.length && !x.dropped.length) ? '' : `<section class="card dropcard"><h3>Dropping out of onboarding</h3>
     ${x.dropping.length ? `<p class="small"><b>Says he is not coming</b> (confirm)</p><ul class="list">${x.dropping.map((d) => `<li data-drop="${d.id}" data-name="${esc(d.name)}" data-quote="${esc(d.quote)}" data-reason="${esc(d.reason || '')}"><div class="grow"><a href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> <span class="small mut">${esc(person(d.ownerId) || '')}</span><div class="small">"${esc(d.quote)}"</div></div>
       <button type="button" class="btn danger sm" data-act="dropIt">Dropped out</button><button type="button" class="btn plain sm" data-act="dropKeep">Still with us</button></li>`).join('')}</ul>` : ''}
@@ -500,6 +506,6 @@ window.App = (() => {
   on('dropIt', (b) => { const li = b.closest('[data-drop]'); dropDialog({ id: +li.dataset.drop, name: li.dataset.name, quote: li.dataset.quote, reason: li.dataset.reason }, () => App.render()); });
   on('dropKeep', (b) => stillWithUs(+b.closest('[data-drop]').dataset.drop, () => App.render()));
 
-  return { draftsBox, dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  return { orientationCard, draftsBox, dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();
