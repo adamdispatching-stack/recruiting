@@ -15,22 +15,26 @@
     const swapped = Object.entries(st.swapped || {}).map(([a, b]) => `<code>${esc(a)}</code> → <code>${esc(b)}</code>`).join(', ');
     return `<section class="card aihealth"><div class="row sb"><h3>Is the AI working?</h3><button class="btn sm" data-act="aiTest" ${r.serverKey ? '' : 'disabled'}>Test AI now</button></div>${line}
       ${r.day ? `<p class="small">Last 24 hours (website and bot): <b>${r.day.ok} worked</b>${r.day.failed ? `, <b class="aibad">${r.day.failed} failed</b>` : ', none failed'}.</p>` : ''}
-      <div id="aiTestOut"></div>
+      <div id="aiTestOut">${lastTest ? testHtml(lastTest) : ''}</div>
       ${(r.jobs || []).length ? `<h4>Each job</h4><table class="mini aijobs"><thead><tr><th>Job</th><th>Last worked</th><th>Last failed</th><th class="n">Failed since it last worked</th></tr></thead><tbody>${r.jobs.map((j) => `<tr><td>${esc(j.name)}${j.source === 'extension' ? ' <span class="small mut">(extension)</span>' : ''}</td><td>${j.ok_at ? `<span class="aiok">${when(j.ok_at)}</span>` : '<span class="mut">never</span>'}</td><td>${j.bad_at ? when(j.bad_at) : '—'}</td><td class="n">${j.since ? `<b class="aibad">${j.since}</b>` : '0'}</td></tr>`).join('')}</tbody></table>
         <p class="small mut">The total failed count on this page includes old failures (before the AI started working). A job is fine when its last worked time is newer than its last failed.</p>` : ''}
       ${swapped ? `<p class="small mut">This key cannot use one of the models, so the website uses another: ${swapped}.</p>` : ''}
       ${errs.length ? `<h4>Why calls failed, last 7 days</h4><table class="mini aierr"><tbody>${errs.map((e) => `<tr><td><b>${esc(e.why)}</b><div class="small mut">${e.n} time${e.n === 1 ? '' : 's'} · last ${when(e.last)} · ${esc(e.features || '')} · ${esc(e.models || '')}${e.status ? ` · HTTP ${e.status}` : ''}</div>${e.message ? `<div class="small mut">Anthropic said: ${esc(e.message)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : ''}
       ${r.week.failed && !errs.length ? '<p class="small mut">Calls that failed before this update have no reason saved. Press Test AI now to see what is wrong.</p>' : ''}</section>`;
   }
+  let lastTest = null; // the test results, kept when the page is redrawn
+  function testHtml(x) {
+    const m = x.results.models, jb = x.results.jobs;
+    return m.map((t) => t.ok ? `<p class="aiok">✓ <code>${esc(t.model)}</code> works${t.used && t.used !== t.model ? ` (using <code>${esc(t.used)}</code>)` : ''}.</p>`
+      : `<p class="aibad">✗ <code>${esc(t.model)}</code>: ${esc(t.why)}</p>`).join('')
+      + `<h4>Each job, one real test call</h4>` + jb.map((t) => t.ok ? `<p class="aiok">✓ ${esc(t.job)}</p>` : `<p class="aibad">✗ ${esc(t.job)} (<code>${esc(t.model)}</code>): ${esc(t.why)}</p>`).join('')
+      + (m.every((t) => t.ok) && jb.every((t) => t.ok) ? '<p class="small mut">Everything works. The bot goes back to reading the groups; messages it missed are read too.</p>' : '');
+  }
   on('aiTest', async (btn) => {
     btn.disabled = true; btn.textContent = 'Testing… (up to a minute)'; const box = document.getElementById('aiTestOut');
     try {
       const x = await api('/api/ai-usage/test', { method: 'POST' });
-      const m = x.results.models, jb = x.results.jobs;
-      box.innerHTML = m.map((t) => t.ok ? `<p class="aiok">✓ <code>${esc(t.model)}</code> works${t.used && t.used !== t.model ? ` (using <code>${esc(t.used)}</code>)` : ''}.</p>`
-        : `<p class="aibad">✗ <code>${esc(t.model)}</code>: ${esc(t.why)}</p>`).join('')
-        + `<h4>Each job, one real test call</h4>` + jb.map((t) => t.ok ? `<p class="aiok">✓ ${esc(t.job)}</p>` : `<p class="aibad">✗ ${esc(t.job)} (<code>${esc(t.model)}</code>): ${esc(t.why)}</p>`).join('')
-        + (m.every((t) => t.ok) && jb.every((t) => t.ok) ? '<p class="small mut">Everything works. The bot goes back to reading the groups; messages it missed are read too.</p>' : '');
+      lastTest = x; await viewAi();
     } catch (er) { fail(er); }
     btn.disabled = false; btn.textContent = 'Test AI now';
   });

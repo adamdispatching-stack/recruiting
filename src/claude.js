@@ -63,7 +63,8 @@ async function call({ source = 'bot', feature = 'other', model, body, timeout = 
   let mi = 0, tries = 0, last = null, nudged = false;
   const forced = body.tool_choice && ['tool', 'any'].includes(body.tool_choice.type);
   let extra = null; // a second ask when the model answered in words
-  const send = (use) => { let b = forced && noForce.has(use) ? unforced(body) : body; if (extra) b = { ...b, messages: [...b.messages, ...extra] }; return { ...b, model: use }; };
+  let sentForced = false; // was this try sent as a forced tool call (other calls running at the same time may have learned the model's rule meanwhile)
+  const send = (use) => { sentForced = forced && !noForce.has(use); let b = sentForced ? body : forced ? unforced(body) : body; if (extra) b = { ...b, messages: [...b.messages, ...extra] }; return { ...b, model: use }; };
   const waits = [2000, 6000, 15000];
   for (;;) {
     const use = models[mi]; tries++;
@@ -89,7 +90,7 @@ async function call({ source = 'bot', feature = 'other', model, body, timeout = 
     } catch (e) { status = 0; j = { error: { message: e.name === 'AbortError' ? 'timed out' : e.message } }; }
     finally { clearTimeout(t); }
     const err = j.error || {};
-    if (status === 400 && forced && !noForce.has(use) && /tool_choice/i.test(err.message || '') && /not supported/i.test(err.message || '')) { noForce.add(use); tries--; continue; }
+    if (status === 400 && sentForced && /tool_choice/i.test(err.message || '') && /not supported/i.test(err.message || '')) { noForce.add(use); tries--; continue; }
     const x = explain(status, err.type, err.message);
     last = { status, type: err.type, message: err.message || `HTTP ${status}`, ...x, model: use };
     if (x.kind === 'model' && mi < models.length - 1) { mi++; continue; }
