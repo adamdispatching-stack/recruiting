@@ -402,6 +402,7 @@ async function handle(u) {
     const pc = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || ''); const me = m.from ? await person(m.from) : null;
     if (pc && pc[1] === 'me') return connectMe(m, pc[2], me);
     if (pc && pc[1] === 'driver') return driverCard(m, pc[2], me);
+    if ((pc && pc[1] === 'empty') || /^\s*empty( trucks)?\s*$/i.test(m.text || '')) return emptyCmd(m.chat.id, me);
     if (pc && pc[1] === 'help') return send(m.chat.id, helpText(false));
     if (/^\/start/.test(m.text || '')) await send(m.chat.id, 'Hi! I work in the driver groups. Add me to a group and send the link code from the website there. Alerts from the Indeed extension also come here.');
     return;
@@ -416,6 +417,16 @@ async function handle(u) {
   if (who && m.reply_to_message && m.reply_to_message.from && state.me && m.reply_to_message.from.id === state.me.id && !u.edited_message)
     await log('reply', `Replied to the bot ("${clip(m.reply_to_message.text, 50)}"): ${clip(redact(m.text || m.caption || '[' + (m.photo ? 'photo' : 'file') + ']').replace(/\d{4,}/g, '••••'), 90)}`, { chatId: chat.chat_id, who });
   const cmd = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || '');
+  if ((cmd && cmd[1] === 'empty') || /^\s*empty( trucks)?\s*$/i.test(m.text || '')) {
+    if (!isStaff(who)) return; // not for drivers; nothing written
+    if (chat.driver_id) { // a driver's group: never post the list there
+      const ok = await emptyCmd(who.tg_id, who).catch(() => null);
+      await react(m.chat.id, m.message_id, ok ? '👌' : '🤷');
+      if (!ok) await log('cmd', `/empty in a driver's group: could not send it privately (${who.name} has not started a chat with the bot)`, { chatId: chat.chat_id, who });
+      return;
+    }
+    return emptyCmd(m.chat.id, who);
+  }
   if (cmd && ['help', 'mode', 'sum', 'status', 'link'].includes(cmd[1])) await log('cmd', `/${cmd[1]}${cmd[2] && cmd[1] === 'mode' ? ' ' + clip(cmd[2], 20) : ''}`, { chatId: chat.chat_id, who });
   if (cmd && cmd[1] === 'link') return link(m, cmd[2].trim(), who);
   if (cmd && cmd[1] === 'me') return connectMe(m, cmd[2], who);
@@ -434,7 +445,7 @@ async function handle(u) {
 // ---------- the command list in Telegram's / menu ----------
 const GROUP_CMDS = [['register', 'Connect this group to a driver (dispatch, ELD or accounting)'], ['mode', 'Onboarding: how I work here (watch, answer, run)'], ['status', 'The driver\'s status card'],
   ['sum', 'Sum up today on the website now'], ['help', 'What I do and the commands']];
-const PRIVATE_CMDS = [['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
+const PRIVATE_CMDS = [['empty', 'The empty trucks, by company'], ['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
 async function setCommands() {
   const list = (a) => a.map(([command, description]) => ({ command, description }));
   await call('setMyCommands', { commands: list(GROUP_CMDS), scope: { type: 'all_group_chats' } });
@@ -443,7 +454,7 @@ async function setCommands() {
 }
 const helpText = (group) => group
   ? '<b>FleetHire assistant</b>\nI read this group and keep the team informed on the website.\n\n/register: connect this group to a driver (I also do it myself when the title has the driver\'s name and phone)\n/mode: onboarding groups: 👀 watch and learn, 💬 answer questions, or 🚀 run the onboarding\n/status: the driver\'s status card\n/sum: sum up today on the website now\n\nThe commands are for our team (connect your account first: in a private chat with me, /me CODE from the website).'
-  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
+  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/empty: the empty trucks, by company\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
 // /mode in an onboarding group: buttons, or "/mode watch"
 async function modeCmd(m, chat, arg, who) {
   if (!isStaff(who)) return send(m.chat.id, 'Only our team can change this.', { replyTo: m.message_id });
@@ -473,6 +484,25 @@ async function setChatMode(chatId, mode, by, who = null) {
     if (!ran) await handlers[was.kind].begin(chatId, was.driver_id, {});
   }
   return true;
+}
+// /empty: the empty trucks, by company: how long, what it costs, who is coming. Team only.
+// In a driver's group it is never posted there: it goes to the person privately.
+async function emptyCmd(chatId, who, { inGroup = null } = {}) {
+  if (!isStaff(who)) return send(chatId, 'Only our team can see this. Connect your website account first: /me CODE (the code is under Telegram → Connect my Telegram).');
+  const b = await require('../fleet').emptyBoard();
+  const comps = Object.fromEntries((await q(`SELECT id, name FROM companies`)).rows.map((c) => [c.id, c.name]));
+  const money = (n) => '$' + Math.round(n).toLocaleString('en-US');
+  if (!b.count) return send(chatId, '✅ No empty trucks. Every truck in service has a driver.');
+  const by = {}; for (const t of b.trucks) (by[t.companyId || 0] = by[t.companyId || 0] || []).push(t);
+  const lines = [`🚛 <b>${b.count} empty truck${b.count === 1 ? '' : 's'}</b>, costing about ${money(b.losingPerDay)} a day (${money(b.lost)} so far)`];
+  for (const [cid, ts] of Object.entries(by).sort((x, y) => String(comps[x[0]] || 'zz').localeCompare(String(comps[y[0]] || 'zz')))) {
+    lines.push('', `<b>${esc(comps[cid] || 'No company')}</b> (${ts.length})`);
+    for (const t of ts) {
+      const c = t.coming;
+      lines.push(`• <b>${esc(t.unit)}</b>: ${t.days ? `${t.days} day${t.days === 1 ? '' : 's'} empty, ${money(t.lost)}` : 'empty since today'}${c ? `\n   ↳ coming: ${esc(c.name)} (${esc(c.status.toLowerCase())}${c.arrival ? `, starts ${esc(require('../lib').niceDate(c.arrival))}` : ''}${c.owner ? `, ${esc(c.owner)}` : ''})` : ''}`);
+    }
+  }
+  return send(chatId, lines.join('\n'));
 }
 // /sum: today's summary now (on the website)
 async function sumCmd(m, chat, who) {

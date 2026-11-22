@@ -324,6 +324,24 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   say(RITA, '/mode watch', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT mode FROM tg_chats WHERE chat_id = $1`, [HCHAT.id])).rows[0].mode === 'watch'), '/mode watch: back to watching');
 
+  // ---------- /empty: the empty trucks ----------
+  const co = (await pg.query(`INSERT INTO companies (name) VALUES ('Bobtail Trucking') RETURNING id`)).rows[0].id;
+  await pg.query(`INSERT INTO trucks (unit, company_id) VALUES ('T7', $1), ('T9', $1)`, [co]);
+  const cody = (await web('/api/drivers', { method: 'POST', body: { name: 'Cody Coming', source: 'Indeed' } })).id;
+  await web('/api/drivers/' + cody, { method: 'PATCH', body: { status: 'Onboarding' } });
+  await pg.query(`UPDATE trucks SET driver_id = $1 WHERE unit = 'T9'`, [cody]); // Cody is coming for T9
+  n = tg.sent.length; priv(RITA, '/empty');
+  const em = await until(() => sentSince(n).find((m) => m.chat_id === RITA.id && /empty truck/.test(m.text)));
+  ok(em && /<b>Bobtail Trucking<\/b> \(2\)/.test(em.text) && /<b>T7<\/b>/.test(em.text) && /coming: Cody Coming/.test(em.text) && /a day/.test(em.text), '/empty in a private chat: the empty trucks by company, the cost, who is coming');
+  n = tg.sent.length; priv(RITA, 'empty');
+  ok(await until(() => sentSince(n).some((m) => m.chat_id === RITA.id && /empty truck/.test(m.text))), 'just "empty" works too');
+  n = tg.sent.length; say(RITA, '/empty', HCHAT);
+  ok(await until(() => sentSince(n).some((m) => String(m.chat_id) === String(RITA.id) && /empty truck/.test(m.text))) && !inChat(n, HCHAT).length, 'in a driver\'s group: sent to Rita privately, nothing in the group');
+  n = tg.sent.length; priv(X, '/empty');
+  ok(await until(() => sentSince(n).some((m) => m.chat_id === X.id && /Only our team/.test(m.text))), 'someone not on the team: refused');
+  n = tg.sent.length; say(HANK, '/empty', HCHAT); await sleep(600);
+  ok(!sentSince(n).length, 'a driver typing it: nothing');
+
   // ---------- ELD and accounting groups ----------
   const ella = (await web('/api/drivers', { method: 'POST', body: { name: 'Ella Evans', source: 'Referral' } })).id;
   await pg.query(`UPDATE drivers SET status = 'Hired' WHERE id = $1`, [ella]);
