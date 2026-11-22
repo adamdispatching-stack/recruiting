@@ -54,7 +54,7 @@ async function digestChat(chatId) {
   const working = chat.kind === 'dispatch' && !onboarding;
   const promises = working ? (await q(`SELECT id, what, due FROM tg_promises WHERE chat_id = $1 AND state = 'open' AND at > now() - interval '10 days' ORDER BY at DESC LIMIT 15`, [chatId])).rows : [];
   try { r = await ai.digest({ promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
-  catch (e) { console.error('tg digest', e.message); if (/400|invalid/i.test(e.message)) await done(); return null; } // a bad batch is skipped; a network error is tried again
+  catch (e) { console.error('tg digest', e.message); if (e.kind === 'bad') await done(); return null; } // a bad batch is skipped; key, credit, network or busy: the messages wait and are read later
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
   // truck issues

@@ -445,6 +445,8 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS ai_usage (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), day DATE NOT NULL, source TEXT NOT NULL, feature TEXT NOT NULL, model TEXT NOT NULL, account TEXT,
       calls INTEGER NOT NULL DEFAULT 1, failed INTEGER NOT NULL DEFAULT 0, input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0, cache_read BIGINT NOT NULL DEFAULT 0, cache_write BIGINT NOT NULL DEFAULT 0);
     CREATE INDEX IF NOT EXISTS ai_usage_day ON ai_usage(day);
+    -- why AI calls failed (the last 300), in plain words for the AI usage page
+    CREATE TABLE IF NOT EXISTS ai_errors (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), source TEXT, feature TEXT, model TEXT, status INTEGER, kind TEXT, message TEXT, why TEXT, tries INTEGER);
     -- papers the team uploads: the driver's CDL (and medical card), each truck's registration and paperwork.
     -- Kept for the team and shared in the ELD group only when someone types /info there.
     CREATE TABLE IF NOT EXISTS docs (id SERIAL PRIMARY KEY, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, truck_id INTEGER REFERENCES trucks(id) ON DELETE CASCADE,

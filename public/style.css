@@ -1731,3 +1731,9 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .dropline .btn{margin-left:6px}
 .dropcard{border-left:4px solid #B3261E}
 .linkbtn.danger{color:#B3261E}
+
+.aihealth .row.sb{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.aihealth h4{margin:14px 0 6px;font-size:14px}
+.aiok{color:#1E6B3A;margin:6px 0}
+.aibad{color:#A3261B;margin:6px 0}
+.aierr td{padding:8px 0;border-bottom:1px solid var(--line, #eee)}

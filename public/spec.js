@@ -57,6 +57,7 @@
         ] },
         { title: 'Onboarding', items: [
           P('Onboarding board', 'built', 'Drivers in onboarding, Amazon verified first, arrival, truck, checklist progress, recruiter.', 'Onboarding', '#/onboarding'),
+          P('AI health', 'built', 'AI usage page: Is the AI working? with a Test AI now button and why calls failed, in plain words (wrong key, no credit, model not allowed, busy). Busy or network errors are tried again; a model the key cannot use is swapped; on key or credit problems the bot pauses 10 minutes and admins are told; messages missed meanwhile are read later.', 'AI usage'),
           P('Dropped out', 'built', 'One button on the onboarding list, the lead page and the dashboard: saves the driver as Rejected with why. When a driver writes he is not coming, the AI flags him (Dropped out / Still with us) and tells the recruiter.', 'Onboarding, lead page, dashboard'),
           P('Checklist per driver', 'built', 'Steps from the template (Settings), some tick themselves (Telegram group created, Amazon verified, arrival date set…).', 'Lead page → Onboarding'),
           P('Amazon Relay steps', 'built', 'Invite → account → profile → background check → waiting → verified, with dates.', 'Lead page'),

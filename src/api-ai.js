@@ -5,6 +5,8 @@ const usage = require('./ai-usage');
 
 module.exports = (app) => {
   app.get('/api/ai-usage', needUser, needAdmin, wrap(async (req, res) => res.json(await usage.report())));
+  // the Test button: a tiny call to each model; also lifts a pause so the bot tries again
+  app.post('/api/ai-usage/test', needUser, needAdmin, wrap(async (req, res) => res.json({ results: await require('./claude').test(), state: require('./claude').state() })));
   app.put('/api/ai-usage/settings', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {};
     if (b.budget !== undefined) {

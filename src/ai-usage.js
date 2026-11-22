@@ -40,6 +40,14 @@ async function addExtension(rows, account) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.day || ''))) continue;
     await q(`INSERT INTO ai_usage (day, source, feature, model, account, calls, failed, input_tokens, output_tokens, cache_read, cache_write) VALUES ($1, 'extension', $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [r.day, String(r.feature || 'other').slice(0, 40), String(r.model || 'unknown').slice(0, 60), account || null, +r.calls || 0, +r.failed || 0, +r.in || 0, +r.out || 0, +r.cr || 0, +r.cw || 0]);
+    // why the extension's calls failed (extension 1.28.0+): "status|type|message"
+    if (+r.failed > 0 && r.err) {
+      const [st, type, ...m] = String(r.err).split('|'); const message = m.join('|').slice(0, 500);
+      const x = require('./claude').explain(+st || 0, type, message);
+      await q(`INSERT INTO ai_errors (source, feature, model, status, kind, message, why, tries) VALUES ('extension', $1, $2, $3, $4, $5, $6, $7)`,
+        [String(r.feature || 'other').slice(0, 40), String(r.model || 'unknown').slice(0, 60), +st || null, x.kind, message,
+          (x.kind === 'model' ? 'The extension\'s key cannot use this model.' : x.why).replace('ANTHROPIC_API_KEY on Railway (Variables)', 'the extension (AI settings)') + (account ? ` (Chrome profile: ${account})` : ''), +r.failed]);
+    }
   }
 }
 // the report for admins: today, 7 days, this month (and where it is heading), by purpose, model, part, day by day
@@ -67,7 +75,9 @@ async function report() {
   const budget = +((db.settings.ai || {}).budget || 0);
   return { today, week, month, projected: t.dom ? (month.cost / t.dom) * t.dim : 0, budget, days,
     byFeature: group('feature', d30).map((x) => ({ ...x, name: NAMES[x.key] || x.key })), byModel: group('model', d30), bySource: group('source', d30),
-    unknownModels: [...unknown], prices: prices(), serverKey: !!process.env.ANTHROPIC_API_KEY };
+    unknownModels: [...unknown], prices: prices(), serverKey: !!process.env.ANTHROPIC_API_KEY, state: require('./claude').state(),
+    errors: (await q(`SELECT why, kind, max(status) status, sum(CASE WHEN source = 'extension' THEN tries ELSE 1 END)::int n, max(at) last, string_agg(DISTINCT feature, ', ') features, string_agg(DISTINCT model, ', ') models, (array_agg(message ORDER BY id DESC))[1] message
+      FROM ai_errors WHERE at > now() - interval '7 days' GROUP BY why, kind ORDER BY max(at) DESC LIMIT 10`)).rows };
 }
 // over the monthly budget (80% and 100%): the admins are told once each month
 let lastCheck = 0;

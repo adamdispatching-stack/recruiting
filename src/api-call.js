@@ -36,18 +36,12 @@ module.exports = (app) => {
       recent_notes: notes.map((n) => `${n.created_at.toISOString().slice(0, 10)} ${n.kind ? n.kind + (n.outcome ? ' ' + n.outcome : '') + ': ' : ''}${n.body || ''}`.slice(0, 400))
     };
     const points = d.mode === 'Owner-operators' ? db.settings.callPoints.owner : d.mode === 'Company drivers' ? db.settings.callPoints.company : [...db.settings.callPoints.company, ...db.settings.callPoints.owner];
-    const base = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
-    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 45000);
-    let r;
+    let j;
     try {
-      r = await fetch(base + '/v1/messages', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: process.env.CALL_PREP_MODEL || 'claude-haiku-5-5', max_tokens: 900, system: SYSTEM, tools: [TOOL], tool_choice: { type: 'tool', name: 'call_prep' },
-          messages: [{ role: 'user', content: `TALKING POINTS:\n- ${points.join('\n- ')}\n\nTHE LEAD (JSON):\n${JSON.stringify(facts)}` }] }) });
-    } catch (e) { return res.status(502).json({ error: e.name === 'AbortError' ? 'The AI did not answer in time. Try again.' : 'Could not reach the AI service.' }); }
-    finally { clearTimeout(timer); }
-    const j = await r.json().catch(() => ({}));
-    await require('./ai-usage').record({ source: 'website', feature: 'call_prep', model: process.env.CALL_PREP_MODEL || 'claude-haiku-5-5', usage: j.usage, ok: r.ok });
-    if (!r.ok) return res.status(502).json({ error: `The AI service said: ${(j.error && j.error.message) || r.status}` });
+      j = await require('./claude').call({ source: 'website', feature: 'call_prep', model: process.env.CALL_PREP_MODEL || 'claude-haiku-5-5', timeout: 45000, force: true,
+        body: { max_tokens: 900, system: SYSTEM, tools: [TOOL], tool_choice: { type: 'tool', name: 'call_prep' },
+          messages: [{ role: 'user', content: `TALKING POINTS:\n- ${points.join('\n- ')}\n\nTHE LEAD (JSON):\n${JSON.stringify(facts)}` }] } });
+    } catch (e) { return res.status(502).json({ error: e.why || e.message }); }
     const out = ((j.content || []).find((c) => c.type === 'tool_use') || {}).input;
     if (!out || !Array.isArray(out.questions)) return res.status(502).json({ error: 'The AI answer could not be read. Try again.' });
     const prep = { opener: String(out.opener || '').slice(0, 400), questions: out.questions.slice(0, 6).map((x) => ({ ask: String(x.ask || '').slice(0, 300), why: String(x.why || '').slice(0, 160) })).filter((x) => x.ask),

@@ -5,17 +5,10 @@ const MODEL = () => process.env.TG_AI_MODEL || 'claude-haiku-5-5';
 const SUMMARY_MODEL = () => process.env.TG_SUMMARY_MODEL || 'claude-sonnet-5-5';
 
 async function ask({ model, system, content, tool, maxTokens = 800 }) {
-  const base = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
-  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 60000);
-  try {
-    const r = await fetch(base + '/v1/messages', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, tools: [tool], tool_choice: { type: 'tool', name: tool.name }, messages: [{ role: 'user', content }] }) });
-    const j = await r.json().catch(() => ({}));
-    await require('../ai-usage').record({ source: tool.name === 'call_prep' ? 'website' : 'bot', feature: tool.name, model, usage: j.usage, ok: r.ok });
-    if (!r.ok) throw new Error((j.error && j.error.message) || `AI error ${r.status}`);
-    const use = (j.content || []).find((c) => c.type === 'tool_use'); if (!use) throw new Error('The AI gave no answer');
-    return use.input;
-  } finally { clearTimeout(t); }
+  const j = await require('../claude').call({ source: 'bot', feature: tool.name, model,
+    body: { max_tokens: maxTokens, system, tools: [tool], tool_choice: { type: 'tool', name: tool.name }, messages: [{ role: 'user', content }] } });
+  const use = (j.content || []).find((c) => c.type === 'tool_use'); if (!use) throw Object.assign(new Error('The AI gave no answer'), { kind: 'bad' });
+  return use.input;
 }
 
 // What document is in this picture or PDF?
@@ -140,7 +133,7 @@ ONBOARDING STEPS still open (id: step): ${onb.steps.length ? onb.steps.map((x) =
 Mark a step done only when a message or a picture clearly shows it is done (a result, a confirmation, a ticket, "done", "passed"), never when it is only planned or asked for.` : ''}`;
   const content = [...images.map((im) => (im.mime === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: im.data } } : { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })),
     { type: 'text', text: `EARLIER MESSAGES (context):\n${context.join('\n') || '(none)'}\n\nNEW MESSAGES:\n${fresh.join('\n')}${images.length ? `\n\n(The ${images.length} picture(s) above are the photos in the new messages, in order.)` : ''}` }];
-  return ask({ model: process.env.TG_DIGEST_MODEL || SUMMARY_MODEL(), system, content, tool: DIGEST_TOOL, maxTokens: 1500 });
+  return ask({ model: process.env.TG_DIGEST_MODEL || SUMMARY_MODEL(), system, content, tool: DIGEST_TOOL, maxTokens: 3000 });
 }
 // The driver's profile for dispatchers, rebuilt from the notes
 const PROFILE_TOOL = { name: 'driver_profile', description: 'What a dispatcher needs to know about this driver.', input_schema: { type: 'object', properties: {

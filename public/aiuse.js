@@ -5,6 +5,29 @@
   const { esc, view, S, api, toast, fail, on, header } = App;
   const usd = (n) => (n >= 100 ? '$' + Math.round(n).toLocaleString('en-US') : n >= 1 ? '$' + n.toFixed(2) : n > 0 ? '$' + n.toFixed(n >= 0.01 ? 3 : 4) : '$0');
   const num = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n || 0));
+  const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+  // is the AI working right now, why calls failed, and the Test button
+  function health(r) {
+    const st = r.state || {}, errs = r.errors || [];
+    const line = !r.serverKey ? '' : st.paused ? `<p class="aibad"><b>The AI is paused</b> until ${when(st.paused.until)}: ${esc(st.paused.why)}</p>`
+      : st.lastOk ? `<p class="aiok"><b>Working.</b> Last answer ${when(st.lastOk.at)} (${esc(st.lastOk.model)}).</p>`
+      : errs.length ? `<p class="aibad"><b>Not working.</b> ${esc(errs[0].why)}</p>` : '<p class="hint">No AI call since the website last restarted.</p>';
+    const swapped = Object.entries(st.swapped || {}).map(([a, b]) => `<code>${esc(a)}</code> → <code>${esc(b)}</code>`).join(', ');
+    return `<section class="card aihealth"><div class="row sb"><h3>Is the AI working?</h3><button class="btn sm" data-act="aiTest" ${r.serverKey ? '' : 'disabled'}>Test AI now</button></div>${line}
+      <div id="aiTestOut"></div>
+      ${swapped ? `<p class="small mut">This key cannot use one of the models, so the website uses another: ${swapped}.</p>` : ''}
+      ${errs.length ? `<h4>Why calls failed, last 7 days</h4><table class="mini aierr"><tbody>${errs.map((e) => `<tr><td><b>${esc(e.why)}</b><div class="small mut">${e.n} time${e.n === 1 ? '' : 's'} · last ${when(e.last)} · ${esc(e.features || '')} · ${esc(e.models || '')}${e.status ? ` · HTTP ${e.status}` : ''}</div>${e.message ? `<div class="small mut">Anthropic said: ${esc(e.message)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${r.week.failed && !errs.length ? '<p class="small mut">Calls that failed before this update have no reason saved. Press Test AI now to see what is wrong.</p>' : ''}</section>`;
+  }
+  on('aiTest', async (btn) => {
+    btn.disabled = true; btn.textContent = 'Testing…'; const box = document.getElementById('aiTestOut');
+    try {
+      const x = await api('/api/ai-usage/test', { method: 'POST' });
+      box.innerHTML = x.results.map((t) => t.ok ? `<p class="aiok">✓ <code>${esc(t.model)}</code> works${t.used && t.used !== t.model ? ` (using <code>${esc(t.used)}</code>)` : ''}.</p>`
+        : `<p class="aibad">✗ <code>${esc(t.model)}</code>: ${esc(t.why)}</p>`).join('') + (x.results.every((t) => t.ok) ? '<p class="small mut">The bot goes back to reading the groups now; messages it missed are read too.</p>' : '');
+    } catch (er) { fail(er); }
+    btn.disabled = false; btn.textContent = 'Test AI now';
+  });
   const PART = { website: '🌐 Website', bot: '🤖 Telegram bot', extension: '🧩 Chrome extension' };
 
   function chart(days) {
@@ -25,6 +48,7 @@
     view.innerHTML = header('ai') + `<main class="o aipage"><div class="pagehead"><h1>AI usage</h1><p class="hint">What Claude costs: the website and the Telegram bot (the key on Railway) and the Chrome extension (its own key; each Chrome profile reports its totals when it syncs). Costs come from the tokens and the prices below.</p></div>
       ${r.serverKey ? '' : '<p class="warnline">ANTHROPIC_API_KEY is not set on Railway, so the website and the bot use no AI.</p>'}
       ${r.unknownModels.length ? `<p class="warnline">No price for ${r.unknownModels.map(esc).join(', ')}: add it below, or those calls count as $0.</p>` : ''}
+      ${health(r)}
       <section class="card"><dl class="figs aifigs"><div><dd>${usd(r.today.cost)}</dd><dt>today · ${r.today.calls} calls</dt></div><div><dd>${usd(r.week.cost)}</dd><dt>last 7 days · ${r.week.calls} calls</dt></div>
         <div><dd>${usd(r.month.cost)}</dd><dt>this month · heading to about ${usd(r.projected)}</dt></div>
         <div><dd>${r.budget ? usd(r.budget) : '—'}</dd><dt>${r.budget ? `monthly budget · ${pct}% used` : 'no monthly budget set'}</dt>${r.budget ? `<span class="pbar"><i style="width:${Math.min(100, pct)}%;${pct >= 100 ? 'background:#B3261E' : pct >= 80 ? 'background:#C9963A' : ''}"></i></span>` : ''}</div></dl>
