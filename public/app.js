@@ -529,6 +529,6 @@ window.App = (() => {
   on('dropIt', (b) => { const li = b.closest('[data-drop]'); dropDialog({ id: +li.dataset.drop, name: li.dataset.name, quote: li.dataset.quote, reason: li.dataset.reason }, () => App.render()); });
   on('dropKeep', (b) => stillWithUs(+b.closest('[data-drop]').dataset.drop, () => App.render()));
 
-  return { email, orientationCard, draftsBox, dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  return { COPY_ICON, email, orientationCard, draftsBox, dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();
