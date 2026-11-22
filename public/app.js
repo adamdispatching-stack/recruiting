@@ -88,6 +88,8 @@ window.App = (() => {
   // A phone number: tap to call, and a button that copies it
   const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 5.5V3.6c0-.9-.7-1.6-1.6-1.6H4.1c-.9 0-1.6.7-1.6 1.6v5.3c0 .9.7 1.6 1.6 1.6h1.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
   const phone = (p, cls = 'ph') => `<span class="phw"><a class="${cls}" href="tel:${esc(p)}">${esc(fmtPhone(p))}</a><button type="button" class="cpy" data-copy="${esc(fmtPhone(p))}" title="Copy ${esc(fmtPhone(p))}" aria-label="Copy phone number ${esc(fmtPhone(p))}">${COPY_ICON}</button></span>`;
+  // an email: tap to write, and a button that copies it
+  const email = (m) => `<span class="phw"><a class="ph em" href="mailto:${esc(m)}" title="${esc(m)}">${esc(m)}</a><button type="button" class="cpy" data-copy="${esc(m)}" title="Copy ${esc(m)}" aria-label="Copy email ${esc(m)}">${COPY_ICON}</button></span>`;
   document.addEventListener('click', async (e) => {
     const b = e.target.closest('button.cpy'); if (!b) return;
     e.preventDefault(); e.stopPropagation();
@@ -527,6 +529,6 @@ window.App = (() => {
   on('dropIt', (b) => { const li = b.closest('[data-drop]'); dropDialog({ id: +li.dataset.drop, name: li.dataset.name, quote: li.dataset.quote, reason: li.dataset.reason }, () => App.render()); });
   on('dropKeep', (b) => stillWithUs(+b.closest('[data-drop]').dataset.drop, () => App.render()));
 
-  return { orientationCard, draftsBox, dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  return { email, orientationCard, draftsBox, dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();
