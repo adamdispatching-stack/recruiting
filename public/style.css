@@ -1677,3 +1677,5 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .ub{width:28px;height:28px;border:1px solid #C5CEC9;border-radius:6px;background:#fff;cursor:pointer;font-weight:700}
 .ub.on{background:var(--green);color:#fff;border-color:var(--green)}
 .ub.bad.on{background:#B3261E;border-color:#B3261E}
+
+.tgk.k-management{background:#FFF1E6;color:#8A4B12}

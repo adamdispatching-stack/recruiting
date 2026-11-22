@@ -96,7 +96,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
 (async () => {
   execSync(`pkill -f "node src/serve[r].js" || true; sleep 0.4; su postgres -c "psql -q -h /tmp -p 5433 -c 'DROP DATABASE IF EXISTS recruiting_test' -c 'CREATE DATABASE recruiting_test'"`, { stdio: 'ignore' });
   const env = { ...process.env, DATABASE_URL: DB, PGSSL: 'off', ADMIN_EMAIL: 'admin@example.com', ADMIN_PASSWORD: 'test-password-123', PORT: '3999',
-    TELEGRAM_BOT_TOKEN: '999:test', TG_API_BASE: 'http://localhost:4999', TG_POLL_SECONDS: '1', TG_TICK_MS: '1000', TG_NO_QUIET: '1', TG_DIGEST_MS: '1000', TG_DIGEST_SETTLE_MIN: '0.03', TG_PROFILE_MS: '1500', TG_DISP_MIN_MSGS: '2', ANTHROPIC_API_KEY: 'test', ANTHROPIC_BASE_URL: 'http://localhost:4998' };
+    TELEGRAM_BOT_TOKEN: '999:test', TG_API_BASE: 'http://localhost:4999', TG_POLL_SECONDS: '1', TG_TICK_MS: '1000', TG_NO_QUIET: '1', TG_DIGEST_MS: '1000', TG_DIGEST_SETTLE_MIN: '0.03', TG_PROFILE_MS: '1500', TG_TEAM_MS: '1000', TG_DISP_MIN_MSGS: '2', ANTHROPIC_API_KEY: 'test', ANTHROPIC_BASE_URL: 'http://localhost:4998' };
   require('child_process').spawn('node', ['src/server.js'], { cwd: __dirname + '/..', env, stdio: ['ignore', require('fs').openSync('/tmp/server.log', 'w'), require('fs').openSync('/tmp/server.log', 'a')], detached: true }).unref();
   let cookie = '';
   const web = async (path, opts = {}) => { const r = await fetch(BASE + path, { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json', Cookie: opts.cookie || cookie }, body: opts.body ? JSON.stringify(opts.body) : undefined }); const sc = r.headers.get('set-cookie'); if (sc && !opts.cookie) cookie = sc.split(';')[0]; const t = await r.text(); try { return { status: r.status, ...JSON.parse(t) }; } catch (e) { return { status: r.status, text: t }; } };
@@ -342,6 +342,40 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   n = tg.sent.length; say(HANK, '/empty', HCHAT); await sleep(600);
   ok(!sentSince(n).length, 'a driver typing it: nothing');
 
+  // ---------- /onboard and management groups ----------
+  await pg.query(`UPDATE drivers SET amazon_step = 'verified' WHERE id = $1`, [paul]);
+  await pg.query(`UPDATE drivers SET amazon_step = 'accurate', amazon_log = jsonb_build_object('accurate', (now() - interval '6 hours')::text), owner_id = $2 WHERE id = $1`, [cody, rita]);
+  await pg.query(`UPDATE tg_people SET user_id = $1 WHERE tg_id = 11`, [rita]); // Rita's Telegram is Rita on the website
+  n = tg.sent.length; priv(RITA, '/onboard');
+  const ob = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /in onboarding/.test(m.text)), 20000);
+  ok(ob && /✅ <b>Amazon verified<\/b> \(\d+\)[\s\S]*Paul Penn[\s\S]*⏳ <b>Pending Amazon<\/b>[\s\S]*Cody Coming/.test(ob.text), '/onboard: Amazon verified (Paul), then pending Amazon (Cody)');
+  ok(ob && /Amazon: Background check \(6 h\)/.test(ob.text) && /Paul Penn<\/b>: Rita Recruiter, starts/.test(ob.text), 'with the recruiter, the start date, the Amazon step and how long');
+  const MCHAT = { id: -100740, type: 'supergroup', title: 'Management Team' };
+  n = tg.sent.length; added(MCHAT, RITA);
+  ok(await until(async () => ((await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [MCHAT.id])).rows[0] || {}).kind === 'management'), '"Management Team" added by Rita: our team\'s group');
+  await sleep(500);
+  ok(!inChat(n, MCHAT).length, 'silent when connected');
+  n = tg.sent.length; say(RITA, '/onboard', MCHAT);
+  ok(await until(() => inChat(n, MCHAT).some((m) => /in onboarding/.test(m.text) && /@rita_r/.test(m.text))), '/onboard in the management group: posted there, the recruiter tagged');
+  // the morning report and follow-ups
+  await pg.query(`UPDATE drivers SET callback_state = 'due', callback_at = now() - interval '1 hour', callback_said = '3 PM' WHERE id = $1`, [cody]);
+  await pg.query(`UPDATE drivers SET amazon_log = jsonb_build_object('accurate', (now() - interval '6 days')::text) WHERE id = $1`, [cody]);
+  const nowT = new Date(Date.now() - 60000).toLocaleTimeString('en-GB', { timeZone: (await pg.query(`SELECT value FROM settings WHERE key = 'tz'`)).rows[0]?.value || 'America/New_York', hour: '2-digit', minute: '2-digit' });
+  n = tg.sent.length; ok((await web('/api/tg/autopilot', { method: 'PUT', body: { teamReportAt: nowT } })).ok, 'morning report time set');
+  ok(await until(() => inChat(n, MCHAT).some((m) => /Good morning, team/.test(m.text)), 15000), 'the morning report is posted');
+  ok(await until(() => inChat(n, MCHAT).some((m) => /🔔 @rita_r: Cody Coming has been on "Background check" with Amazon for 6 days/.test(m.text)), 15000), 'follow-up: Amazon stuck, Rita tagged');
+  ok(await until(() => inChat(n, MCHAT).some((m) => /🔔 @rita_r missed the call-back to Cody Coming/.test(m.text)), 15000), 'follow-up: a missed call-back');
+  await sleep(2500); ok(inChat(n, MCHAT).filter((m) => /Background check" with Amazon/.test(m.text)).length === 1, 'each follow-up once a day');
+  await pg.query(`UPDATE drivers SET callback_state = NULL WHERE id = $1`, [cody]);
+  // someone not on the team adds the bot to a team group: the website connects it
+  const OPS = { id: -100741, type: 'supergroup', title: 'Ops office' };
+  added(OPS, X);
+  const ow = await until(async () => (await web('/api/tg/waiting')).waiting.find((w) => w.chatId == OPS.id));
+  ok(ow && ow.kind === 'management', 'added by someone not connected: waiting as a management group');
+  await web('/api/tg/waiting/' + ow.id, { method: 'POST', body: { kind: 'management' } });
+  ok(((await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [OPS.id])).rows[0] || {}).kind === 'management', 'connected on the website');
+  ok((await web(`/api/tg/chats/${MCHAT.id}/report`, { method: 'POST' })).ok, '"Send the onboarding list now" on the group page');
+
   // ---------- ELD and accounting groups ----------
   const ella = (await web('/api/drivers', { method: 'POST', body: { name: 'Ella Evans', source: 'Referral' } })).id;
   await pg.query(`UPDATE drivers SET status = 'Hired' WHERE id = $1`, [ella]);
@@ -376,9 +410,9 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const lg = await until(async () => { const r = await web('/api/tg/log'); return r.log.some((x) => x.kind === 'reaction') && r.log.some((x) => x.kind === 'reply') ? r : null; });
   ok(lg && /Reacted 👍 to the bot/.test(lg.log.find((x) => x.kind === 'reaction').text) && lg.log.find((x) => x.kind === 'reaction').who === 'Paul Penn', 'history: Paul reacted 👍 to the bot');
   ok(lg && /Replied to the bot .*ok my zip is ••••/.test(lg.log.find((x) => x.kind === 'reply').text), 'history: Paul replied to the bot (numbers hidden)');
-  const kinds = new Set(lg.log.map((x) => x.kind));
+  const kinds = new Set(); for (const k of ['join', 'title', 'connect', 'wait', 'me', 'said', 'fact', 'mode', 'ask']) if ((await web('/api/tg/log?kinds=' + k)).log.length) kinds.add(k);
   ok(['join', 'title', 'connect', 'wait', 'me', 'said', 'fact', 'mode', 'ask'].every((k) => kinds.has(k)), 'history: joined, read the title, connected, waiting, Telegram connected, bot messages, saved facts, mode, asked');
-  ok(!lg.log.some((x) => /4321|6789|5555/.test(x.text)), 'history never shows the SSN digits');
+  ok(!(await pg.query(`SELECT 1 FROM tg_log WHERE text ~ '4321|6789|5555'`)).rows.length, 'history never shows the SSN digits');
   const lp = await web('/api/tg/log?chat=' + PCHAT.id + '&kinds=tap,reaction,reply');
   ok(lp.log.length && lp.log.every((x) => String(x.chatId) === String(PCHAT.id) && ['tap', 'reaction', 'reply'].includes(x.kind)), 'filtered by group and by "reactions"');
   if (process.env.SHOTS) {
@@ -392,6 +426,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
     await p.goto(BASE + '/#/telegram/' + HCHAT.id); await p.waitForSelector('.tgwork'); await p.locator('.tgwork').screenshot({ path: '/tmp/shot/work.png' });
     await p.goto(BASE + '/#/telegram?tab=knowledge'); await p.waitForSelector('.dautop'); await p.locator('.dautop').screenshot({ path: '/tmp/shot/dauto.png' });
     await p.goto(BASE + '/#/active/' + hank); await p.waitForSelector('.list'); await p.screenshot({ path: '/tmp/shot/driver.png', fullPage: true });
+    await p.goto(BASE + '/#/telegram/' + MCHAT.id); await p.waitForSelector('#teamForm'); await p.locator('.tgwork').screenshot({ path: '/tmp/shot/team.png' });
     await p.goto(BASE + '/#/telegram?tab=people'); await p.waitForSelector('table.tgt'); await p.locator('table.tgt').screenshot({ path: '/tmp/shot/people.png' });
     await p.goto(BASE + '/#/telegram/' + PCHAT.id); await p.waitForSelector('#tgLogBox li.tglog'); await p.locator('.tglogc').screenshot({ path: '/tmp/shot/histc.png' });
     await p.setViewportSize({ width: 390, height: 900 }); await p.goto(BASE + '/#/telegram?tab=history'); await p.waitForSelector('.tgloglist li'); await p.screenshot({ path: '/tmp/shot/hist-m.png' });

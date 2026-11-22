@@ -106,7 +106,7 @@ async function chatOf(c) {
   const r = await q(`INSERT INTO tg_chats (chat_id, title) VALUES ($1, $2) ON CONFLICT (chat_id) DO UPDATE SET title = coalesce($2, tg_chats.title) RETURNING *`, [c.id, c.title || null]);
   return r.rows[0];
 }
-const KINDS = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting' };
+const KINDS = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting', management: 'Management' };
 const PREFIX = { dispatch: 'onb', eld: 'eld', accounting: 'acc' }; // button data starts with this per kind
 // Make a group the driver's dispatch, ELD or accounting group
 async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
@@ -138,6 +138,12 @@ async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
   if (kind === 'dispatch' && working && ((await q(`SELECT status FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).status !== 'Hired') return; // a working driver's group: read along and learn, nothing to start
   if (handlers[kind]) await handlers[kind].begin(chatId, driverId, opts);
 }
+// A management group: our team only, no driver. The morning report and follow-ups go here.
+async function linkTeam(chatId, who, by) {
+  await q(`UPDATE tg_chats SET kind = 'management', driver_id = NULL, mode = 'watch', linked_by = $2, linked_at = now(), active = true WHERE chat_id = $1`, [chatId, who && who.user_id || null]);
+  await log('connect', `Connected as a management group: the morning report and follow-ups (tagging the recruiters) go here`, { chatId, driverId: null, who });
+  await doneWaiting(chatId, who ? who.name : by || 'website', 'connected');
+}
 // "register dispatch watch": how the bot works in an onboarding group
 const MODE_WORD = { watch: 'watch', learn: 'watch', quiet: 'watch', silent: 'watch', assist: 'assist', help: 'assist', answer: 'assist', answers: 'assist', run: 'run', auto: 'run', full: 'run' };
 const MODES = [['watch', '👀 Watch and learn'], ['assist', '💬 Answer questions'], ['run', '🚀 Run the onboarding']];
@@ -149,19 +155,20 @@ async function link(m, code, who) {
 }
 // "register dispatch", "register eld John Smith": the team registers a group from Telegram
 const isStaff = (p) => p && (p.role === 'staff' || !!p.user_id);
-const KIND_WORD = { dispatch: 'dispatch', updates: 'dispatch', onboarding: 'dispatch', eld: 'eld', accounting: 'accounting', acct: 'accounting', accounts: 'accounting' };
+const KIND_WORD = { management: 'management', team: 'management', manager: 'management', managers: 'management', office: 'management', dispatch: 'dispatch', updates: 'dispatch', onboarding: 'dispatch', eld: 'eld', accounting: 'accounting', acct: 'accounting', accounts: 'accounting' };
 // The group's title: "John Smith 215-555-0144", "John Smith ELD", "Accounting - John Smith"
 // Cyrillic letters that look like Latin ones (a title typed on a Russian keyboard: "ЕLD", "АCCOUNTING")
 const LOOK = { 'а': 'a', 'в': 'b', 'е': 'e', 'ё': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'у': 'y', 'х': 'x', 'і': 'i' };
 const latin = (t) => String(t || '').toLowerCase().replace(/[авеёкмнорстухі]/g, (c) => LOOK[c]);
 const ELD_W = new Set(['eld', 'elds', 'елд', 'элд', 'logs', 'logbook', 'eldgroup', 'eldteam', 'eldchat']);
 const ACC_W = new Set(['accounting', 'accountant', 'accounts', 'account', 'acct', 'acc', 'payroll', 'settlement', 'settlements', 'бухгалтерия', 'бухгалтер']);
+const MGMT_W = new Set(['management', 'manager', 'managers', 'recruiters', 'recruiting', 'office', 'ops', 'operations', 'staff', 'menejment', 'менеджмент', 'офис']);
 const NOISE = new Set([...ELD_W, ...ACC_W, 'dispatch', 'dispatcher', 'group', 'chat', 'team', 'support', 'update', 'updates', 'onboarding', 'fleethire', 'driver', 'new', 'truck', 'unit', 'trk', 'tr', 'and', 'with', 'for']);
 // The group's title: "John Smith 215-555-0144", "John Smith ELD", "ELD_John Smith", "Accounting - John Smith"
 function titleInfo(title) {
   const t = String(title || '');
   const toks = [...latin(t).split(/[^\p{L}\p{N}]+/u), ...t.toLowerCase().split(/[^\p{L}\p{N}]+/u)].filter(Boolean);
-  const kind = toks.some((w) => ELD_W.has(w) || /^eld(group|team|chat|s)?$/.test(w)) ? 'eld' : toks.some((w) => ACC_W.has(w) || /^account/.test(w)) ? 'accounting' : 'dispatch';
+  const kind = toks.some((w) => ELD_W.has(w) || /^eld(group|team|chat|s)?$/.test(w)) ? 'eld' : toks.some((w) => ACC_W.has(w) || /^account/.test(w)) ? 'accounting' : toks.some((w) => MGMT_W.has(w)) ? 'management' : 'dispatch';
   // a phone in any form: 2675550177, 267 555 0177, 267-555-0177, (267)555-0177, +1 267 5550177, 1-267-555-0177
   let pm = t.match(/(?:\+?1[\s.-]*)?\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4}(?!\d)/);
   if (pm && !db.digits(pm[0])) pm = null;
@@ -226,6 +233,10 @@ async function autoRegister(chat, who, { renamed = false } = {}) {
     await log('title', `Title "${clip(chat.title, 60)}": no driver name or phone in it`, { chatId: chat.id, who });
     return wait(chat.id, who, { kind: info.kind, what: `The bot is in "${clip(chat.title, 60)}", but the title has no driver name or phone. Pick the driver here, or put the name and phone in the group title.` });
   }
+  if (info.kind === 'management') { // our team's group: connected when someone on the team added the bot
+    if (isStaff(who)) return linkTeam(chat.id, who);
+    return wait(chat.id, who, { kind: 'management', what: `"${clip(chat.title, 60)}" looks like a management group (our team).${who ? ` ${who.name} added the bot but has not connected Telegram to the website.` : ''} Connect it here.` });
+  }
   const f = await findDrivers(info);
   await log('title', `Title "${clip(chat.title, 60)}": ${f.sure ? `${f.sure.name} (${f.by} match)` : f.list.length ? `${f.list.length} possible drivers` : 'no driver found'}, ${KINDS[info.kind]} group`, { chatId: chat.id, driverId: f.sure ? f.sure.id : null, who });
   if (f.sure && info.big && f.sure.status !== 'Hired') {
@@ -265,6 +276,7 @@ async function register(m, args, who) {
   const typed = rest.join(' ').trim();
   if (!kind && !typed && !t.name && !t.phone) return send(m.chat.id, 'Which group is this?', { replyTo: m.message_id, buttons: [[['🚚 Dispatch (onboarding)', 'regk:dispatch'], ['📋 ELD', 'regk:eld'], ['💵 Accounting', 'regk:accounting']]] });
   kind = kind || t.kind;
+  if (kind === 'management') { await linkTeam(m.chat.id, who); return react(m.chat.id, m.message_id, '👍'); }
   const info = typed ? { ...titleInfo(typed), kind, mode } : { ...t, kind, mode };
   const f = await findDrivers(info);
   if (f.sure) { await addPhone(f.sure.id, info.phone); return linkChat(m.chat.id, kind, f.sure.id, who.user_id || null, who, { mode, ackMsg: m.message_id }); }
@@ -402,6 +414,7 @@ async function handle(u) {
     const pc = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || ''); const me = m.from ? await person(m.from) : null;
     if (pc && pc[1] === 'me') return connectMe(m, pc[2], me);
     if (pc && pc[1] === 'driver') return driverCard(m, pc[2], me);
+    if ((pc && pc[1] === 'onboard') || /^\s*onboard(ing)?\s*$/i.test(m.text || '')) return require('./team').onboardCmd(m.chat.id, me);
     if ((pc && pc[1] === 'empty') || /^\s*empty( trucks)?\s*$/i.test(m.text || '')) return emptyCmd(m.chat.id, me);
     if (pc && pc[1] === 'help') return send(m.chat.id, helpText(false));
     if (/^\/start/.test(m.text || '')) await send(m.chat.id, 'Hi! I work in the driver groups. Add me to a group and send the link code from the website there. Alerts from the Indeed extension also come here.');
@@ -417,6 +430,11 @@ async function handle(u) {
   if (who && m.reply_to_message && m.reply_to_message.from && state.me && m.reply_to_message.from.id === state.me.id && !u.edited_message)
     await log('reply', `Replied to the bot ("${clip(m.reply_to_message.text, 50)}"): ${clip(redact(m.text || m.caption || '[' + (m.photo ? 'photo' : 'file') + ']').replace(/\d{4,}/g, '••••'), 90)}`, { chatId: chat.chat_id, who });
   const cmd = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || '');
+  if ((cmd && cmd[1] === 'onboard') || (chat.kind === 'management' && /^\s*onboard(ing)?\s*$/i.test(m.text || ''))) {
+    if (!isStaff(who)) return;
+    if (chat.driver_id) { const ok = await require('./team').onboardCmd(who.tg_id, who).catch(() => null); return react(m.chat.id, m.message_id, ok ? '👌' : '🤷'); } // never in a driver's group
+    return require('./team').onboardCmd(m.chat.id, who, { tagRecruiters: chat.kind === 'management' });
+  }
   if ((cmd && cmd[1] === 'empty') || /^\s*empty( trucks)?\s*$/i.test(m.text || '')) {
     if (!isStaff(who)) return; // not for drivers; nothing written
     if (chat.driver_id) { // a driver's group: never post the list there
@@ -445,7 +463,7 @@ async function handle(u) {
 // ---------- the command list in Telegram's / menu ----------
 const GROUP_CMDS = [['register', 'Connect this group to a driver (dispatch, ELD or accounting)'], ['mode', 'Onboarding: how I work here (watch, answer, run)'], ['status', 'The driver\'s status card'],
   ['sum', 'Sum up today on the website now'], ['help', 'What I do and the commands']];
-const PRIVATE_CMDS = [['empty', 'The empty trucks, by company'], ['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
+const PRIVATE_CMDS = [['onboard', 'Drivers in onboarding: Amazon verified / pending'], ['empty', 'The empty trucks, by company'], ['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
 async function setCommands() {
   const list = (a) => a.map(([command, description]) => ({ command, description }));
   await call('setMyCommands', { commands: list(GROUP_CMDS), scope: { type: 'all_group_chats' } });
@@ -454,7 +472,7 @@ async function setCommands() {
 }
 const helpText = (group) => group
   ? '<b>FleetHire assistant</b>\nI read this group and keep the team informed on the website.\n\n/register: connect this group to a driver (I also do it myself when the title has the driver\'s name and phone)\n/mode: onboarding groups: 👀 watch and learn, 💬 answer questions, or 🚀 run the onboarding\n/status: the driver\'s status card\n/sum: sum up today on the website now\n\nThe commands are for our team (connect your account first: in a private chat with me, /me CODE from the website).'
-  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/empty: the empty trucks, by company\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
+  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/onboard: the drivers in onboarding (Amazon verified, pending)\n/empty: the empty trucks, by company\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
 // /mode in an onboarding group: buttons, or "/mode watch"
 async function modeCmd(m, chat, arg, who) {
   if (!isStaff(who)) return send(m.chat.id, 'Only our team can change this.', { replyTo: m.message_id });
@@ -540,4 +558,4 @@ async function start() {
   await retryWaiting().catch((e) => console.error('tg waiting', e.message));
   loop();
 }
-module.exports = { latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+module.exports = { linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

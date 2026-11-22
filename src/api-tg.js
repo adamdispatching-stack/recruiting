@@ -85,7 +85,7 @@ module.exports = (app) => {
     const working = c.kind === 'dispatch' && (c.driver_status === 'Hired' || c.member_count > 10);
     const eldish = c.kind === 'eld' || c.kind === 'accounting';
     const updates = (await q(`SELECT id, checked, status, place, eta, load_ref, by_role, at, text FROM tg_updates WHERE chat_id = $1 ORDER BY at DESC LIMIT 15`, [c.chat_id])).rows;
-    res.json({ updates, chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, driverStatus: c.driver_status, botAdmin: c.bot_admin, linkedAt: c.linked_at, members: c.member_count, working, eldish, mode: c.mode || 'watch', learning: lr }, eld: c.kind === 'eld' ? eldView(e) : null,
+    res.json({ updates, chat: { chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, driverStatus: c.driver_status, botAdmin: c.bot_admin, linkedAt: c.linked_at, members: c.member_count, working, eldish, team: c.kind === 'management' ? { at: (db.settings.tg || {}).teamReportAt || '09:00', report: (db.settings.tg || {}).teamReport !== false, followups: (db.settings.tg || {}).teamFollowups !== false } : null, mode: c.mode || 'watch', learning: lr }, eld: c.kind === 'eld' ? eldView(e) : null,
       onb: c.kind === 'dispatch' && c.driver_id && c.driver_status !== 'Hired' ? await onbView(c.driver_id) : null,
       alerts: (await q(`SELECT id, kind, severity, text, at, resolved_at, resolved_by FROM tg_alerts WHERE chat_id = $1 ${req.user.role === 'admin' ? '' : "AND kind <> 'unprofessional_dispatcher'"} ORDER BY at DESC LIMIT 40`, [c.chat_id])).rows,
       truckEvents: (await q(`SELECT e.id, e.kind, e.title, e.details, e.status, e.at, t.unit FROM truck_events e LEFT JOIN trucks t ON t.id = e.truck_id WHERE e.chat_id = $1 ORDER BY e.at DESC LIMIT 30`, [c.chat_id])).rows,
@@ -238,6 +238,17 @@ module.exports = (app) => {
     if (!r.rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json({ ok: true });
   }));
+  // a management group: the onboarding list now (the AI reads the newest messages first)
+  app.post('/api/tg/chats/:id/report', needUser, wrap(async (req, res) => {
+    if (req.user.role === 'dispatcher') return res.status(403).json({ error: 'Not for dispatchers' });
+    const c = (await q(`SELECT kind FROM tg_chats WHERE chat_id = $1 AND active`, [req.params.id])).rows[0];
+    if (!c || c.kind !== 'management') return res.status(400).json({ error: 'Only for a management group' });
+    if (!bot.on()) return res.status(409).json({ error: 'The Telegram bot is not running' });
+    const team = require('./tg/team'); await team.refresh();
+    for (const t of await team.onboardText({ tagRecruiters: true })) await bot.send(req.params.id, t);
+    await bot.log('said', `Onboarding list sent from the website (${req.user.name})`, { chatId: req.params.id, driverId: null });
+    res.json({ ok: true });
+  }));
   // a working driver's group: watch and learn, or updater
   app.patch('/api/tg/chats/:id/mode', needUser, wrap(async (req, res) => {
     if (req.user.role === 'dispatcher') return res.status(403).json({ error: 'Not for dispatchers' });
@@ -284,6 +295,7 @@ module.exports = (app) => {
       await lib.history(ins.rows[0].id, onbd ? 'Added from a Telegram group, in onboarding' : 'Added from a Telegram group as an active driver', req.user.name, 'web');
       b.driverId = ins.rows[0].id;
     }
+    if (b.kind === 'management' || (!b.kind && !b.driverId && w.kind === 'management')) { await bot.linkTeam(w.chat_id, null, req.user.name); return res.json({ ok: true }); }
     const driverId = +b.driverId || w.driver_id; const kind = ['dispatch', 'eld', 'accounting'].includes(b.kind) ? b.kind : w.kind || 'dispatch';
     if (!driverId) return res.status(400).json({ error: 'Pick the driver' });
     if (!bot.on()) return res.status(409).json({ error: 'The Telegram bot is not running' });
@@ -400,6 +412,9 @@ module.exports = (app) => {
   }));
   app.put('/api/tg/autopilot', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const v = { ...(db.settings.tg || {}) };
+    if (b.teamReportAt !== undefined) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.teamReportAt))) return res.status(400).json({ error: 'A time like 09:00' }); v.teamReportAt = b.teamReportAt; }
+    if (b.teamReport !== undefined) v.teamReport = !!b.teamReport;
+    if (b.teamFollowups !== undefined) v.teamFollowups = !!b.teamFollowups;
     if (b.workMode !== undefined) { if (!['watch', 'updater'].includes(b.workMode)) return res.status(400).json({ error: 'Pick watch or updater' }); v.workMode = b.workMode; }
     if (b.onbMode !== undefined) { if (!['watch', 'assist', 'run'].includes(b.onbMode)) return res.status(400).json({ error: 'Pick watch, assist or run' }); v.onbMode = b.onbMode; }
     if (b.autoTick !== undefined) v.autoTick = !!b.autoTick;
