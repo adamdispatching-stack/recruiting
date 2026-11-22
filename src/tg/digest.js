@@ -15,6 +15,8 @@ const SETTLE_MIN = process.env.TG_DIGEST_SETTLE_MIN ? +process.env.TG_DIGEST_SET
 const BATCH = 60;
 const ROLE = { driver: 'driver', eld: 'ELD team', accounting: 'accounting', dispatch: 'dispatcher', staff: 'our team' };
 
+const badTries = {}; // a batch the AI cannot read is skipped after 3 tries
+
 async function tellTeam(driverId, chatId, text, ownerToo = true) {
   const d = (await q(`SELECT owner_id FROM drivers WHERE id = $1`, [driverId])).rows[0];
   const to = new Set((await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows.map((r) => r.id)); if (ownerToo && d && d.owner_id) to.add(d.owner_id);
@@ -54,7 +56,7 @@ async function digestChat(chatId) {
   const working = chat.kind === 'dispatch' && !onboarding;
   const promises = working ? (await q(`SELECT id, what, due FROM tg_promises WHERE chat_id = $1 AND state = 'open' AND at > now() - interval '10 days' ORDER BY at DESC LIMIT 15`, [chatId])).rows : [];
   try { r = await ai.digest({ promises, working, unknown, onb, kind: bot.KINDS[chat.kind], driver: chat.driver, truck: chat.unit, openIssues, unpaid, context: before.map(line), fresh: fresh.map(line), images }); }
-  catch (e) { console.error('tg digest', e.message); if (e.kind === 'bad') await done(); return null; } // a bad batch is skipped; key, credit, network or busy: the messages wait and are read later
+  catch (e) { console.error('tg digest', e.message); if (e.kind === 'bad' && (badTries[chatId + ':' + fresh[0].id] = (badTries[chatId + ':' + fresh[0].id] || 0) + 1) >= 3) await done(); return null; } // a bad batch is skipped; key, credit, network or busy: the messages wait and are read later
   await done();
   const out = { truck: 0, notes: 0, alerts: 0 };
   // truck issues

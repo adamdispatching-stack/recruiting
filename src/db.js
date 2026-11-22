@@ -611,6 +611,14 @@ async function migrate() {
     up.onbWatch = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
+  if (!up.reread) {
+    // reading the groups never worked (Sonnet 5.5 refused the forced tool call), and failed batches were marked as read:
+    // put the last 14 days back so the bot reads them now
+    const ever = (await q(`SELECT 1 FROM ai_usage WHERE feature = 'group_digest' AND failed = 0 AND calls > 0 LIMIT 1`)).rows[0];
+    if (!ever) await q(`UPDATE tg_messages SET digested = false WHERE digested AND at > now() - interval '14 days'`).catch((e) => console.error('reread', e.message));
+    up.reread = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   await loadSettings();
 }
 

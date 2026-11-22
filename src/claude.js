@@ -10,6 +10,13 @@ const BACKUP = {
   'claude-opus-5-5': ['claude-sonnet-5-5', 'claude-sonnet-5']
 };
 const swap = {}; // model asked for -> model that works with this key
+// models that do not take a forced tool call (tool_choice "tool"/"any", e.g. Sonnet 5.5): they get tool_choice "auto"
+// and are told to answer with the tool; if one still answers in words, it is asked once more
+const noForce = new Set();
+const unforced = (body) => {
+  const name = body.tool_choice.name || (body.tools[0] || {}).name;
+  return { ...body, tool_choice: { type: 'auto' }, system: `${body.system ? body.system + '\n\n' : ''}Answer ONLY by calling the ${name} tool, once. Do not write any text.` };
+};
 let pausedUntil = 0, pauseWhy = null, toldAt = 0;
 let lastOk = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -53,7 +60,10 @@ async function call({ source = 'bot', feature = 'other', model, body, timeout = 
   if (!force && Date.now() < pausedUntil) { const e = new Error('AI paused: ' + pauseWhy); e.kind = 'paused'; e.why = pauseWhy; throw e; }
   const base = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
   const models = [swap[model] || model, ...(BACKUP[model] || [])].filter((m, i, a) => a.indexOf(m) === i);
-  let mi = 0, tries = 0, last = null;
+  let mi = 0, tries = 0, last = null, nudged = false;
+  const forced = body.tool_choice && ['tool', 'any'].includes(body.tool_choice.type);
+  let extra = null; // a second ask when the model answered in words
+  const send = (use) => { let b = forced && noForce.has(use) ? unforced(body) : body; if (extra) b = { ...b, messages: [...b.messages, ...extra] }; return { ...b, model: use }; };
   const waits = [2000, 6000, 15000];
   for (;;) {
     const use = models[mi]; tries++;
@@ -62,9 +72,14 @@ async function call({ source = 'bot', feature = 'other', model, body, timeout = 
     try {
       const r = await fetch(base + '/v1/messages', { method: 'POST', signal: ctl.signal,
         headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ ...body, model: use }) });
+        body: JSON.stringify(send(use)) });
       status = r.status; retryAfter = +(r.headers.get('retry-after') || 0);
       j = await r.json().catch(() => ({}));
+      if (r.ok && forced && noForce.has(use) && !(j.content || []).some((c) => c.type === 'tool_use') && !nudged) {
+        nudged = true; await usage.record({ source, feature, model: use, usage: j.usage, ok: true });
+        extra = [{ role: 'assistant', content: j.content && j.content.length ? j.content : [{ type: 'text', text: '...' }] }, { role: 'user', content: `Answer with the ${body.tool_choice.name} tool now.` }];
+        continue;
+      }
       if (r.ok) {
         if (use !== model) swap[model] = use;
         lastOk = { at: new Date().toISOString(), model: use };
@@ -74,6 +89,7 @@ async function call({ source = 'bot', feature = 'other', model, body, timeout = 
     } catch (e) { status = 0; j = { error: { message: e.name === 'AbortError' ? 'timed out' : e.message } }; }
     finally { clearTimeout(t); }
     const err = j.error || {};
+    if (status === 400 && forced && !noForce.has(use) && /tool_choice/i.test(err.message || '') && /not supported/i.test(err.message || '')) { noForce.add(use); tries--; continue; }
     const x = explain(status, err.type, err.message);
     last = { status, type: err.type, message: err.message || `HTTP ${status}`, ...x, model: use };
     if (x.kind === 'model' && mi < models.length - 1) { mi++; continue; }
@@ -87,7 +103,7 @@ async function call({ source = 'bot', feature = 'other', model, body, timeout = 
   if (last.kind === 'account' || last.kind === 'model') { pausedUntil = Date.now() + 10 * 60e3; pauseWhy = last.why; await tellAdmins(last.why); }
   const e = new Error(last.message); e.kind = last.kind; e.why = last.why; e.status = last.status; throw e;
 }
-const state = () => ({ on: on(), paused: Date.now() < pausedUntil ? { until: new Date(pausedUntil).toISOString(), why: pauseWhy } : null, lastOk, swapped: { ...swap } });
+const state = () => ({ noForce: [...noForce], on: on(), paused: Date.now() < pausedUntil ? { until: new Date(pausedUntil).toISOString(), why: pauseWhy } : null, lastOk, swapped: { ...swap } });
 function unpause() { pausedUntil = 0; pauseWhy = null; }
 
 // the Test button: a tiny call to each model, then one real call for each job the AI does (same tool, same model)
