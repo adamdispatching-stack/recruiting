@@ -75,7 +75,7 @@
     const admin = S.me.role === 'admin';
     document.title = 'Telegram · FleetHire';
     const status = !st.on ? '' : st.bot ? `<p class="tgstat ${st.lastError ? 'bad' : 'ok'}"><b>@${esc(st.bot.username)}</b> is ${st.lastError ? `having trouble: ${esc(st.lastError)}` : 'on'}${st.ai ? ', AI on' : ', AI off (no ANTHROPIC_API_KEY)'}.</p>` : `<p class="tgstat bad">The bot is starting${st.lastError ? `: ${esc(st.lastError)}` : ''}.</p>`;
-    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ['history', 'Bot history'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Knowledge']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
+    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ...(admin ? [['all', 'All groups']] : []), ['history', 'Bot history'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Knowledge']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
     let body = '';
     if (tab === 'groups') {
       const [qs, al, act, ws] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts), api('/api/active').then((x) => x.drivers), api('/api/tg/waiting').then((x) => x.waiting)]); if (!live()) return;
@@ -98,6 +98,28 @@
           <td class="tgsum">${c.lastSummary ? `<span class="small mut">${esc(dateText(c.lastSummary.day, { month: 'short', day: 'numeric' }))}${MOOD[c.lastSummary.mood] ? ', ' + MOOD[c.lastSummary.mood] : ''}</span><div class="clip2">${esc(c.lastSummary.summary)}</div>${(c.lastSummary.issues || []).length ? `<div class="small latetag">${c.lastSummary.issues.length} open</div>` : ''}` : '<span class="none">None yet</span>'}</td>
           <td class="n">${c.todayMsgs || '<span class="none">0</span>'}</td></tr>`).join('')}</tbody></table></div>`
         : coHtml ? '' : `<div class="emptycard"><div class="emptyart"><h2>No groups yet.</h2><p>Open a driver in onboarding and use <b>Link a group</b> in the Telegram part of the onboarding card. The bot joins in from there.</p></div></div>`);
+    } else if (tab === 'all' && admin) {
+      // every group the bot is in: not connected first, then connected; type and driver changed right here
+      const [ag, dopt] = await Promise.all([api('/api/tg/all-groups'), api('/api/tg/driver-options')]); if (!live()) return;
+      const st = (s) => (s === 'Hired' ? 'active' : String(s || '').toLowerCase());
+      const dval = (id, name, status) => (id ? `${name} · ${st(status)} · #${id}` : '');
+      const TYPES = [['dispatch', 'Dispatch'], ['eld', 'ELD'], ['accounting', 'Accounting'], ['management', 'Management (our team)']];
+      const row = (g, open) => { const k = g.kind || (g.guess && g.guess.kind) || 'dispatch'; const did = g.driver_id || (g.guess && g.guess.driverId);
+        const dn = g.driver_id ? dval(g.driver_id, g.driver, g.driver_status) : g.guess && g.guess.driverId ? dval(g.guess.driverId, g.guess.driver, g.guess.status) : '';
+        return `<tr data-ag="${g.chat_id}" data-k="${g.kind || ''}" data-d="${g.driver_id || ''}"><th scope="row"><a href="#/telegram/${g.chat_id}">${esc(g.title || 'Group')}</a>
+            <div class="small mut">${g.member_count ? plural(g.member_count, 'person', 'people') : ''}${g.msgs7 ? ` · ${plural(g.msgs7, 'message')} this week` : ' · quiet this week'}${g.bot_admin ? '' : ' · <span class="latetag">bot not admin</span>'}${g.pushed_by ? ` · pushed out by "${esc(g.pushed_by)}"` : ''}</div></th>
+          <td><select data-ch="agKind" aria-label="Type">${TYPES.map(([v, l]) => `<option value="${v}" ${k === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+          <td><input class="agdrv" list="agDrivers" value="${esc(dn)}" placeholder="Type a driver's name" aria-label="Driver" ${k === 'management' ? 'disabled' : ''}>${open && g.guess && g.guess.driverId ? '<div class="small mut">Guessed from the title</div>' : ''}</td>
+          <td class="small mut">${g.linked_by ? `${esc(g.linked_by)}, ` : ''}${g.linked_at ? esc(when(g.linked_at)) : ''}</td>
+          <td class="acts"><button type="button" class="btn ${open ? 'primary' : 'plain'} sm" data-act="agSave">${open ? 'Connect' : 'Save'}</button>${open ? '' : ' <button type="button" class="btn plain sm" data-act="agOff">Disconnect</button>'}</td></tr>`; };
+      const notc = ag.groups.filter((g) => g.active && !g.kind), conn = ag.groups.filter((g) => g.active && g.kind), gone = ag.groups.filter((g) => !g.active);
+      const byKind = (a, b) => ['dispatch', 'eld', 'accounting', 'management'].indexOf(a.kind) - ['dispatch', 'eld', 'accounting', 'management'].indexOf(b.kind) || String(a.driver || '').localeCompare(String(b.driver || ''));
+      const table = (list, open) => `<div class="sheet"><table class="tgt agt"><thead><tr><th>Group</th><th style="width:190px">Type</th><th style="width:300px">Driver</th><th>Connected by</th><th></th></tr></thead><tbody>${list.map((g) => row(g, open)).join('')}</tbody></table></div>`;
+      body = `<datalist id="agDrivers">${dopt.drivers.map((d) => `<option value="${esc(dval(d.id, d.name, d.status))}"></option>`).join('')}</datalist>
+        <p class="agsearch"><input type="search" id="agFind" placeholder="Find a group or a driver" aria-label="Find a group or a driver"></p>
+        <section class="card"><h3>Not connected <span class="cnt">${notc.length}</span></h3><p class="hint">The bot is in these groups but they belong to no one yet. Pick the type and the driver, then Connect. Nothing is written in the group.</p>${notc.length ? table(notc, true) : '<p class="hint">Every group is connected.</p>'}</section>
+        <section class="card"><h3>Connected <span class="cnt">${conn.length}</span></h3><p class="hint">Change the type or the driver and press Save: what the wrong type started is undone, and a group it pushed out gets its place back.</p>${table(conn.sort(byKind), false)}</section>
+        ${gone.length ? `<details class="card"><summary>Groups the bot was removed from (${gone.length})</summary><ul class="list">${gone.map((g) => `<li><a href="#/telegram/${g.chat_id}">${esc(g.title || 'Group')}</a> <span class="small mut">${g.kind ? kindTag(g.kind) : ''}${g.driver ? ' ' + esc(g.driver) : ''}</span></li>`).join('')}</ul></details>` : ''}`;
     } else if (tab === 'history') {
       const lg = await api('/api/tg/log' + (logFilter ? '?kinds=' + logFilter : '')); if (!live()) return;
       const wk = lg.week; const n = (ks) => ks.reduce((a, k) => a + (wk[k] || 0), 0);
@@ -376,6 +398,18 @@
   on('tgTab', (b) => { tab = b.dataset.tab; App.render(); });
   on('tgPeople', () => { tab = 'people'; App.go('#/telegram'); });
   on('tgSum', async (b) => { b.disabled = true; try { await api(`/api/tg/chats/${b.dataset.chat}/summary`, { method: 'POST', body: {} }); toast('Summary written'); App.render(); } catch (e) { fail(e); b.disabled = false; } });
+  // All groups tab: connect, change, disconnect in the row
+  onChange('agKind', (el) => { const i = el.closest('tr').querySelector('.agdrv'); i.disabled = el.value === 'management'; });
+  on('agSave', async (b) => { const tr = b.closest('tr'); const kind = tr.querySelector('[data-ch=agKind]').value; const v = tr.querySelector('.agdrv').value; const m = /#(\d+)\s*$/.exec(v);
+    if (kind !== 'management' && !m) return toast('Pick the driver from the list (type a name)', true);
+    b.disabled = true;
+    try { const r = await api(`/api/tg/chats/${tr.dataset.ag}/link`, { method: 'PATCH', body: { kind, driverId: m ? +m[1] : null } });
+      toast(r.same ? 'Nothing changed' : r.restored && r.restored.length ? `Saved. "${r.restored[0].title || 'The other group'}" is back as the ${KIND[r.restored[0].kind]} group.` : 'Saved'); App.render(); }
+    catch (e) { fail(e); b.disabled = false; } });
+  on('agOff', async (b) => { const tr = b.closest('tr'); if (!confirm('Disconnect this group? The bot stays in it and keeps reading, but it belongs to no one until you connect it again.')) return;
+    try { await api(`/api/tg/chats/${tr.dataset.ag}/link`, { method: 'PATCH', body: { kind: 'none' } }); toast('Disconnected'); App.render(); } catch (e) { fail(e); } });
+  document.addEventListener('input', (e) => { if (e.target.id !== 'agFind') return; const t = e.target.value.trim().toLowerCase();
+    for (const tr of document.querySelectorAll('tr[data-ag]')) tr.hidden = !!t && !(tr.textContent.toLowerCase().includes(t) || (tr.querySelector('.agdrv').value || '').toLowerCase().includes(t)); });
   // a group linked as the wrong type (an ELD group set as Dispatch...) or to the wrong driver
   on('tgRelink', async (b) => {
     let ds; try { ds = (await api('/api/tg/driver-options')).drivers; } catch (e) { return fail(e); }

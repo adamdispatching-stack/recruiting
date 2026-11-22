@@ -102,12 +102,23 @@ module.exports = (app) => {
   // a group linked as the wrong type or to the wrong driver: changed here. What the wrong type started is undone
   // (onboarding conversation, replies waiting, road cases), the group pushed out by the mistake gets its place back,
   // and the last 14 days are read again as the right type (quietly: nobody is told about old messages)
+  // every group the bot is in, connected or not, with a guess from the title for the ones not connected (admins: All groups tab)
+  app.get('/api/tg/all-groups', needUser, needAdmin, wrap(async (req, res) => {
+    const rows = (await q(`SELECT c.chat_id::text chat_id, c.title, c.kind, c.driver_id, d.name driver, d.status driver_status, c.member_count, c.bot_admin, c.active, c.mode, c.linked_at, c.last_at, u.name linked_by,
+        (SELECT count(*)::int FROM tg_messages m WHERE m.chat_id = c.chat_id AND m.at > now() - interval '7 days') msgs7,
+        EXISTS (SELECT 1 FROM tg_waiting w WHERE w.chat_id = c.chat_id AND w.done_at IS NULL) waiting,
+        (SELECT title FROM tg_chats x WHERE x.chat_id = c.displaced_by) pushed_by
+      FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id LEFT JOIN users u ON u.id = c.linked_by ORDER BY c.active DESC, c.kind IS NOT NULL, c.last_at DESC NULLS LAST`)).rows;
+    for (const r of rows) if (!r.kind && r.active) { const t = bot.titleInfo(r.title); const f = await bot.findDrivers({ ...t, big: r.member_count > 10 }).catch(() => ({}));
+      r.guess = { kind: t.kind || 'dispatch', driverId: f.sure ? f.sure.id : null, driver: f.sure ? f.sure.name : null, status: f.sure ? ((await q(`SELECT status FROM drivers WHERE id = $1`, [f.sure.id])).rows[0] || {}).status : null }; }
+    res.json({ groups: rows });
+  }));
   app.get('/api/tg/driver-options', needUser, wrap(async (req, res) => res.json({ drivers: (await q(`SELECT id, name, status FROM drivers WHERE status IN ('Hired', 'Onboarding') OR updated_at > now() - interval '60 days' ORDER BY (status = 'Hired') DESC, (status = 'Onboarding') DESC, name LIMIT 600`)).rows })));
   app.patch('/api/tg/chats/:id/link', needUser, needAdmin, wrap(async (req, res) => {
     const c = await loadChat(req, res); if (!c) return;
     const kind = String((req.body || {}).kind || ''); const driverId = +(req.body || {}).driverId || c.driver_id;
-    if (!['dispatch', 'eld', 'accounting'].includes(kind)) return res.status(400).json({ error: 'Pick Dispatch, ELD or Accounting' });
-    const d = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0]; if (!d) return res.status(400).json({ error: 'Pick the driver' });
+    if (!['dispatch', 'eld', 'accounting', 'management', 'none'].includes(kind)) return res.status(400).json({ error: 'Pick Dispatch, ELD, Accounting or Management' });
+    const d = ['management', 'none'].includes(kind) ? { id: null, name: '' } : (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0]; if (!d) return res.status(400).json({ error: 'Pick the driver' });
     if (c.kind === kind && c.driver_id === d.id) return res.json({ ok: true, same: true });
     const bot = require('./tg/bot'); const old = { kind: c.kind, driver: c.driver_id };
     // undo what the wrong type started in this group
@@ -123,9 +134,10 @@ module.exports = (app) => {
       if (b.kind === 'dispatch') await q(`UPDATE onb_cases SET chat_id = $2 WHERE driver_id = $1 AND chat_id IS NULL`, [b.driver_id, b.chat_id]);
       await bot.log('connect', `Back as the ${bot.KINDS[b.kind]} group (it was pushed out by mistake)`, { chatId: b.chat_id, driverId: b.driver_id, who: req.user.name });
     }
-    await bot.linkChat(c.chat_id, kind, d.id, req.user.id, null, { by: req.user.name });
-    await q(`UPDATE tg_messages SET digested = false WHERE chat_id = $1 AND at > now() - interval '14 days'`, [c.chat_id]);
-    await bot.log('connect', `${req.user.name} changed this group${old.kind ? ` from ${bot.KINDS[old.kind]}` : ''} to the ${bot.KINDS[kind]} group of ${d.name}; the last 14 days are read again as ${bot.KINDS[kind]}`, { chatId: c.chat_id, driverId: d.id, who: req.user.name });
+    if (kind === 'management') await bot.linkTeam(c.chat_id, null, req.user.name);
+    else if (kind !== 'none') { await bot.linkChat(c.chat_id, kind, d.id, req.user.id, null, { by: req.user.name }); await q(`UPDATE tg_messages SET digested = false WHERE chat_id = $1 AND at > now() - interval '14 days'`, [c.chat_id]); }
+    await q(`UPDATE tg_waiting SET done_at = now() WHERE chat_id = $1 AND done_at IS NULL`, [c.chat_id]).catch(() => {});
+    await bot.log('connect', kind === 'none' ? `${req.user.name} disconnected this group${old.kind ? ` (it was the ${bot.KINDS[old.kind]} group)` : ''}` : kind === 'management' ? `${req.user.name} made this a management group` : `${req.user.name} changed this group${old.kind ? ` from ${bot.KINDS[old.kind]}` : ''} to the ${bot.KINDS[kind]} group of ${d.name}; the last 14 days are read again as ${bot.KINDS[kind]}`, { chatId: c.chat_id, driverId: d.id, who: req.user.name });
     for (const id of new Set([old.driver, d.id].filter(Boolean))) await db.syncAuto(db.pool, id, req.user.id).catch(() => {});
     res.json({ ok: true, restored: back.map((b) => ({ chatId: String(b.chat_id), title: b.title, kind: b.kind })) });
   }));

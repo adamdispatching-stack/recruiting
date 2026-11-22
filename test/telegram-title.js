@@ -549,6 +549,15 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(fx.ok && fx.restored.length === 1 && zm2[ZE.id].kind === 'eld' && zm2[ZD.id].kind === 'dispatch' && zm2[ZD.id].driver_id === zed, 'fixed on the group page: ELD again, and the real Dispatch group is back');
   ok(+((await pg.query(`SELECT chat_id FROM onb_cases WHERE driver_id = $1`, [zed])).rows[0] || {}).chat_id === ZD.id, 'the onboarding conversation is in the right group');
 
+  // ---------- All groups: every group, connected or not, changed in the row ----------
+  const RC = { id: -100803, type: 'supergroup', title: 'Random chat' }; added(RC, RITA);
+  const agN = await until(async () => ((await web('/api/tg/all-groups')).groups || []).find((g) => g.chat_id === String(RC.id) && !g.kind), 15000);
+  const agZ = (await web('/api/tg/all-groups')).groups.find((g) => g.chat_id === String(ZE.id));
+  ok(agN && agN.active && agN.guess && agZ && agZ.kind === 'eld' && agZ.driver === 'Zed Zulu', 'All groups: the new group is listed as not connected, the others with their type and driver');
+  ok((await web(`/api/tg/chats/${RC.id}/link`, { method: 'PATCH', body: { kind: 'management' } })).ok && (await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [RC.id])).rows[0].kind === 'management'
+    && !(await pg.query(`SELECT 1 FROM tg_waiting WHERE chat_id = $1 AND done_at IS NULL`, [RC.id])).rows.length, 'connected right there as a management group (no longer waiting)');
+  ok((await web(`/api/tg/chats/${RC.id}/link`, { method: 'PATCH', body: { kind: 'none' } })).ok && (await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [RC.id])).rows[0].kind === null, 'and disconnected');
+
   // ---------- dropping out ----------
   const dora = (await web('/api/drivers', { method: 'POST', body: { name: 'Dora Drop', source: 'Indeed', phone: '6105550777', ownerId: rita } })).id;
   await web('/api/drivers/' + dora, { method: 'PATCH', body: { status: 'Onboarding' } });

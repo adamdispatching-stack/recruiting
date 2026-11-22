@@ -1773,3 +1773,6 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .case .drow,.cdraft .drow{display:flex;gap:8px;margin-top:6px}
 .pbook header{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.pbook header h3{margin:0}.pbook .grow{flex:1}.pbook.off{opacity:.6}.pbsteps td{vertical-align:top;padding:6px 8px 6px 0}
 .dform.wide{max-width:760px}
+
+.agt td,.agt th{vertical-align:top}.agt select,.agt .agdrv{width:100%;font:inherit;padding:6px 8px;border:1px solid #D8D3C8;border-radius:6px}.agt td.acts{white-space:nowrap}
+.agsearch input{width:100%;max-width:420px;font:inherit;padding:8px 10px;border:1px solid #D8D3C8;border-radius:8px}
