@@ -34,6 +34,6 @@ const u = Date.now().toString().slice(-5);
   await A('/api/ext/push', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: { drivers: [
     { name: `Yan Yes ${u}`, phones: ['267555' + u.slice(-4)], status: 'Interested', answers: { relay: 'Yeah ran relay loads for 2 years' }, updatedAt: new Date().toISOString() },
     { name: `Nia No ${u}`, phones: ['215555' + u.slice(-4)], status: 'Interested', answers: { relay: 'Never, first time' }, updatedAt: new Date().toISOString() }] } });
-  const find = async (n) => ((await A('/api/drivers?q=' + encodeURIComponent(n))).body.drivers || [])[0];
+  const find = async (n) => ((await A('/api/drivers?q=' + encodeURIComponent(n))).body.drivers || []).find((d) => d.name === n); // by exact name: the search also matches phone digits
   ok((await find(`Yan Yes ${u}`)).relayBefore === true && (await find(`Nia No ${u}`)).relayBefore === false, 'read from the driver\'s chat answer');
 })().catch((e) => { console.log('ERROR', e); process.exitCode = 1; });
