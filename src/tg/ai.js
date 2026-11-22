@@ -167,4 +167,6 @@ async function dispatcherProfile({ name, stats, lines }) {
   const system = `You review how one dispatcher of a US trucking company works with the drivers in their Telegram groups, so the managers can coach the team and a bot can learn to run updates the same way. Be fair and factual, from the messages only. Never include phone numbers, addresses or load numbers.`;
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: `Dispatcher: ${name}\n${stats}\nMESSAGES (with the driver's message before when it was a reply):\n${lines.join('\n').slice(-60000)}` }], tool: DISP_TOOL, maxTokens: 1200 });
 }
-module.exports = { on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile };
+// every job the bot does, with its model (for the Test button: one real call each)
+const jobs = () => [[DOC_TOOL, MODEL()], [SUM_TOOL, SUMMARY_MODEL()], [ONB_TOOL, MODEL()], [REPLY_TOOL, MODEL()], [DIGEST_TOOL, process.env.TG_DIGEST_MODEL || SUMMARY_MODEL()], [PROFILE_TOOL, SUMMARY_MODEL()], [DISP_TOOL, SUMMARY_MODEL()]];
+module.exports = { jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile };

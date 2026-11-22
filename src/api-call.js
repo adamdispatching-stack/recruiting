@@ -51,3 +51,5 @@ module.exports = (app) => {
     res.json({ ok: true, callPrep: prep });
   }));
 };
+
+module.exports.TOOL = TOOL;

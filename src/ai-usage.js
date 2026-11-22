@@ -76,6 +76,9 @@ async function report() {
   return { today, week, month, projected: t.dom ? (month.cost / t.dom) * t.dim : 0, budget, days,
     byFeature: group('feature', d30).map((x) => ({ ...x, name: NAMES[x.key] || x.key })), byModel: group('model', d30), bySource: group('source', d30),
     unknownModels: [...unknown], prices: prices(), serverKey: !!process.env.ANTHROPIC_API_KEY, state: require('./claude').state(),
+    jobs: (await q(`WITH x AS (SELECT feature, source, max(at) FILTER (WHERE failed = 0 AND calls > 0) ok_at, max(at) FILTER (WHERE failed > 0) bad_at FROM ai_usage WHERE feature <> 'test' AND day > (now() AT TIME ZONE $1)::date - 30 GROUP BY 1, 2)
+      SELECT x.*, (SELECT coalesce(sum(failed), 0)::int FROM ai_usage u WHERE u.feature = x.feature AND u.source = x.source AND u.day > (now() AT TIME ZONE $1)::date - 30 AND (x.ok_at IS NULL OR u.at > x.ok_at)) since FROM x ORDER BY greatest(ok_at, bad_at) DESC NULLS LAST`, [tz])).rows.map((x) => ({ ...x, name: NAMES[x.feature] || x.feature })),
+    day: (await q(`SELECT coalesce(sum(calls - failed), 0)::int ok, coalesce(sum(failed), 0)::int failed FROM ai_usage WHERE at > now() - interval '24 hours' AND source <> 'extension' AND feature <> 'test'`)).rows[0],
     errors: (await q(`SELECT why, kind, max(status) status, sum(CASE WHEN source = 'extension' THEN tries ELSE 1 END)::int n, max(at) last, string_agg(DISTINCT feature, ', ') features, string_agg(DISTINCT model, ', ') models, (array_agg(message ORDER BY id DESC))[1] message
       FROM ai_errors WHERE at > now() - interval '7 days' GROUP BY why, kind ORDER BY max(at) DESC LIMIT 10`)).rows };
 }

@@ -1737,3 +1737,5 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .aiok{color:#1E6B3A;margin:6px 0}
 .aibad{color:#A3261B;margin:6px 0}
 .aierr td{padding:8px 0;border-bottom:1px solid var(--line, #eee)}
+
+.aijobs td,.aijobs th{padding:6px 8px 6px 0}

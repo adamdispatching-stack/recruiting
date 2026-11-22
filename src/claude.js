@@ -90,17 +90,28 @@ async function call({ source = 'bot', feature = 'other', model, body, timeout = 
 const state = () => ({ on: on(), paused: Date.now() < pausedUntil ? { until: new Date(pausedUntil).toISOString(), why: pauseWhy } : null, lastOk, swapped: { ...swap } });
 function unpause() { pausedUntil = 0; pauseWhy = null; }
 
-// the Test button: one tiny call to each model the website uses
+// the Test button: a tiny call to each model, then one real call for each job the AI does (same tool, same model)
 async function test() {
   unpause();
-  const out = [];
+  const out = [], jobs = [];
   for (const model of [...new Set([process.env.TG_AI_MODEL || 'claude-haiku-5-5', process.env.TG_SUMMARY_MODEL || 'claude-sonnet-5-5'])]) {
     try {
       const j = await call({ source: 'website', feature: 'test', model, force: true, timeout: 30000,
         body: { max_tokens: 20, messages: [{ role: 'user', content: 'Reply with the word OK.' }] } });
-      out.push({ model, ok: true, used: j.model || swap[model] || model, said: ((j.content || [])[0] || {}).text || '' });
+      out.push({ model, ok: true, used: j.model || swap[model] || model });
     } catch (e) { out.push({ model, ok: false, why: e.why || e.message, status: e.status || null }); }
   }
-  return out;
+  const list = [...require('./tg/ai').jobs(), [require('./api-call').TOOL, process.env.CALL_PREP_MODEL || 'claude-haiku-5-5']];
+  const names = require('./ai-usage').NAMES;
+  await Promise.all(list.map(async ([tool, model]) => {
+    try {
+      const j = await call({ source: 'website', feature: 'test', model, force: true, timeout: 90000,
+        body: { max_tokens: 1500, system: 'This is a test of a trucking company tool. Fill the tool with short made-up test values.', tools: [tool], tool_choice: { type: 'tool', name: tool.name },
+          messages: [{ role: 'user', content: '[#1 Sun Nov 22 08:00] Driver: Hi, I will be ready to start Monday, truck 118 needs an oil change.' }] } });
+      const ok = (j.content || []).some((c) => c.type === 'tool_use');
+      jobs.push({ job: names[tool.name] || tool.name, model: j.model || model, ok, why: ok ? '' : 'The AI did not fill the form.' });
+    } catch (e) { jobs.push({ job: names[tool.name] || tool.name, model, ok: false, why: e.why || e.message }); }
+  }));
+  return { models: out, jobs };
 }
 module.exports = { call, on, state, test, unpause, explain };
