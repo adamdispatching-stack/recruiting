@@ -427,6 +427,8 @@ window.App = (() => {
   // a load update the bot saw in a working driver's group
   const UPD = { assigned: '📋 Load assigned', to_pickup: '➡️ Heading to pickup', at_pickup: '🏭 At pickup', loaded: '📦 Loaded', rolling: '🚚 Rolling', at_delivery: '🏁 At delivery', delivered: '✅ Delivered', delayed: '⏰ Delayed', waiting: '⏳ Waiting', issue: '⚠️ Issue' };
   const updText = (u) => `${UPD[u.status] || u.status}${u.place ? ', ' + u.place : ''}${u.eta ? `, ETA ${u.eta}` : ''}${u.load_ref ? ` (${u.load_ref})` : ''}`;
-  return { UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  // how likely a driver in onboarding is to make it, from how he responds
+  const chance = (r, long = false) => (r ? `<span class="chance c-${r.level}" title="${esc(r.reasons.map((x) => (x.up ? '+ ' : '− ') + x.text).join('\n') || 'Nothing to go on yet')}">${r.icon} ${r.score}${r.silentDays >= 1 ? ` · 🔇 ${r.silentDays}d silent` : ''}</span>${long && r.reasons.length ? `<ul class="chwhy">${r.reasons.map((x) => `<li class="${x.up ? 'up' : 'dn'}">${x.up ? '▲' : '▼'} ${esc(x.text)}</li>`).join('')}</ul>` : ''}` : '');
+  return { chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();

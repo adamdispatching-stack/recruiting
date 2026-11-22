@@ -34,22 +34,26 @@ async function onboardText({ tagRecruiters = false } = {}) {
     LEFT JOIN tg_chats ch ON ch.driver_id = d.id AND ch.kind = 'dispatch' AND ch.active
     WHERE d.status = 'Onboarding' ORDER BY o.expected_arrival NULLS LAST, d.name`)).rows;
   if (!rows.length) return ['Nobody is in onboarding right now.'];
+  const reach = await require('../reach').scoreMany(rows.map((d) => d.id));
+  rows.sort((a, b) => ((reach[b.id] || {}).score || 0) - ((reach[a.id] || {}).score || 0)); // the most likely first
   const line = async (d) => {
     const s = d.ai_status || {};
     const amz = d.amazon_step === 'verified' ? '' : `Amazon: ${esc(AMZ[d.amazon_step] || 'invite not sent')}${d.amazon_step && d.amazon_log && d.amazon_log[d.amazon_step] ? ` (${ago(d.amazon_log[d.amazon_step])})` : ''}`;
+    const rc = reach[d.id];
     const parts = [
-      `• <b>${esc(d.name)}</b>: ${tagRecruiters ? await who(d.owner_id, d.owner) : esc(d.owner || 'no recruiter')}, ${d.start ? `starts <b>${esc(nice(d.start))}</b>` : 'no start date'}`,
+      `• ${rc ? `${rc.icon} ${rc.score} ` : ''}<b>${esc(d.name)}</b>: ${tagRecruiters ? await who(d.owner_id, d.owner) : esc(d.owner || 'no recruiter')}, ${d.start ? `starts <b>${esc(nice(d.start))}</b>` : 'no start date'}`,
       amz ? `   ${amz}` : '',
       s.summary ? `   📝 ${esc(s.summary)}` : d.chat_id ? '' : '   No Telegram group yet',
       s.waiting_on && s.waiting_on !== 'nobody' ? `   ⏳ Waiting on: ${esc(s.waiting_on)}${s.next_step ? `. Next: ${esc(s.next_step)}` : ''}` : s.next_step ? `   ➡️ Next: ${esc(s.next_step)}` : '',
       (s.blockers || []).length ? `   ⚠️ ${esc(s.blockers.slice(0, 2).join('; '))}` : '',
       s.driver_mood && !['good', 'unknown', 'neutral'].includes(s.driver_mood) ? `   😟 Mood: ${esc(s.driver_mood)}` : '',
-      d.last_msg ? `   💬 Last message in the group ${ago(d.last_msg)} ago` : ''
+      rc && rc.silentDays >= 1 ? `   🔇 Silent ${rc.silentDays} day${rc.silentDays === 1 ? '' : 's'}${rc.unanswered ? `, ${rc.unanswered} of our messages unanswered` : ''}${rc.calls.noAnswer ? `, ${rc.calls.noAnswer} call${rc.calls.noAnswer === 1 ? '' : 's'} not answered` : ''}` : d.last_msg ? `   💬 Last message in the group ${ago(d.last_msg)} ago` : ''
     ];
     return parts.filter(Boolean).join('\n');
   };
   const ver = rows.filter((d) => d.amazon_step === 'verified'), pend = rows.filter((d) => d.amazon_step !== 'verified');
-  const blocks = [`🧭 <b>${rows.length} in onboarding</b>: ${ver.length} Amazon verified, ${pend.length} pending Amazon`];
+  const lv = (l) => rows.filter((d) => (reach[d.id] || {}).level === l).length;
+  const blocks = [`🧭 <b>${rows.length} in onboarding</b>: ${ver.length} Amazon verified, ${pend.length} pending Amazon\nChance to make it: 🟢 ${lv('likely')} likely, 🟡 ${lv('unsure')} unsure, 🔴 ${lv('risk')} at risk`];
   blocks.push(`\n✅ <b>Amazon verified</b> (${ver.length})`); if (!ver.length) blocks.push('Nobody yet.');
   // verified: company drivers first, then owner-operators (and anyone not marked yet)
   const groups = [['🚛 Company drivers', ver.filter((d) => d.dtype === 'Company drivers')], ['🛻 Owner-operators', ver.filter((d) => d.dtype === 'Owner-operators')], ['❔ Not marked company or owner-operator', ver.filter((d) => d.dtype !== 'Company drivers' && d.dtype !== 'Owner-operators')]];
@@ -84,11 +88,21 @@ async function followups() {
   const items = [];
   // a driver in onboarding wrote in the group and nobody from the team answered for 3+ hours
   for (const d of (await q(`SELECT d.id, d.name, d.owner_id, u.name owner, ch.chat_id, ch.title,
-      (SELECT max(m.at) FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND p.role = 'driver') drv,
-      (SELECT max(m.at) FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND coalesce(p.role, '') <> 'driver') team
+      (SELECT max(m.at) FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL))) drv,
+      (SELECT max(m.at) FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND (p.role IN ('staff', 'dispatch', 'eld', 'accounting') OR p.user_id IS NOT NULL)) team
     FROM drivers d JOIN tg_chats ch ON ch.driver_id = d.id AND ch.kind = 'dispatch' AND ch.active LEFT JOIN users u ON u.id = d.owner_id WHERE d.status = 'Onboarding'`)).rows) {
     if (d.drv && (!d.team || new Date(d.team) < new Date(d.drv)) && Date.now() - new Date(d.drv) > 3 * 36e5)
       items.push({ key: `wait:${d.id}`, userId: d.owner_id, owner: d.owner, text: `${esc(d.name)} wrote in the group ${ago(d.drv)} ago and nobody from the team answered.`, driverId: d.id });
+  }
+  // the silence countdown: 2 days (call him), 4 days (at risk), 7 days (still with us?)
+  const ob = (await q(`SELECT d.id, d.name, d.owner_id, u.name owner FROM drivers d LEFT JOIN users u ON u.id = d.owner_id WHERE d.status = 'Onboarding'`)).rows;
+  const rs = await require('../reach').scoreMany(ob.map((d) => d.id));
+  for (const d of ob) {
+    const r = rs[d.id]; if (!r || !(r.silentDays >= 2)) continue;
+    const step = r.silentDays >= 7 ? 7 : r.silentDays >= 4 ? 4 : 2;
+    const what = step === 7 ? 'still with us? Consider moving the driver out of onboarding.' : step === 4 ? `now at risk (${r.icon} ${r.score}). Try a call and a text today.` : 'please give a call.';
+    items.push({ ever: true, key: `silent${step}:${d.id}`, userId: d.owner_id, owner: d.owner, driverId: d.id,
+      text: `${esc(d.name)} has been silent ${r.silentDays} days${r.unanswered ? ` (${r.unanswered} of our messages unanswered${r.calls.noAnswer ? `, ${r.calls.noAnswer} call${r.calls.noAnswer === 1 ? '' : 's'} not answered` : ''})` : ''}: ${what}` });
   }
   // a call-back that was missed
   for (const d of (await q(`SELECT d.id, d.name, d.owner_id, u.name owner, d.callback_at, d.callback_said FROM drivers d LEFT JOIN users u ON u.id = d.owner_id WHERE d.callback_state = 'due' AND d.callback_at < now() - interval '30 minutes'`)).rows)
@@ -116,8 +130,11 @@ async function tick() {
       await bot.log('said', 'Morning report in the management group', { chatId: g.chat_id, driverId: null });
     }
     if (t.teamFollowups === false || !work) continue;
-    for (const it of await followups()) {
-      if (!await once(`mf:${g.chat_id}:${it.key}:${L.date}`)) continue;
+    const fu = await followups();
+    // one silence = since the driver's last sign of life; a new silence later counts again
+    const rsAt = Object.fromEntries((await q(`SELECT d.id, (SELECT max(m.at) FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id IN (SELECT chat_id FROM tg_chats WHERE driver_id = d.id) AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)))::text last FROM drivers d WHERE d.id = ANY($1::int[])`, [fu.filter((x) => x.ever).map((x) => x.driverId)])).rows.map((r) => [r.id, r.last || '']));
+    for (const it of fu) {
+      if (!await once(it.ever ? `mf:${g.chat_id}:${it.key}:${(rsAt[it.driverId] || '')}` : `mf:${g.chat_id}:${it.key}:${L.date}`)) continue; // the silence steps: once per silence
       const tg = await who(it.userId, it.owner);
       await send(g.chat_id, `🔔 ${tg}${it.text.startsWith('missed') ? ' ' : ': '}${it.text}`);
       await bot.log('ask', `Follow-up: ${it.owner || 'no recruiter'}: ${bot.stripHtml ? bot.stripHtml(it.text) : it.text}`, { chatId: g.chat_id, driverId: it.driverId });

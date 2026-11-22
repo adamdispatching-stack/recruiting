@@ -1679,3 +1679,8 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .ub.bad.on{background:#B3261E;border-color:#B3261E}
 
 .tgk.k-management{background:#FFF1E6;color:#8A4B12}
+
+/* chance to make it (onboarding) */
+.chance{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.chance.c-likely{background:#E5F4EA;color:#1F6B3A}.chance.c-unsure{background:#FFF4DD;color:#7A5A06}.chance.c-risk{background:#FBE9E7;color:#8A2D1B}
+.chwhy{list-style:none;margin:6px 0 0;padding:0;font-size:13px}.chwhy li{margin:2px 0}.chwhy .up{color:#1F6B3A}.chwhy .dn{color:#8A2D1B}

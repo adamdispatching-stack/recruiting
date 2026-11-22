@@ -352,7 +352,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   n = tg.sent.length; priv(RITA, '/onboard');
   const ob = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /in onboarding/.test(m.text)), 20000);
   ok(ob && /✅ <b>Amazon verified<\/b> \(\d+\)[\s\S]*Paul Penn[\s\S]*⏳ <b>Pending Amazon<\/b>[\s\S]*Cody Coming/.test(ob.text), '/onboard: Amazon verified (Paul), then pending Amazon (Cody)');
-  ok(ob && /✅ <b>Amazon verified<\/b> \(2\)\n<b>🚛 Company drivers<\/b> \(1\)\n• <b>Cara Company<\/b>[\s\S]*<b>🛻 Owner-operators<\/b> \(1\)\n• <b>Paul Penn<\/b>[\s\S]*Own truck: 2021 Freightliner Cascadia[\s\S]*⏳ <b>Pending Amazon/.test(ob.text), 'verified: company drivers first, then owner-operators (with their truck)');
+  ok(ob && /✅ <b>Amazon verified<\/b> \(2\)\n<b>🚛 Company drivers<\/b> \(1\)\n• (?:🟢|🟡|🔴) \d+ <b>Cara Company<\/b>[\s\S]*<b>🛻 Owner-operators<\/b> \(1\)\n• (?:🟢|🟡|🔴) \d+ <b>Paul Penn<\/b>[\s\S]*Own truck: 2021 Freightliner Cascadia[\s\S]*⏳ <b>Pending Amazon/.test(ob.text), 'verified: company drivers first, then owner-operators (with their truck)');
   ok(ob && /Amazon: Background check \(6 h\)/.test(ob.text) && /Paul Penn<\/b>: Rita Recruiter, starts/.test(ob.text), 'with the recruiter, the start date, the Amazon step and how long');
   const MCHAT = { id: -100740, type: 'supergroup', title: 'Management Team' };
   n = tg.sent.length; added(MCHAT, RITA);
@@ -371,6 +371,22 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => inChat(n, MCHAT).some((m) => /🔔 @rita_r missed the call-back to Cody Coming/.test(m.text)), 15000), 'follow-up: a missed call-back');
   await sleep(2500); ok(inChat(n, MCHAT).filter((m) => /Background check" with Amazon/.test(m.text)).length === 1, 'each follow-up once a day');
   await pg.query(`UPDATE drivers SET callback_state = NULL WHERE id = $1`, [cody]);
+  // ---------- the chance to make it: how the driver responds ----------
+  await pg.query(`UPDATE tg_messages SET at = at - interval '3 days' WHERE chat_id = $1`, [PCHAT.id]);
+  say(RITA, 'Paul, are you there?', PCHAT); await sleep(300); say(RITA, 'Paul, please call me back', PCHAT);
+  for (let i = 0; i < 3; i++) await pg.query(`INSERT INTO notes (driver_id, user_id, body, kind, outcome) VALUES ($1, $2, 'called', 'call', 'No answer')`, [cody, rita]);
+  const lr = await until(async () => { const r = (await web('/api/drivers/' + paul)).reach; return r && r.unanswered >= 2 ? r : null; });
+  ok(lr && lr.silentDays === 3 && lr.unanswered === 2 && lr.level !== 'likely' && lr.reasons.some((x) => /silent 3 days, 2 messages unanswered/.test(x.text)), 'Paul silent 3 days, 2 of our messages unanswered: his chance drops, with the reasons');
+  const cr = (await web('/api/drivers/' + cody)).reach;
+  ok(cr && cr.calls.noAnswer === 3 && cr.reasons.some((x) => /not reachable by phone/.test(x.text)), 'Cody: 3 calls not answered this week');
+  const obl = await web('/api/onboarding');
+  ok(obl.drivers.every((d) => d.reach && typeof d.reach.score === 'number'), 'the onboarding page shows each driver\'s chance');
+  ok(await until(() => inChat(0, MCHAT).some((m) => /🔔 @rita_r: Paul Penn has been silent 3 days \(2 of our messages unanswered\): please give a call/.test(m.text)), 15000), 'management group: the silence countdown tags Rita');
+  await sleep(2500); ok(inChat(0, MCHAT).filter((m) => /Paul Penn has been silent/.test(m.text)).length === 1, 'once for this silence');
+  n = tg.sent.length; priv(RITA, '/onboard');
+  const ob2 = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Chance to make it/.test(m.text)), 20000);
+  ok(ob2 && /🔇 Silent 3 days, 2 of our messages unanswered/.test(ob2.text) && /(?:🟢|🟡|🔴) \d+ <b>Paul Penn/.test(ob2.text), '/onboard: the chance for each driver, the silence count');
+
   // someone not on the team adds the bot to a team group: the website connects it
   const OPS = { id: -100741, type: 'supergroup', title: 'Ops office' };
   added(OPS, X);

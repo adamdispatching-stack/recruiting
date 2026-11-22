@@ -352,8 +352,9 @@
   const US = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'];
   function mvrFields(d) {
     const need = (cur && cur.mvrNeeds) || [];
+    const ch = cur && cur.reach ? `<div class="fld wide chancebox"><span>Chance to make it (from how the driver responds)</span>${App.chance(cur.reach, true)}</div>` : '';
     const pa = d.licenseState === 'PA' || d.hasSsn4;
-    return `${need.length ? `<p class="hint wide mvrneed"><b>Still needed from the driver:</b> ${esc(need.map((n) => n.label).join(', '))}.</p>` : ''}
+    return `${ch}${need.length ? `<p class="hint wide mvrneed"><b>Still needed from the driver:</b> ${esc(need.map((n) => n.label).join(', '))}.</p>` : ''}
       <label class="fld">CDL state<select data-ch="mvrField" data-f="licenseState" data-fk="ls"><option value="">Not known</option>${US.map((x) => `<option ${d.licenseState === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
       <label class="fld">ZIP code (drug test)<input type="text" inputmode="numeric" maxlength="5" pattern="[0-9]{5}" data-ch="mvrField" data-f="zip" data-fk="zip" placeholder="12345" value="${esc(d.zip || '')}"></label>
       ${pa ? `<div class="fld wide"><span>Last 4 of SSN (Pennsylvania MVR)</span>${d.hasSsn4
