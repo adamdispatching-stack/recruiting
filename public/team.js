@@ -21,12 +21,41 @@
   const idleCell = (t) => (t.idle ? `${dur(t.idle)}${t.idleCount > 1 ? `<div class="small mut">${t.idleCount} times</div>` : ''}${t.idleNow ? '<div><span class="idletag now">Idle now</span></div>' : ''}` : '<span class="none">None</span>');
   const idleList = (d) => d.idles.map((i) => `${esc(hm(i.from))} to ${esc(hm(i.to))} (${dur(i.secs)}${i.now ? ', still idle' : ''}${i.alerted ? ', alert sent' : ''})`).join('<br>');
 
+  // ---------- Recruiters and Dispatchers: different work, different numbers ----------
+  const teamTabs = (on, nDisp) => `<nav class="teamtabs" aria-label="Team"><a href="#/team" class="${on === 'recruiters' ? 'on' : ''}" ${on === 'recruiters' ? 'aria-current="page"' : ''}>Recruiters</a><a href="#/team/dispatchers" class="${on === 'dispatchers' ? 'on' : ''}" ${on === 'dispatchers' ? 'aria-current="page"' : ''}>Dispatchers${nDisp ? ` <span class="cnt">${nDisp}</span>` : ''}</a></nav>`;
+  const TREND = { first: 'First review', better: '↑ Better', same: '→ Same', worse: '↓ Worse' };
+  const mins = (m) => (m === null || m === undefined ? '<span class="none">—</span>' : m < 60 ? m + ' min' : (m / 60).toFixed(1) + ' h');
+  async function viewDispatchers() {
+    if (S.me.role !== 'admin') return go('#/team/me');
+    const live = App.drawing(); const r = await api('/api/team/dispatchers?period=' + period); if (!live()) return;
+    document.title = 'Dispatchers · Team · FleetHire';
+    const score = (x) => (x === null || x === undefined ? '<span class="none">—</span>' : `<b class="sc s${Math.round(x)}">${x.toFixed(1)}</b><span class="small mut"> / 5</span>`);
+    const row = (p) => `<tr class="${p.active ? '' : 'off'}"><th scope="row"><a href="#/team/${p.id}">${esc(p.name)}</a>${p.noLogin ? '<span class="rtag warn">No login yet</span>' : ''}${p.active ? '' : '<span class="rtag">No access</span>'}
+        <div class="small mut">${p.lastAt ? 'Seen ' + esc(teamTime(p.lastAt)) : p.noLogin ? 'Made by the bot from Telegram' : 'Not seen'}${p.tg ? '' : ' · Telegram not linked'}</div></th>
+      <td class="n g">${num(p.msgs)}</td><td class="n">${num(p.groups)}</td><td class="n">${num(p.answered)}</td><td class="n">${mins(p.med)}</td><td class="n">${p.fast === null ? '<span class="none">—</span>' : p.fast + '%'}</td><td class="n${p.waited ? ' bad' : ''}">${num(p.waited)}</td>
+      <td class="n g">${num(p.trucks)}</td><td class="n${p.empty ? ' bad' : ''}">${num(p.empty)}</td><td class="n${p.issues ? ' bad' : ''}">${num(p.issues)}</td>
+      <td class="n g">${p.review ? score(p.review.score) : '<span class="none">Not yet</span>'}</td><td>${p.review && p.review.trend ? esc(TREND[p.review.trend] || '') : ''}</td>
+      <td class="n${p.review && p.review.flags ? ' bad' : ''}">${p.review ? num(p.review.flags) : ''}</td><td class="goal">${p.review && p.review.goal ? esc(p.review.goal) : ''}</td>
+      <td class="n">${dur(p.activeSeconds)}</td><td>${p.tg ? `<a class="btn plain sm" href="#/dispatcher/${p.tg}">Review</a>` : ''}</td></tr>`;
+    view.innerHTML = header('team') + `<main>${App.pageHead('Team performance', 'Dispatchers: how they work with the drivers in the Telegram groups, their trucks, and their review.', `<button class="btn primary lg" data-act="personAdd">${App.plus} Add a person</button>`)}${teamTabs('dispatchers', r.people.filter((p) => p.active).length)}${periodBar()}</div>
+      ${r.people.length ? `<div class="sheet"><table class="team disp"><thead>
+        <tr class="grp"><th></th><th colspan="6">In the driver groups, ${esc((PERIODS.find(([k]) => k === r.period) || [, ''])[1].toLowerCase())}</th><th colspan="3" class="g">Their trucks, now</th><th colspan="4" class="g">Last review</th><th colspan="2"></th></tr>
+        <tr><th>Dispatcher</th><th class="n">Messages</th><th class="n">Groups</th><th class="n" title="Driver messages he was the first of our team to answer">Answered first</th><th class="n" title="Half of his answers came within this time">Half within</th><th class="n">Within 15 min</th><th class="n" title="Driver messages in his groups that waited over 2 hours or got no answer from anyone on our side">Waited 2 h+</th>
+          <th class="n g">Trucks</th><th class="n">Empty</th><th class="n" title="Truck issues not fixed yet">Open issues</th>
+          <th class="n g" title="Average of the 8 areas in his last review">Score</th><th>Trend</th><th class="n" title="Serious things to act on">Act on</th><th>Goal for him</th><th class="n" title="Active time on the website">On the website</th><th></th></tr></thead>
+        <tbody>${r.people.map(row).join('')}</tbody></table></div>` : '<section class="card"><p class="hint">No dispatchers yet. Add one with Add a person, or the bot makes their accounts when it sees them dispatching in the driver groups.</p></section>'}
+      <p class="hint foot">The numbers come from the driver groups the bot is in. <b>Answered first</b> counts driver messages he answered before anyone else on the team; <b>Waited 2 h+</b> counts driver messages in his groups that nobody answered for 2 hours. The review is rebuilt every 3 days; open <b>Review</b> for the feedback to give him.</p></main>`;
+    App.every(120000, viewDispatchers);
+  }
+
   // ---------- the team table ----------
   async function viewTeam() {
     if (S.me.role !== 'admin') return go('#/team/me');
     const live = App.drawing(); const r = await api('/api/team?period=' + period); if (!live()) return; const day = r.days === 1;
     document.title = 'Team · FleetHire';
     const cols = ['clicks', 'opened', 'notes', 'contacts', 'added', 'forward', 'onboarded', 'hired', 'due', 'cold', 'owned'];
+    const nDisp = r.people.filter((p) => p.role === 'dispatcher' && p.active).length;
+    r.people = r.people.filter((p) => p.role !== 'dispatcher');
     const act = r.people.filter((p) => p.active); const tot = Object.fromEntries(cols.map((k) => [k, act.reduce((a, p) => a + p[k], 0)]));
     const row = (p) => `<tr class="${p.active ? '' : 'off'}"><th scope="row"><a href="#/team/${p.id}">${esc(p.name)}</a>${p.role === 'admin' ? '<span class="rtag">Admin</span>' : p.role === 'dispatcher' ? '<span class="rtag disp">Dispatcher</span>' : ''}${p.active ? presenceHtml(p, r.now) : '<span class="pres never"><i></i>No access</span>'}</th>
       ${day ? `<td>${todayCell(p.day)}</td><td>${p.firstAt ? esc(teamTime(p.firstAt)) : '<span class="none">Not seen</span>'}</td><td>${p.lastAt ? esc(teamTime(p.lastAt)) : ''}</td>`
@@ -37,7 +66,7 @@
       <td class="n g${p.due ? ' bad' : ''}">${num(p.due)}</td><td class="n${p.cold ? ' bad' : ''}">${num(p.cold)}</td><td class="n">${num(p.owned)}</td></tr>
       ${day && p.day && p.day.idles.length ? `<tr class="idlerow" id="tidle-${p.id}" hidden><td colspan="19"><b>${esc(p.name)}, idle ${r.period === 'today' ? 'today' : 'yesterday'}</b>: no clicks, typing or scrolling on the website during working hours
         <ol class="idlelist">${p.day.idles.map((i) => `<li><b>${esc(hm(i.from))} to ${esc(hm(i.to))}</b><span>${dur(i.secs)}</span>${i.now ? '<span class="idletag now">Still idle</span>' : ''}${i.alerted ? '<span class="idletag">Alert sent</span>' : ''}</li>`).join('')}</ol></td></tr>` : ''}`;
-    view.innerHTML = header('team') + `<main>${App.pageHead('Team performance', "Who is active, what they are working on, and the leads and hires they are moving forward.", `<button class="btn primary lg" data-act="personAdd">${App.plus} Add a person</button>`)}${periodBar()}</div>
+    view.innerHTML = header('team') + `<main>${App.pageHead('Team performance', "Who is active, what they are working on, and the leads and hires they are moving forward.", `<button class="btn primary lg" data-act="personAdd">${App.plus} Add a person</button>`)}${teamTabs('recruiters', nDisp)}${periodBar()}</div>
       <div class="sheet"><table class="team"><thead>
         <tr class="grp"><th></th><th colspan="${day ? 8 : 7}">${day ? 'Presence and activity, ' + (r.period === 'today' ? 'today' : 'yesterday') : 'Days and time'}</th><th colspan="5" class="g">Recruiting work</th><th colspan="2" class="g">Hires</th><th colspan="3" class="g">Lead follow-up</th></tr>
         <tr><th>Person</th>${day ? '<th style="width:150px">Working day</th><th>First seen</th><th>Last seen</th>' : '<th class="n" title="Working days with at least the minimum active time (Settings, Working hours)">Days worked</th><th class="n" title="Working days without enough active time">Days off</th><th class="n">Late starts</th>'}<th class="n" title="The site was open and on screen">On site</th><th class="n" title="Time with clicks, typing or scrolling">Active</th><th class="n" title="Stretches of ${S.me.idleMinutes || 15}+ minutes inside working hours with no activity on the website">Idle</th><th class="n">Clicks</th>${day ? '<th class="n" title="Facebook work against the daily targets">Facebook</th>' : ''}
@@ -280,5 +309,6 @@
   }));
 
   App.route(/^#\/team$/, viewTeam);
+  App.route(/^#\/team\/dispatchers$/, viewDispatchers);
   App.route(/^#\/team\/(me|\d+)$/, (id) => viewPerson(id));
 })();

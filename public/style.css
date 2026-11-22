@@ -1756,3 +1756,9 @@ h3.sub{font-size:14px;margin:14px 0 6px}
 .draft .dq{margin:4px 0 8px}.draft textarea{width:100%;margin-top:4px;font:inherit;padding:8px;border:1px solid #D8D3C8;border-radius:6px}
 .draft .drow{display:flex;gap:8px;margin-top:6px}
 .replyready{display:inline-block;margin-top:4px;font-size:12px;font-weight:600;color:#2B6CB0;background:#E8F0FA;padding:2px 8px;border-radius:10px;text-decoration:none}
+
+.teamtabs{display:flex;gap:4px;margin:4px 0 12px;border-bottom:1px solid #E5E1D8}
+.teamtabs a{padding:8px 14px;text-decoration:none;color:inherit;font-weight:600;border-bottom:3px solid transparent;margin-bottom:-1px}
+.teamtabs a.on{border-bottom-color:#1F6F43;color:#1F6F43}.teamtabs .cnt{font-size:12px;background:#EFEBE3;border-radius:9px;padding:1px 7px;margin-left:4px}
+.team.disp td.goal{max-width:240px;font-size:13px}.rtag.warn{background:#FFF3D6;color:#7A5B00}
+.sc.s1,.sc.s2{color:#A3261B}.sc.s3{color:#7A5B00}.sc.s4,.sc.s5{color:#1E6B3A}

@@ -319,6 +319,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(danU && danU.role === 'dispatcher' && /@no-login\.fleethire$/.test(danU.email) && +danU.from_tg === DAN.id, 'Dan gets a dispatcher account made by the bot, nobody can sign in with it yet');
   ok((await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Dan Dispatch writes as a dispatcher%'`)).rows.length >= 1, 'the admins are told to give him a login');
   ok((await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: danU.email, password: 'whatever-123' }) })).status !== 200, 'no sign in with the made-up email');
+  const tdp = (await web('/api/team/dispatchers?period=7d')).people.find((x) => x.id === danU.id);
+  ok(tdp && tdp.msgs >= 2 && tdp.noLogin && tdp.review && tdp.review.goal, 'Team → Dispatchers: Dan with his messages, no login yet, his review');
   // his work review
   const rv = await web('/api/tg/dispatchers/u' + danU.id);
   ok(rv.profile && rv.profile.feedback.goal && rv.profile.scores.length === 2 && rv.stats.msgs >= 2 && rv.user.noLogin && rv.history.length === 1, 'work review: scores, feedback to give, his numbers, linked account');

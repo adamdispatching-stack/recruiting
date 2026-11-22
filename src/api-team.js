@@ -143,6 +143,27 @@ module.exports = (app) => {
     for (const p of people) { if (fbC) p.fb = fb.score(fbC[p.id]); const a = att[p.id]; p.att = a.totals; p.weekText = a.weekText; if (r.days === 1) { const d = a.days[0]; p.day = { status: d.status, late: d.late, early: d.early, sch: d.sch, offReason: d.offReason, idle: d.idle, idles: d.idles }; } }
     res.json({ now: new Date().toISOString(), period: r.period, days: r.days, tz: r.tz, today: r.today, people });
   }));
+  // The Dispatchers tab: their work in the driver groups, their trucks, their review, time on the website
+  app.get('/api/team/dispatchers', needUser, needAdmin, wrap(async (req, res) => {
+    const r = await range(req.query.period);
+    const D = require('./tg/dispatchers'), acc = require('./tg/accounts');
+    const site = Object.fromEntries((await teamStats(r)).map((p) => [p.id, p]));
+    const users = (await q(`SELECT id, name, email, active, last_seen_at FROM users WHERE role = 'dispatcher' ORDER BY active DESC, name`)).rows;
+    const people = [];
+    for (const u of users) {
+      const tg = (await q(`SELECT tg_id, profile, profile_at FROM tg_people WHERE user_id = $1 ORDER BY profile_at DESC NULLS LAST, seen_at DESC NULLS LAST LIMIT 1`, [u.id])).rows[0];
+      const st = tg ? await D.stats(tg.tg_id, { from: r.from, to: r.to }) : null;
+      const tr = (await q(`SELECT count(*)::int trucks, count(*) FILTER (WHERE driver_id IS NULL AND driver_name IS NULL AND NOT out_of_service)::int empty,
+          (SELECT count(*)::int FROM truck_events e JOIN trucks t2 ON t2.id = e.truck_id WHERE t2.dispatcher_id = $1 AND e.status <> 'fixed') issues FROM trucks WHERE dispatcher_id = $1`, [u.id])).rows[0];
+      const p = (tg && tg.profile) || null; const sc = p && p.scores && p.scores.length ? p.scores.reduce((a, x) => a + (+x.score || 0), 0) / p.scores.length : null;
+      const s = site[u.id] || {};
+      people.push({ id: u.id, name: u.name, active: u.active, noLogin: acc.noLogin(u.email), tg: tg ? String(tg.tg_id) : null, activeSeconds: s.activeSeconds || 0, lastAt: s.lastAt || u.last_seen_at || null,
+        msgs: st ? st.msgs : 0, groups: st ? st.groups : 0, answered: st ? st.his : 0, med: st ? st.med : null, fast: st && st.his ? Math.round((st.fast / st.his) * 100) : null, waited: st ? st.slow : 0, night: st ? st.night : 0,
+        trucks: tr.trucks, empty: tr.empty, issues: tr.issues,
+        review: p ? { score: sc, trend: (p.trend || {}).direction || null, flags: (p.red_flags || []).length, goal: (p.feedback || {}).goal || '', at: tg.profile_at, confidence: p.confidence || null } : null });
+    }
+    res.json({ period: r.period, days: r.days, people });
+  }));
   // One person: numbers, time by hour or by day, sign-ins, and everything they did. Admins see anyone; a recruiter sees their own page.
   app.get('/api/team/:id', needUser, wrap(async (req, res) => {
     const id = req.params.id === 'me' ? req.user.id : +req.params.id;

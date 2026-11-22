@@ -8,18 +8,18 @@ const { q } = db;
 
 const MIN_MSGS = +process.env.TG_DISP_MIN_MSGS || 20;
 // his numbers, last 30 days: messages, groups, how fast he answers the drivers (first one of our side to answer), nights
-async function stats(tgId) {
+async function stats(tgId, { from = null, to = null } = {}) {
   const tz = db.settings.tz;
   const a = (await q(`SELECT count(*)::int msgs, count(DISTINCT chat_id)::int groups, round(avg(length(text)))::int avg_len,
       count(*) FILTER (WHERE extract(hour FROM at AT TIME ZONE $2) >= 22 OR extract(hour FROM at AT TIME ZONE $2) < 6)::int night
-    FROM tg_messages WHERE from_id = $1 AND at > now() - interval '30 days'`, [tgId, tz])).rows[0];
-  const r = (await q(`WITH g AS (SELECT DISTINCT chat_id FROM tg_messages WHERE from_id = $1 AND at > now() - interval '30 days'),
-    dm AS (SELECT m.chat_id, m.at FROM tg_messages m JOIN g ON g.chat_id = m.chat_id JOIN tg_people p ON p.tg_id = m.from_id WHERE p.role = 'driver' AND m.at > now() - interval '30 days' AND m.at < now() - interval '2 hours'
+    FROM tg_messages WHERE from_id = $1 AND at >= coalesce($3::timestamptz, now() - interval '30 days') AND at < coalesce($4::timestamptz, now())`, [tgId, tz, from, to])).rows[0];
+  const r = (await q(`WITH g AS (SELECT DISTINCT chat_id FROM tg_messages WHERE from_id = $1 AND at >= coalesce($2::timestamptz, now() - interval '30 days') AND at < coalesce($3::timestamptz, now())),
+    dm AS (SELECT m.chat_id, m.at FROM tg_messages m JOIN g ON g.chat_id = m.chat_id JOIN tg_people p ON p.tg_id = m.from_id WHERE p.role = 'driver' AND m.at >= coalesce($2::timestamptz, now() - interval '30 days') AND m.at < least(coalesce($3::timestamptz, now()), now() - interval '2 hours')
       AND NOT EXISTS (SELECT 1 FROM tg_messages b JOIN tg_people bp ON bp.tg_id = b.from_id WHERE b.chat_id = m.chat_id AND bp.role = 'driver' AND b.at < m.at AND b.at > m.at - interval '10 minutes')),
     x AS (SELECT dm.at d_at, y.from_id, extract(epoch FROM y.at - dm.at) / 60 gap FROM dm LEFT JOIN LATERAL (SELECT m2.from_id, m2.at FROM tg_messages m2 LEFT JOIN tg_people p2 ON p2.tg_id = m2.from_id
       WHERE m2.chat_id = dm.chat_id AND m2.at > dm.at AND m2.at < dm.at + interval '12 hours' AND NOT m2.is_bot AND coalesce(p2.role, '') <> 'driver' ORDER BY m2.at LIMIT 1) y ON true)
     SELECT count(*)::int driver_msgs, count(*) FILTER (WHERE from_id = $1)::int his, round((percentile_cont(0.5) WITHIN GROUP (ORDER BY gap) FILTER (WHERE from_id = $1))::numeric)::int med,
-      count(*) FILTER (WHERE from_id = $1 AND gap <= 15)::int fast, count(*) FILTER (WHERE from_id IS NULL OR gap > 120)::int slow FROM x`, [tgId])).rows[0];
+      count(*) FILTER (WHERE from_id = $1 AND gap <= 15)::int fast, count(*) FILTER (WHERE from_id IS NULL OR gap > 120)::int slow FROM x`, [tgId, from, to])).rows[0];
   return { ...a, ...r };
 }
 const statsText = (s) => `Last 30 days: ${s.msgs} messages in ${s.groups} driver groups, about ${s.avg_len || 0} characters each, ${s.night} sent between 10 PM and 6 AM.
