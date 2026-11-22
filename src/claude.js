@@ -15,7 +15,9 @@ const swap = {}; // model asked for -> model that works with this key
 const noForce = new Set();
 const unforced = (body) => {
   const name = body.tool_choice.name || (body.tools[0] || {}).name;
-  return { ...body, tool_choice: { type: 'auto' }, system: `${body.system ? body.system + '\n\n' : ''}Answer ONLY by calling the ${name} tool, once. Do not write any text.` };
+  const add = `Answer ONLY by calling the ${name} tool, once. Do not write any text.`;
+  const system = Array.isArray(body.system) ? [...body.system, { type: 'text', text: add }] : `${body.system ? body.system + '\n\n' : ''}${add}`;
+  return { ...body, tool_choice: { type: 'auto' }, system };
 };
 let pausedUntil = 0, pauseWhy = null, toldAt = 0;
 let lastOk = null;

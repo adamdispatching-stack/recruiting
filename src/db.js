@@ -363,6 +363,10 @@ async function migrate() {
     -- an account the bot made for a dispatcher it saw in the driver groups (his Telegram id); no email or password until an admin gives them
     ALTER TABLE users ADD COLUMN IF NOT EXISTS from_tg BIGINT;
     -- every dispatcher review the AI wrote (the newest is also in tg_people.profile), to see the trend
+    -- the reply the bot would send to a driver in onboarding (Watch and learn: shown on the website with a Send button)
+    CREATE TABLE IF NOT EXISTS tg_drafts (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, msg_id BIGINT, driver_text TEXT, draft TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'reply', state TEXT NOT NULL DEFAULT 'open', sent_text TEXT, sent_by TEXT, decided_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE INDEX IF NOT EXISTS tg_drafts_driver ON tg_drafts(driver_id, state);
     CREATE TABLE IF NOT EXISTS tg_disp_reviews (id SERIAL PRIMARY KEY, tg_id BIGINT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now(), profile JSONB NOT NULL, stats JSONB);
     CREATE INDEX IF NOT EXISTS tg_disp_reviews_tg ON tg_disp_reviews(tg_id, at DESC);
     -- Indeed messages the website asks the Chrome extension to send (after a call with no answer).
@@ -666,7 +670,7 @@ const DEFAULTS = {
   // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
   // a second tag if nobody answers after remindMin, and the daily AI summary of each group
   // onbMode: how the bot starts in a new onboarding group (watch / assist / run); autoTick: the AI ticks onboarding steps itself
-  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, workMode: 'watch', onbMode: 'watch', autoTick: false },
+  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, workMode: 'watch', onbMode: 'watch', autoTick: false, readEvery: 25, autoAccounts: true },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.
   // {first} = the driver's first name, {me} = the first name of the person who called.
   noAnswer: { on: true, text: "Hi {first}, this is {me} from the recruiting team. I just tried to call you about the driving job. When is a good time to talk? You can also answer here." },

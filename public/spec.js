@@ -57,6 +57,8 @@
         ] },
         { title: 'Onboarding', items: [
           P('Onboarding board', 'built', 'Drivers in onboarding, Amazon verified first, arrival, truck, checklist progress, recruiter.', 'Onboarding', '#/onboarding'),
+          P('Replies ready to send', 'built', 'Watch and learn: the bot writes the reply it would send to an onboarding driver (questions and statements); the lead page and the group page show it with Send / Not needed; the onboarding list shows Reply ready. Changed replies are learned. In Run, replies it is sure of go out by themselves.', 'Lead page, Telegram group, Onboarding'),
+          P('Cheaper AI', 'built', 'Groups and daily summaries read by Haiku; Sonnet only for driver profiles and dispatcher reviews. Fixed instructions cached. Working, ELD and accounting groups read every 25 min (urgent words at once); onboarding groups fast. ok / thanks / 👍 need no AI call.', 'Everywhere'),
           P('Dispatcher accounts from Telegram', 'built', 'Someone the bot learns is a dispatcher gets a dispatcher account (or is linked to his account by name). No login until an admin gives an email and password; admins are told.', 'Team'),
           P('Dispatcher work review', 'built', 'Admin page per dispatcher: his numbers (answer speed, waits, nights), 8 areas scored with examples, real situations and the better way, how he thinks, how drivers react, red flags, the feedback to give with a 2-week goal, the trend and past reviews. Rebuilt every 3 days.', 'Telegram → dispatcher, Team → person'),
           P('Coaching for dispatchers', 'built', 'On a dispatcher\'s Trucks page: How you write to drivers (keep doing / try this), from the driver groups. Only he and the admins see it.', 'Trucks (dispatcher)'),

@@ -37,7 +37,7 @@ let aiCalls = 0; const seen = { images: 0 };
 http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', () => {
-    aiCalls++; const j = JSON.parse(body); const tool = j.tools[0].name; let input;
+    aiCalls++; const j = JSON.parse(body); j.system = (Array.isArray(j.system) ? j.system.map((b) => b.text).join('\n') : j.system || '') + '\n' + j.messages.map((m) => (typeof m.content === 'string' ? m.content : m.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n'))).join('\n'); /* the instructions and the group details, as one text */ const tool = j.tools[0].name; let input;
     const text = (j.messages[0].content.find((c) => c.type === 'text') || {}).text || '';
     if (tool === 'group_digest') {
       const imgs = j.messages[0].content.filter((c) => c.type === 'image'); seen.images += imgs.length;
@@ -46,7 +46,7 @@ http.createServer((req, res) => {
       input = { truck_events: [], driver_notes: [], alerts: [] };
       if (/Check engine light came on/.test(fresh)) input.truck_events.push({ kind: 'warning_light', title: 'Check engine light', details: 'Came on near Harrisburg', status: 'open' });
       if (/oil change done/i.test(fresh)) input.truck_events.push({ kind: 'oil_change', title: 'Oil change', status: 'fixed', shop: 'Speedco', odometer: 412000, cost: 289.5 });
-      const open = /Open truck issues \(id: title\): (\d+): Check engine light/.exec(j.system);
+      const open = /OPEN TRUCK ISSUES \(id: title\): (\d+): Check engine light/.exec(j.system);
       if (/light is off/.test(fresh) && open) input.fixed_issue_ids = [+open[1]];
       if (/call me at 7 AM/.test(fresh)) input.driver_notes.push({ kind: 'routine', text: 'Wants a wake-up call at 7 AM every day' });
       if (/NYC/.test(fresh)) input.driver_notes.push({ kind: 'dislikes_loads', text: 'Does not like NYC loads' });

@@ -38,7 +38,7 @@ const AI = { autoAnswer: false };
 http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', () => {
-    const j = JSON.parse(body); const tool = j.tools[0].name; let input;
+    const j = JSON.parse(body); j.system = (Array.isArray(j.system) ? j.system.map((b) => b.text).join('\n') : j.system || '') + '\n' + j.messages.map((m) => (typeof m.content === 'string' ? m.content : m.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n'))).join('\n'); /* the instructions and the group details, as one text */ const tool = j.tools[0].name; let input;
     const text = (j.messages[0].content.find((c) => c.type === 'text') || {}).text || '';
     if (tool === 'group_digest') {
       const fresh = text.split('NEW MESSAGES:')[1] || '';

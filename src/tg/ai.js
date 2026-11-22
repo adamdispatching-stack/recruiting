@@ -2,11 +2,17 @@
 // Pictures are read and forgotten: only what they are (a CDL, a registration…) is kept, never the numbers on them.
 const on = () => !!process.env.ANTHROPIC_API_KEY;
 const MODEL = () => process.env.TG_AI_MODEL || 'claude-haiku-5-5';
-const SUMMARY_MODEL = () => process.env.TG_SUMMARY_MODEL || 'claude-sonnet-5-5';
+const SUMMARY_MODEL = () => process.env.TG_SUMMARY_MODEL || 'claude-sonnet-5-5'; // deep work: driver profiles, dispatcher reviews
+// reading the groups and the daily summaries: simple work, done with the cheap model (about 20 times cheaper)
+const DIGEST_MODEL = () => process.env.TG_DIGEST_MODEL || MODEL();
+const DAY_MODEL = () => process.env.TG_DAY_MODEL || MODEL();
 
-async function ask({ model, system, content, tool, maxTokens = 800 }) {
+// cache: the form and the fixed instructions are kept by Anthropic for a few minutes, so the next calls pay about a tenth for them
+async function ask({ model, system, content, tool, maxTokens = 800, cache = false }) {
+  const sys = cache ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] : system;
+  const tools = [cache ? { ...tool, cache_control: { type: 'ephemeral' } } : tool];
   const j = await require('../claude').call({ source: 'bot', feature: tool.name, model,
-    body: { max_tokens: maxTokens, system, tools: [tool], tool_choice: { type: 'tool', name: tool.name }, messages: [{ role: 'user', content }] } });
+    body: { max_tokens: maxTokens, system: sys, tools, tool_choice: { type: 'tool', name: tool.name }, messages: [{ role: 'user', content }] } });
   const use = (j.content || []).find((c) => c.type === 'tool_use'); if (!use) throw Object.assign(new Error('The AI gave no answer'), { kind: 'bad' });
   return use.input;
 }
@@ -28,7 +34,7 @@ const SUM_TOOL = { name: 'day_summary', description: 'Summary of one day in a gr
   mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry', 'unknown'], description: 'The driver\'s mood today.' } }, required: ['summary', 'issues', 'mood'] } };
 async function summarize({ kind, driver, lines }) {
   const system = `You read the ${kind} Telegram group of a trucking company for one driver (${driver || 'unknown driver'}) and write the day's summary for the managers. Be short and concrete. Never include passwords, login details, license or account numbers.`;
-  return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: lines.join('\n').slice(-60000) }], tool: SUM_TOOL, maxTokens: 900 });
+  return ask({ model: DAY_MODEL(), system, content: [{ type: 'text', text: lines.join('\n').slice(-60000) }], tool: SUM_TOOL, maxTokens: 900 });
 }
 // Onboarding: a screenshot or report the driver sent
 const ONB_TOOL = { name: 'onboarding_doc', description: 'What this picture or PDF from a new driver shows.', input_schema: { type: 'object', properties: {
@@ -51,7 +57,10 @@ const REPLY_TOOL = { name: 'reply_plan', description: 'How to handle the driver\
   confident: { type: 'boolean', description: 'True only if the facts and knowledge below fully answer it.' },
   answer: { type: 'string', description: 'The answer to send, 1 to 3 short friendly sentences, plain English. Empty when not confident.' },
   progress: { type: 'string', enum: ['none', 'account_created', 'profile_done', 'background_submitted'], description: 'If the driver says they did an Amazon Relay step.' },
-  mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry'] } }, required: ['is_question', 'confident', 'answer', 'progress', 'mood'] } };
+  mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry'] },
+  needs_reply: { type: 'boolean', description: 'Someone from the company should answer this message: a question, a worry, news (a date, a problem, "I cannot come"), something left open. False for "ok", "thanks", a plain yes.' },
+  reply: { type: 'string', description: 'When needs_reply: the message a good recruiter would send now, 1 to 3 short friendly sentences. Use only the facts; when a person must decide, say who will come back and when (for example "Let me check with the team and get back to you today."). Never promise pay, dates or exceptions. Empty when no reply is needed.' } },
+  required: ['is_question', 'confident', 'answer', 'progress', 'mood', 'needs_reply', 'reply'] } };
 async function driverReply({ facts, knowledge, context, recent, text, role }) {
   const system = `${role || 'You are the onboarding assistant of a US trucking company, in a Telegram group with a new driver and the recruiters.'}
 Answer the driver only from the facts and knowledge below. If they do not fully answer the question, or it needs a person's decision (exceptions, pay advances, dates, personal matters, complaints), set confident=false and leave answer empty: a recruiter will answer.
@@ -63,10 +72,8 @@ ${facts.map((f) => '- ' + f).join('\n')}
 
 KNOWLEDGE (questions the team answered before):
 ${knowledge.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n') || '(none yet)'}
-
-THIS DRIVER:
-${context}`;
-  return ask({ model: MODEL(), system, content: [{ type: 'text', text: `Recent messages:\n${recent.join('\n')}\n\nThe driver's new message:\n${text}` }], tool: REPLY_TOOL, maxTokens: 500 });
+`;
+  return ask({ model: MODEL(), system, content: [{ type: 'text', text: `THIS DRIVER:\n${context}\n\nRecent messages:\n${recent.join('\n')}\n\nThe driver's new message:\n${text}` }], tool: REPLY_TOOL, maxTokens: 600, cache: true });
 }
 // Reading a batch of new messages in a driver's group: truck issues, what to know about the driver, alerts
 const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages mean for the company.', input_schema: { type: 'object', properties: {
@@ -117,23 +124,26 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     ask_driver: { type: 'string', description: 'Only for container_mismatch or wrong_location: a short polite question to the driver to clear it up, for example "The photo shows container ABCU 102634 but the load is ABCU 102643. Is this the right one?"' } }, required: ['kind', 'severity', 'text'] } } },
   required: ['truck_events', 'driver_notes', 'alerts'] } };
 async function digest({ kind, driver, truck, openIssues, unpaid = [], context, fresh, images, onb = null, unknown = [], working = false, promises = [] }) {
-  const system = `You read the ${kind} Telegram group of one truck driver (${driver}${truck ? `, truck ${truck}` : ''}) for a US trucking company, and pull out what the managers must know.
+  // the same for every group (cached); what is special about this group goes with the messages
+  const system = `You read one truck driver's Telegram group for a US trucking company, and pull out what the managers must know.
 Only report what the NEW messages say; the earlier ones are context. Compare container, trailer and load numbers in the messages with the ones in the pictures: a different number is a container_mismatch.
 Flag unprofessional_dispatcher only for clear rudeness, insults, or telling the driver to break rules. Appointment or pickup/delivery time changes are appointment_change.
 Never include passwords, SSN, license or account numbers. Be factual and short.
-Oil changes, shop visits and repairs are truck_events. "Oil change done" is an oil_change with status fixed; say paid=true when they say it is paid, and give the cost, shop and mileage when said. Do not repeat an event already listed below: mark it fixed (fixed_issue_ids) or paid (paid_ids) instead.
-Open truck issues (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}
-${working ? 'This is a WORKING driver\'s dispatch group (the driver hauls loads for us). Also fill load_updates (each message is numbered #id), promises, promise_results and dispatch_lessons: the bot is learning how our dispatchers run updates and whether the driver keeps his word.\n' + (promises.length ? `OPEN PROMISES (id: what, due): ${promises.map((x) => `${x.id}: ${x.what}${x.due ? ', ' + x.due : ''}`).join('; ')}\n` : '') : ''}${unknown.length ? `People whose role is not known yet: ${unknown.join('; ')}.
+Oil changes, shop visits and repairs are truck_events. "Oil change done" is an oil_change with status fixed; say paid=true when they say it is paid, and give the cost, shop and mileage when said. Do not repeat an event already listed in OPEN TRUCK ISSUES: mark it fixed (fixed_issue_ids) or paid (paid_ids) instead.
+In a WORKING driver's dispatch group (the driver hauls loads for us) also fill load_updates (each message is numbered #id), promises, promise_results and dispatch_lessons: the bot is learning how our dispatchers run updates and whether the driver keeps his word. Leave them empty in other groups.
+When the driver is ONBOARDING (not driving for us yet), fill "onboarding" every time. Mark a step done only when a message or a picture clearly shows it is done (a result, a confirmation, a ticket, "done", "passed"), never when it is only planned or asked for.`;
+  const about = `ABOUT THIS GROUP: the ${kind} group of ${driver}${truck ? `, truck ${truck}` : ''}.
+OPEN TRUCK ISSUES (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}
+${working ? 'This is a WORKING driver\'s dispatch group.\n' + (promises.length ? `OPEN PROMISES (id: what, due): ${promises.map((x) => `${x.id}: ${x.what}${x.due ? ', ' + x.due : ''}`).join('; ')}\n` : '') : ''}${unknown.length ? `People whose role is not known yet: ${unknown.join('; ')}.
 ` : ''}Truck services not marked paid yet (id: title, cost): ${unpaid.length ? unpaid.map((i) => `${i.id}: ${i.title}${i.cost !== null ? ' $' + i.cost : ''}`).join('; ') : 'none'}${onb ? `
 
-This driver is ONBOARDING (not driving for us yet). Fill "onboarding" every time.
+This driver is ONBOARDING (not driving for us yet).
 Today is ${onb.today}. Start date on the website: ${onb.start || 'not set'}.${onb.travel ? ` Travel details on the website: ${onb.travel}.` : ''}
 Amazon Relay step: ${onb.amazon || 'invite not sent yet'}.${onb.last ? ` Last known status: ${onb.last}` : ''}
-ONBOARDING STEPS still open (id: step): ${onb.steps.length ? onb.steps.map((x) => `${x.id}: ${x.label}`).join('; ') : 'none'}
-Mark a step done only when a message or a picture clearly shows it is done (a result, a confirmation, a ticket, "done", "passed"), never when it is only planned or asked for.` : ''}`;
+ONBOARDING STEPS still open (id: step): ${onb.steps.length ? onb.steps.map((x) => `${x.id}: ${x.label}`).join('; ') : 'none'}` : ''}`;
   const content = [...images.map((im) => (im.mime === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: im.data } } : { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })),
-    { type: 'text', text: `EARLIER MESSAGES (context):\n${context.join('\n') || '(none)'}\n\nNEW MESSAGES:\n${fresh.join('\n')}${images.length ? `\n\n(The ${images.length} picture(s) above are the photos in the new messages, in order.)` : ''}` }];
-  return ask({ model: process.env.TG_DIGEST_MODEL || SUMMARY_MODEL(), system, content, tool: DIGEST_TOOL, maxTokens: 3000 });
+    { type: 'text', text: `${about}\n\nEARLIER MESSAGES (context):\n${context.join('\n') || '(none)'}\n\nNEW MESSAGES:\n${fresh.join('\n')}${images.length ? `\n\n(The ${images.length} picture(s) above are the photos in the new messages, in order.)` : ''}` }];
+  return ask({ model: DIGEST_MODEL(), system, content, tool: DIGEST_TOOL, maxTokens: 3000, cache: true });
 }
 // The driver's profile for dispatchers, rebuilt from the notes
 const PROFILE_TOOL = { name: 'driver_profile', description: 'What a dispatcher needs to know about this driver.', input_schema: { type: 'object', properties: {
@@ -187,5 +197,5 @@ async function dispatcherProfile({ name, stats, lines, previous }) {
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: `Dispatcher: ${name}\n${stats}${prev}\nMESSAGES (oldest first; with the driver's message before when it was a reply):\n${lines.join('\n').slice(-90000)}` }], tool: DISP_TOOL, maxTokens: 4000 });
 }
 // every job the bot does, with its model (for the Test button: one real call each)
-const jobs = () => [[DOC_TOOL, MODEL()], [SUM_TOOL, SUMMARY_MODEL()], [ONB_TOOL, MODEL()], [REPLY_TOOL, MODEL()], [DIGEST_TOOL, process.env.TG_DIGEST_MODEL || SUMMARY_MODEL()], [PROFILE_TOOL, SUMMARY_MODEL()], [DISP_TOOL, SUMMARY_MODEL()]];
+const jobs = () => [[DOC_TOOL, MODEL()], [SUM_TOOL, DAY_MODEL()], [ONB_TOOL, MODEL()], [REPLY_TOOL, MODEL()], [DIGEST_TOOL, DIGEST_MODEL()], [PROFILE_TOOL, SUMMARY_MODEL()], [DISP_TOOL, SUMMARY_MODEL()]];
 module.exports = { AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile };

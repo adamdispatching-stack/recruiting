@@ -37,7 +37,7 @@ let aiCalls = 0;
 http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', () => {
-    aiCalls++; const j = JSON.parse(body); const tool = j.tools[0].name; let input;
+    aiCalls++; const j = JSON.parse(body); j.system = (Array.isArray(j.system) ? j.system.map((b) => b.text).join('\n') : j.system || '') + '\n' + j.messages.map((m) => (typeof m.content === 'string' ? m.content : m.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n'))).join('\n'); /* the instructions and the group details, as one text */ const tool = j.tools[0].name; let input;
     if (tool === 'document_kind') {
       const blk = j.messages[0].content[0]; const txt = Buffer.from(blk.source.data, 'base64').toString();
       input = { kind: /CDL/.test(txt) ? 'cdl' : /REG/.test(txt) ? 'registration' : 'other', note: /CDL/.test(txt) ? 'front of a CDL' : 'a document' };

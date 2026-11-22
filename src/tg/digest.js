@@ -13,6 +13,8 @@ const { send, esc, tag } = bot;
 
 const SETTLE_MIN = process.env.TG_DIGEST_SETTLE_MIN ? +process.env.TG_DIGEST_SETTLE_MIN : 2;  // wait this long after the last message
 const BATCH = 60;
+// read at once, whatever the group: a breakdown, an accident, the police, someone hurt, a driver quitting
+const URGENT = '(break ?down|broke ?down|broken|accident|crash|police|cops|injur|hurt|fire|smoke|tow|stuck|flat tire|blow ?out|emergency|not coming|won.?t (be able to )?come|quit|leaving the company|no load|empty)';
 const ROLE = { driver: 'driver', eld: 'ELD team', accounting: 'accounting', dispatch: 'dispatcher', staff: 'our team' };
 
 const badTries = {}; // a batch the AI cannot read is skipped after 3 tries
@@ -28,6 +30,7 @@ async function digestChat(chatId) {
   if (!fresh.length) return null;
   const done = () => q(`UPDATE tg_messages SET digested = true WHERE chat_id = $1 AND id = ANY($2::bigint[])`, [chatId, fresh.map((m) => m.id)]);
   if (!chat || !chat.driver_id || !chat.kind || !ai.on()) { await done(); return null; }
+  if (fresh.every(bot.trivial)) { await done(); return null; } // only "ok", "thanks", 👍: nothing to read, no AI call
   const before = (await q(`SELECT m.*, p.role, to_char(m.at AT TIME ZONE $3, 'Dy Mon DD HH24:MI') hm FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1 AND m.at < $2 ORDER BY m.at DESC LIMIT 20`, [chatId, fresh[0].at, db.settings.tz])).rows.reverse();
   const line = (m) => `[#${m.msg_id} ${m.hm}] ${m.is_bot ? 'Bot' : `${m.from_name || 'Someone'} (${ROLE[m.role] || 'unknown'})`}: ${m.text || ''}${m.media ? ` [${m.media}${m.media_note ? ': ' + m.media_note : ''}]` : ''}`;
   // the pictures in the new messages (a few), so numbers can be checked
@@ -210,7 +213,15 @@ async function onboardingStatus(chat, o, steps, quiet, { imported = quiet, late 
 }
 async function tick() {
   if (!bot.state.me) return;
-  const due = (await q(`SELECT chat_id FROM tg_messages WHERE NOT digested GROUP BY chat_id HAVING max(at) < now() - ($1 || ' minutes')::interval OR count(*) >= 40`, [String(SETTLE_MIN)])).rows;
+  // onboarding groups: read 2 minutes after the last message (the team reacts fast there).
+  // working, ELD and accounting groups: read every 25 minutes in one go (cheaper), at once for something urgent or a long burst
+  const every = process.env.TG_DIGEST_SETTLE_MIN ? SETTLE_MIN : +((db.settings.tg || {}).readEvery || 25);
+  const due = (await q(`SELECT m.chat_id FROM tg_messages m JOIN tg_chats c ON c.chat_id = m.chat_id LEFT JOIN drivers d ON d.id = c.driver_id WHERE NOT m.digested
+    GROUP BY m.chat_id, c.kind, d.status, c.member_count
+    HAVING count(*) >= 40
+      OR (c.kind = 'dispatch' AND coalesce(d.status, '') <> 'Hired' AND coalesce(c.member_count, 0) <= 10 AND max(m.at) < now() - ($1 || ' minutes')::interval)
+      OR (min(m.at) < now() - ($2 || ' minutes')::interval AND max(m.at) < now() - ($1 || ' minutes')::interval)
+      OR (bool_or(m.text ~* $3) AND max(m.at) < now() - ($1 || ' minutes')::interval)`, [String(SETTLE_MIN), String(every), URGENT])).rows;
   for (const d of due) await digestChat(d.chat_id).catch((e) => console.error('tg digest', e.message));
 }
 function start() { setInterval(() => tick().catch((e) => console.error('digest tick', e.message)), +process.env.TG_DIGEST_MS || 5 * 60000); }

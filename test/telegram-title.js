@@ -42,7 +42,9 @@ const AI = {};
 http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', () => {
-    const j = JSON.parse(body); const tool = j.tools[0].name;
+    const j = JSON.parse(body); j.system = (Array.isArray(j.system) ? j.system.map((b) => b.text).join('\n') : j.system || '') + '\n' + j.messages.map((m) => (typeof m.content === 'string' ? m.content : m.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n'))).join('\n'); /* the instructions and the group details, as one text */
+    const tool = j.tools[0].name;
+    if (tool === 'group_digest') { const who = (/group of ([^,.\n]+)/.exec(j.system) || [])[1]; AI.dg = AI.dg || {}; AI.dg[who] = (AI.dg[who] || 0) + 1; AI.lastDigest = { model: j.model, cached: !!j.tools[0].cache_control && Array.isArray(JSON.parse(body).system) }; }
     if (tool === 'group_digest' && /ONBOARDING STEPS/.test(j.system)) {
       const fresh = ((j.messages[0].content.find((c) => c.type === 'text') || {}).text || '').split('NEW MESSAGES:')[1] || '';
       const today = /Today is \w+ (\d{4}-\d{2}-\d{2})/.exec(j.system)[1]; const day = (dow) => { const d = new Date(today + 'T12:00:00Z'); do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() !== dow); return d.toISOString().slice(0, 10); };
@@ -58,7 +60,7 @@ http.createServer((req, res) => {
       const unk = (/People whose role is not known yet: (.*)\./.exec(j.system) || [])[1];
       const people = unk ? unk.split('; ').map((n) => ({ name: n, role: /Dispatch/.test(n) ? 'dispatcher' : /Hank/.test(n) ? 'driver' : 'other' })) : [];
       const alerts = /CONTAINER ABCU9/.test(fresh) ? [{ kind: 'container_mismatch', severity: 'high', text: 'Container number does not match', ask_driver: 'is ABCU9 the right container?' }] : [];
-      const working = /WORKING driver/.test(j.system); const load_updates = [], dispatch_lessons = [];
+      const working = /This is a WORKING driver/.test(j.system); const load_updates = [], dispatch_lessons = [];
       if (working) {
         const at = /\[#(\d+) [^\]]*\] [^:]+: Arrived at the shipper/.exec(fresh); if (at) load_updates.push({ msg_id: +at[1], status: 'at_pickup', place: 'the shipper', by: 'driver' });
         const rl = /\[#(\d+) [^\]]*\] [^:]+: Rolling, ETA 4 PM/.exec(fresh); if (rl) load_updates.push({ msg_id: +rl[1], status: 'rolling', eta: '4 PM', place: 'Harrisburg', by: 'driver' });
@@ -291,6 +293,11 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const ad = await web('/api/active/' + hank);
   ok(ad.updates && ad.updates[0].status === 'rolling' && ad.updates[0].eta === '4 PM', 'the active driver page: the latest load update');
   ok(((await web('/api/tg/chats')).chats.find((c) => c.chatId == HCHAT.id).lastUpdate || {}).status === 'rolling', 'the groups list: the latest update');
+  // cheaper reading: "ok" and 👍 need no AI call; groups are read by the cheaper model with its instructions cached
+  const hd0 = (AI.dg || {})['Hank Hired'] || 0;
+  say(HANK, 'ok', HCHAT); say(DAN, '👍', HCHAT);
+  ok(await until(async () => (await pg.query(`SELECT bool_and(digested) x FROM tg_messages WHERE chat_id = $1`, [HCHAT.id])).rows[0].x, 15000) && ((AI.dg || {})['Hank Hired'] || 0) === hd0, '"ok" and 👍: marked read without an AI call');
+  ok(AI.lastDigest && AI.lastDigest.model === 'claude-haiku-5-5' && AI.lastDigest.cached, 'the groups are read by Haiku, with the instructions cached');
   // the driver's word
   say(HANK, 'I will be at the receiver by 6 AM', HCHAT);
   ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_promises WHERE driver_id = $1 AND state = 'open'`, [hank])).rows.length, 15000), 'a promise: "be at the receiver by 6 AM"');

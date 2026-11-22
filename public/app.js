@@ -476,6 +476,22 @@ window.App = (() => {
   }
   const stillWithUs = async (id, after) => { try { await api(`/api/drivers/${id}/drop-dismiss`, { method: 'POST' }); toast('Kept in onboarding'); if (after) after(); } catch (e) { fail(e); } };
   // the dashboard card: who says he is leaving (confirm), who dropped out this week
+  // replies the bot wrote for a driver (Watch and learn): Send as written or after a change, or Not needed
+  const draftsBox = async (el, qs) => {
+    if (!el) return; let r; try { r = await api('/api/tg/drafts?' + qs); } catch (e) { el.innerHTML = ''; return; }
+    const KIND = { answer: 'Answer the bot is sure of', reply: 'Suggested reply', upset: 'He sounds upset: suggested reply' };
+    el.innerHTML = r.drafts.length ? `<section class="card draftbox"><h3>Reply ready to send${r.drafts.length > 1 ? ` (${r.drafts.length})` : ''}</h3>
+      <p class="hint">The bot is in Watch and learn, so it did not write in the group. Send its reply as it is, change it first, or skip it. When the group is switched to Run, replies like these go out by themselves.</p>
+      ${r.drafts.map((x) => `<div class="draft" data-draft="${x.id}">${x.name && !/driverId/.test(qs) ? `<b>${esc(x.name)}</b>` : ''}<div class="dq"><span class="small mut">Driver wrote:</span> “${esc(x.driver_text || '')}”</div>
+        <label class="small mut">${KIND[x.kind] || 'Suggested reply'}<textarea rows="3">${esc(x.draft)}</textarea></label>
+        <div class="drow"><button class="btn primary sm" data-act="draftSend">Send in the group</button><button class="btn plain sm" data-act="draftSkip">Not needed</button></div></div>`).join('')}
+      ${r.stats && (r.stats.as_is + r.stats.changed + r.stats.not_needed) ? `<p class="small mut">Last 30 days: ${r.stats.as_is} sent as written, ${r.stats.changed} changed, ${r.stats.not_needed} not needed. Most sent as written means the bot is ready for Run.</p>` : ''}</section>` : '';
+  };
+  on('draftSend', async (btn) => { const box = btn.closest('[data-draft]'); btn.disabled = true;
+    try { await api(`/api/tg/drafts/${box.dataset.draft}/send`, { method: 'POST', body: { text: box.querySelector('textarea').value } }); toast('Sent in the Telegram group'); box.remove(); }
+    catch (e) { fail(e); btn.disabled = false; } });
+  on('draftSkip', async (btn) => { const box = btn.closest('[data-draft]');
+    try { await api(`/api/tg/drafts/${box.dataset.draft}/dismiss`, { method: 'POST' }); box.remove(); } catch (e) { fail(e); } });
   const dropsCard = (x) => (!x || (!x.dropping.length && !x.dropped.length) ? '' : `<section class="card dropcard"><h3>Dropping out of onboarding</h3>
     ${x.dropping.length ? `<p class="small"><b>Says he is not coming</b> (confirm)</p><ul class="list">${x.dropping.map((d) => `<li data-drop="${d.id}" data-name="${esc(d.name)}" data-quote="${esc(d.quote)}" data-reason="${esc(d.reason || '')}"><div class="grow"><a href="#/driver/${d.id}"><b>${esc(d.name)}</b></a> <span class="small mut">${esc(person(d.ownerId) || '')}</span><div class="small">"${esc(d.quote)}"</div></div>
       <button type="button" class="btn danger sm" data-act="dropIt">Dropped out</button><button type="button" class="btn plain sm" data-act="dropKeep">Still with us</button></li>`).join('')}</ul>` : ''}
@@ -483,6 +499,6 @@ window.App = (() => {
   on('dropIt', (b) => { const li = b.closest('[data-drop]'); dropDialog({ id: +li.dataset.drop, name: li.dataset.name, quote: li.dataset.quote, reason: li.dataset.reason }, () => App.render()); });
   on('dropKeep', (b) => stillWithUs(+b.closest('[data-drop]').dataset.drop, () => App.render()));
 
-  return { dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
+  return { draftsBox, dropDialog, stillWithUs, dropsCard, docsBox, chance, UPD, updText, cbTime, cbChip, moodDots, MOODS, driverHref, $, $$, esc, view, S, fmtPhone, cls, badge, plural, when, shortWhen, tz, tzName, dayOf, today, addDays, dateText, teamTime, teamWhen, fuText, dur, daysSince, person, hasAccess, presence, presenceHtml,
     api, toast, fail, route, go, render, header, on, onChange, redraw, drawing, every, dialog, meterRow, feedHtml, feedAv, icon, assignPick, phone, pageHead, avatar, initials, plus, ART, company, coTag, coOptions, reloadMe, weekFields, readWeek, hm, DAYS, refreshGoal, goalRing, setGoal, KNAME };
 })();

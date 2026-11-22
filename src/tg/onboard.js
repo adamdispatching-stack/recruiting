@@ -156,6 +156,7 @@ function companyFacts(c) {
 // Our team (or, in the accounting group, accounting): an answer to a question the bot could not answer is learned
 async function learnFrom(chat, m, who, text) {
   if (!text || text.startsWith('/')) return;
+  await q(`UPDATE tg_drafts SET state = 'answered', decided_at = now(), sent_by = $2 WHERE chat_id = $1 AND state = 'open'`, [chat.chat_id, who.name]);
   const qn = (await q(`SELECT * FROM tg_questions WHERE chat_id = $1 AND answer IS NULL AND asked_at > now() - interval '24 hours'
     AND ($2::bigint IN (msg_id, bot_msg_id) OR ($2::bigint IS NULL AND asked_at > now() - interval '3 hours')) ORDER BY asked_at DESC LIMIT 1`, [chat.chat_id, m.reply_to_message ? m.reply_to_message.message_id : null])).rows[0];
   if (qn) await learn(qn, bot.redact(text), who.name, chat.kind === 'accounting' ? 'accounting' : 'general');
@@ -169,35 +170,48 @@ async function onMessage(chat, m, who) {
   if (!c || c.chat_id !== chat.chat_id) { await q(`INSERT INTO onb_cases (driver_id, chat_id, last_amazon) SELECT id, $2, amazon_step FROM drivers WHERE id = $1 ON CONFLICT (driver_id) DO UPDATE SET chat_id = $2`, [chat.driver_id, chat.chat_id]); c = await caseOf(chat.driver_id); }
   if (who.role && who.role !== 'driver') return; // ELD, accounting, dispatch people: not the driver
   await require('./mvr').fromGroup(c, m, m.text || m.caption || '').catch((e) => console.error('mvr', e.message)); // the last 4 of the SSN, the ZIP, the CDL state
-  if (c.bot_mode === 'watch') return; // watch and learn: the digest reads it, the bot says nothing
+  const watch = c.bot_mode === 'watch'; // watch and learn: the bot says nothing in the group; the reply it would send waits on the website
   // a driver nobody named yet: whoever writes with the driver's first name
   if (!who.role && !(await driverPerson(c.driver_id)) && who.name.split(/\s+/)[0].toLowerCase() === c.name.split(/\s+/)[0].toLowerCase()) {
     await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1`, [who.tg_id, c.driver_id]); who.role = 'driver';
   }
   const file = m.photo ? { id: m.photo[m.photo.length - 1].file_id, mime: 'image/jpeg' } : m.document && /^(image\/|application\/pdf)/.test(m.document.mime_type || '') ? { id: m.document.file_id, mime: m.document.mime_type } : null;
-  if (file && ai.on()) return readFile(c, m, who, file);
-  if (!text || !ai.on()) return;
+  if (file && ai.on()) return watch ? null : readFile(c, m, who, file); // pictures: the digest reads them
+  if (!text || !ai.on() || bot.trivial(m)) return; // "ok", "thanks", 👍: nothing to answer
   const context = `Name: ${c.name}. ${c.mode === 'Owner-operators' ? 'Owner-operator' : 'Company driver'}. Amazon Relay step: ${c.amazon_step ? db.AMAZON.find((s) => s.key === c.amazon_step).long : 'invite not sent yet'}. Start date: ${c.arrive ? nice(c.arrive) : 'not set yet'}.${c.unit ? ` Truck: ${c.unit} ${c.details || ''}.` : ''}${c.arrival_note ? ` Travel: ${c.arrival_note}.` : ''}${c.company ? ` Company: ${c.company}.` : ''}`;
-  return qa(c, chat, m, who, text, { context, escalate: () => recruiterTag(c), kinds: ['general'], onProgress: (k) => moveAmazon(c, k, who.name) });
+  return qa(c, chat, m, who, text, { context, mode: c.bot_mode, escalate: () => recruiterTag(c), kinds: ['general'], onProgress: (k) => moveAmazon(c, k, who.name) });
 }
 // Answer a driver's message from the facts and knowledge; if unsure, ask a person and remember their answer.
 // c: { name, driver_id, chat_id, owner_id, mode }; opts: { context, escalate() -> tag, kinds, onProgress(key), who: 'recruiter' }
+// the reply waits on the website (Send / Not needed); a newer one replaces it
+async function draft(c, chat, m, text, kind, reply) {
+  if (!String(reply || '').trim()) return;
+  await q(`UPDATE tg_drafts SET state = 'replaced', decided_at = now() WHERE chat_id = $1 AND state = 'open'`, [chat.chat_id]);
+  await q(`INSERT INTO tg_drafts (chat_id, driver_id, msg_id, driver_text, draft, kind) VALUES ($1, $2, $3, $4, $5, $6)`, [chat.chat_id, c.driver_id, m.message_id, bot.redact(text).slice(0, 1000), String(reply).slice(0, 1500), kind]);
+  await bot.log('draft', `Reply ready on the website for ${c.name}: "${String(reply).slice(0, 120)}"`, { chatId: chat.chat_id, driverId: c.driver_id });
+}
+// Answer a driver's message. watch: every reply waits on the website. assist: questions it is sure about are answered, the rest waits.
+// run: it answers what it is sure about (questions and other messages); a question it cannot answer goes to a person.
 async function qa(c, chat, m, who, text, opts) {
-  // someone from the team is talking with the driver right now: let them
-  const busy = (await q(`SELECT 1 FROM tg_messages x JOIN tg_people p ON p.tg_id = x.from_id WHERE x.chat_id = $1 AND x.at > now() - interval '10 minutes' AND (p.role IN ('staff', 'accounting') OR p.user_id IS NOT NULL) AND x.text NOT LIKE '/%' AND x.text !~* '^register\\y' LIMIT 1`, [chat.chat_id])).rows[0];
-  if (busy) return;
+  const mode = opts.mode || 'run';
+  // someone from the team is talking with the driver right now: let them (a draft is still fine in watch)
+  const busy = mode !== 'watch' && (await q(`SELECT 1 FROM tg_messages x JOIN tg_people p ON p.tg_id = x.from_id WHERE x.chat_id = $1 AND x.at > now() - interval '10 minutes' AND (p.role IN ('staff', 'accounting') OR p.user_id IS NOT NULL) AND x.text NOT LIKE '/%' AND x.text !~* '^register\\y' LIMIT 1`, [chat.chat_id])).rows[0];
   const knowledge = (await q(`SELECT question, answer FROM tg_knowledge WHERE active AND kind = ANY($1::text[]) ORDER BY uses DESC, created_at DESC LIMIT 80`, [opts.kinds])).rows;
   const recent = (await q(`SELECT from_name, is_bot, text FROM tg_messages WHERE chat_id = $1 AND text IS NOT NULL ORDER BY at DESC LIMIT 12`, [chat.chat_id])).rows.reverse().map((x) => `${x.is_bot ? 'Bot' : x.from_name}: ${String(x.text).slice(0, 300)}`);
   let plan;
   try { plan = await ai.driverReply({ facts: companyFacts(c), knowledge, context: opts.context, recent, text, role: opts.role }); } catch (e) { console.error('tg qa ai', e.message); return; }
   if (plan.progress && PROGRESS_TO[plan.progress] && opts.onProgress) await opts.onProgress(PROGRESS_TO[plan.progress]);
   const upset = plan.mood === 'angry' || plan.mood === 'unhappy';
+  const sure = plan.is_question ? plan.confident && plan.answer : plan.confident && plan.reply;
+  const words = plan.is_question && plan.confident && plan.answer ? plan.answer : plan.reply;
+  if (mode === 'watch' || busy) { if (upset || plan.is_question || plan.needs_reply) await draft(c, chat, m, text, upset ? 'upset' : plan.is_question && plan.confident ? 'answer' : 'reply', words); return; }
   if (upset) { // a person, not the bot: tag someone, nothing to learn
     await send(chat.chat_id, `${await opts.escalate()}, ${esc(c.name.split(/\s+/)[0])} needs you here.`, { replyTo: m.message_id });
+    await draft(c, chat, m, text, 'upset', plan.reply);
     return tell(c, `${c.name} seems ${plan.mood} in the ${bot.KINDS[chat.kind] || ''} group: "${bot.redact(text).slice(0, 140)}"`);
   }
   if (plan.is_question) {
-    if (plan.confident && plan.answer) {
+    if (sure) {
       await send(chat.chat_id, esc(plan.answer), { replyTo: m.message_id });
       // counted: how often the bot could answer without the team (autopilot readiness)
       await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, text, answer, answered_by, answered_at) VALUES ($1, $2, $3, $4, $5, 'Bot', now())`, [chat.chat_id, c.driver_id, m.message_id, bot.redact(text).slice(0, 1000), String(plan.answer).slice(0, 1500)]);
@@ -205,7 +219,13 @@ async function qa(c, chat, m, who, text, opts) {
     else {
       const b = await send(chat.chat_id, `Good question. Let me check with ${await opts.escalate()}.`, { replyTo: m.message_id });
       await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, bot_msg_id, text) VALUES ($1, $2, $3, $4, $5)`, [chat.chat_id, c.driver_id, m.message_id, b.message_id, bot.redact(text).slice(0, 1000)]);
+      await draft(c, chat, m, text, 'reply', plan.reply);
     }
+    return;
+  }
+  if (plan.needs_reply && plan.reply) {
+    if (mode === 'run' && sure) { await send(chat.chat_id, esc(plan.reply), { replyTo: m.message_id }); await bot.log('reply', `Answered ${c.name}: "${String(plan.reply).slice(0, 120)}"`, { chatId: chat.chat_id, driverId: c.driver_id }); }
+    else await draft(c, chat, m, text, 'reply', plan.reply);
   }
 }
 async function learn(qn, answer, by, kind = 'general') {
@@ -293,6 +313,19 @@ async function tick() {
   }
 }
 // An answer written on the website: the bot posts it in the group and learns it
+// a reply the bot wrote, sent from the website (as written or changed). A changed one is also learned (to approve in Knowledge)
+async function sendDraft(dr, text, user) {
+  const sent = await send(dr.chat_id, esc(text), { replyTo: dr.msg_id || undefined });
+  const edited = text.trim() !== String(dr.draft).trim();
+  await q(`UPDATE tg_drafts SET state = 'sent', sent_text = $2, sent_by = $3, decided_at = now() WHERE id = $1`, [dr.id, text.slice(0, 1500), user.name]);
+  await bot.log('reply', `${user.name} sent the bot's reply${edited ? ' (changed)' : ''}: "${text.slice(0, 120)}"`, { chatId: dr.chat_id, driverId: dr.driver_id, who: user.name });
+  if (edited && dr.driver_text) {
+    const qn = (await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, text) VALUES ($1, $2, $3, $4) RETURNING *`, [dr.chat_id, dr.driver_id, dr.msg_id, dr.driver_text])).rows[0];
+    const k = (await q(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [dr.chat_id])).rows[0];
+    await learn(qn, text, user.name, k && k.kind === 'accounting' ? 'accounting' : 'general');
+  }
+  return sent;
+}
 async function answerFromWebsite(qid, answer, user) {
   const qn = (await q(`SELECT * FROM tg_questions WHERE id = $1`, [qid])).rows[0]; if (!qn) return null;
   await send(qn.chat_id, `${esc(answer)}\n<i>(${esc(user.name)})</i>`, { replyTo: qn.msg_id });
@@ -302,4 +335,4 @@ async function answerFromWebsite(qid, answer, user) {
 }
 function start() { setInterval(() => tick().catch((e) => console.error('onb tick', e.message)), +process.env.TG_TICK_MS || 60000); }
 bot.handlers.dispatch = { begin, onButton, onMessage, status, setMode };
-module.exports = { start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };
+module.exports = { sendDraft, draft, start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };

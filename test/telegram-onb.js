@@ -37,7 +37,7 @@ let aiCalls = 0;
 http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', () => {
-    aiCalls++; const j = JSON.parse(body); const tool = j.tools[0].name; let input;
+    aiCalls++; const j = JSON.parse(body); j.system = (Array.isArray(j.system) ? j.system.map((b) => b.text).join('\n') : j.system || '') + '\n' + j.messages.map((m) => (typeof m.content === 'string' ? m.content : m.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n'))).join('\n'); /* the instructions and the group details, as one text */ const tool = j.tools[0].name; let input;
     if (tool === 'onboarding_doc') {
       const t = Buffer.from(j.messages[0].content[0].source.data, 'base64').toString();
       const exp = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
@@ -49,8 +49,10 @@ http.createServer((req, res) => {
       input = /pay/i.test(t) ? { is_question: true, confident: true, answer: 'You get 25% of each load to start, paid every Friday.', progress: 'none', mood: 'good' }
         : /finished my profile/i.test(t) ? { is_question: false, confident: false, answer: '', progress: 'profile_done', mood: 'good' }
         : /\?/.test(t) ? { is_question: true, confident: false, answer: '', progress: 'none', mood: /ridiculous/i.test(t) ? 'angry' : 'neutral' }
+        : /cannot give me the job/i.test(t) ? { is_question: false, confident: false, answer: '', progress: 'none', mood: 'neutral', needs_reply: true, reply: 'We still want you with us. Let me check with the team and get back to you today.' }
+        : /ready monday/i.test(t) ? { is_question: false, confident: true, answer: '', progress: 'none', mood: 'good', needs_reply: true, reply: 'Great, see you Monday!' }
         : { is_question: false, confident: false, answer: '', progress: 'none', mood: 'neutral' };
-      if (/dog/i.test(t) && /Q: Can I bring my dog/.test(j.system)) input = { is_question: true, confident: true, answer: 'Yes, one small dog is fine.', progress: 'none', mood: 'good' };
+      if (/dog/i.test(t) && /Q: Can I bring my dog/.test(JSON.stringify(j.system))) input = { is_question: true, confident: true, answer: 'Yes, one small dog is fine.', progress: 'none', mood: 'good' };
     } else input = { summary: 'Olga moved through the Amazon steps.', issues: [], mood: 'good' };
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ content: [{ type: 'tool_use', name: tool, input }] }));
@@ -169,6 +171,29 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(ck && ck.items.some((i) => i.key === 'telegram' && i.done), 'onboarding step "Telegram group created" ticks itself, though the group came first');
   ok(ck.items.some((i) => i.key === 'mvr' && i.done), 'and "MVR checked", approved in Telegram before onboarding started');
   ok(!det.messages.some((m) => /\d{3}-\d{2}-\d{4}/.test(m.text || '')), 'nothing personal kept');
+  // Watch and learn: the bot writes the reply on the website, a person sends it (or not)
+  await pg.query(`UPDATE onb_cases SET mode = 'watch' WHERE driver_id = $1`, [id]);
+  n = tg.sent.length; say(OLGA, 'If you all cannot give me the job, it is what it is');
+  const dr = await until(async () => ((await R('/api/tg/drafts?driverId=' + id)).drafts || [])[0], 15000);
+  ok(dr && /We still want you/.test(dr.draft) && /cannot give me the job/.test(dr.driver_text) && !sentSince(n).some((m) => /We still want you/.test(m.text)), 'watch: a statement gets a reply written on the website, nothing in the group');
+  ok(((await R('/api/onboarding')).drivers.find((x) => x.id === id) || {}).drafts === 1, 'the onboarding list shows "Reply ready"');
+  ok((await R('/api/tg/drafts/' + dr.id + '/send', { method: 'POST', body: { text: 'We still want you, Olga. I will call you in an hour.' } })).ok, 'Rita changes it and presses Send');
+  ok(await until(() => tg.sent.some((m) => /I will call you in an hour/.test(m.text))), 'posted in the group by the bot');
+  ok((await pg.query(`SELECT 1 FROM tg_knowledge WHERE answer LIKE 'We still want you, Olga%'`)).rows.length === 1, 'the changed reply is learned for next time');
+  ok(((await R('/api/tg/drafts?driverId=' + id)).drafts || []).length === 0 && (await R('/api/tg/drafts?driverId=' + id)).stats.changed === 1, 'nothing waiting; counted as changed');
+  say(OLGA, 'If you cannot give me the job I go elsewhere');
+  await until(async () => ((await R('/api/tg/drafts?driverId=' + id)).drafts || []).length === 1, 15000);
+  say(RITA, 'Olga, calling you now');
+  ok(await until(async () => (await pg.query(`SELECT state FROM tg_drafts WHERE driver_id = $1 ORDER BY id DESC LIMIT 1`, [id])).rows[0].state === 'answered'), 'Rita answers in the group herself: the waiting reply is put away');
+  n = tg.sent.length; say(OLGA, 'ok'); await new Promise((r) => setTimeout(r, 2500));
+  ok(((await R('/api/tg/drafts?driverId=' + id)).drafts || []).length === 0, '"ok": no reply needed, no AI call');
+  // Run: the same kind of reply goes out by itself when the bot is sure
+  await pg.query(`UPDATE onb_cases SET mode = 'run' WHERE driver_id = $1`, [id]);
+  n = tg.sent.length; say(OLGA, 'I will be ready Monday');
+  ok(await until(async () => ((await R('/api/tg/drafts?driverId=' + id)).drafts || []).length === 1, 15000) && !sentSince(n).some((m) => /see you Monday/.test(m.text)), 'run, but Rita wrote a minute ago: the bot lets her handle it (the reply waits on the website)');
+  await pg.query(`UPDATE tg_messages SET at = at - interval '1 hour' WHERE chat_id = $1`, [CHAT.id]);
+  n = tg.sent.length; say(OLGA, 'I will be ready Monday');
+  ok(await until(() => sentSince(n).some((m) => /see you Monday/.test(m.text)), 15000), 'run: the bot sends it itself');
   if (process.env.SHOTS) {
     n = tg.sent.length; say(OLGA, 'Where can I park my car?'); await until(() => sentSince(n).some((m) => /Let me check/.test(m.text)));
     const { chromium } = require('playwright'); const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });

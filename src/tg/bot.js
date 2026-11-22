@@ -69,6 +69,9 @@ const dropButtons = (chatId, msgId) => call('editMessageReplyMarkup', { chat_id:
 
 // ---------- keeping what was said ----------
 // Passwords, PINs and account numbers are hidden before anything is saved.
+// nothing to read in it: "ok", "thanks", "👍", a sticker. Saves an AI call; the next real message still sees it as context.
+const TRIVIAL = /^(?:ok(?:ay)?|k|kk|okey|oki|yes|yeah|yep|ya|yup|no|nope|thanks?|thank you|thank u|thx|ty|good|great|cool|nice|perfect|got it|gotcha|copy|copy that|roger|10-4|sure|alright|all right|np|no problem|on it|will do|done|sounds good|понял|ок|да|нет|спасибо|хорошо|\+|\.|[\p{Extended_Pictographic}\p{Emoji_Modifier}\u200d\ufe0f\s]+)[\s.!,)]*$/iu;
+const trivial = (m) => !m.file_id && (!m.media || m.media === 'sticker') && (!String(m.text || '').trim() || TRIVIAL.test(String(m.text).trim()));
 function redact(t) {
   if (!t) return t;
   return String(t)
@@ -582,4 +585,4 @@ async function start() {
   await retryWaiting().catch((e) => console.error('tg waiting', e.message));
   loop();
 }
-module.exports = { sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+module.exports = { trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

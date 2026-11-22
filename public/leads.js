@@ -466,6 +466,7 @@
         <div>
           ${d.status === 'Hired' ? activeCard(d) : ''}
           ${d.aiSummary ? `<section class="card"><div class="ai"><b>AI summary</b>${esc(d.aiSummary)}</div></section>` : ''}
+          ${d.status === 'Onboarding' ? '<div id="leadDrafts"></div>' : ''}
           ${['Onboarding', 'Hired'].includes(d.status) || (cur && cur.onboarding) ? App.docsBox({ driverId: d.id, kinds: ['cdl', 'medical', 'other'], title: 'Driver papers', hint: 'Upload the CDL here. In the ELD group, /info shares it with the driver\'s info and the truck papers.' }) : ''}
           <section class="card"><h3>Profile</h3><dl class="facts">
             ${[['Status', `${badge(d.status)}${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Company', App.coTag(d.companyId)], ['Driver type', esc(one(d.mode))],
@@ -488,6 +489,7 @@
         expYears: f.get('expYears'), experience: f.get('experience'), relayBefore: f.get('relayBefore'), weeksOut: f.get('weeksOut'), daysHome: f.get('daysHome'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
     };
     const tgh = document.querySelector('.tggroups'); if (tgh && App.tgLeadGroups) App.tgLeadGroups(d.id, tgh);
+    const ldr = document.getElementById('leadDrafts'); if (ldr) App.draftsBox(ldr, 'driverId=' + d.id);
     const dp = document.getElementById('dprof'); if (dp && App.profileCard) App.profileCard(d.id, dp, d.status === 'Hired' || d.status === 'Onboarding');
     const sf = $('#stepForm'); if (sf) sf.onsubmit = async (e) => { e.preventDefault(); const v = sf.label.value.trim(); if (!v) return; try { await api(`/api/drivers/${d.id}/checklist`, { method: 'POST', body: { label: v } }); toast('Step added'); again(); } catch (err) { fail(err); } };
   }

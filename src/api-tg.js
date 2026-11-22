@@ -215,6 +215,32 @@ module.exports = (app) => {
       week: Object.fromEntries(counts.map((c) => [c.kind, c.n])), more: r.rows.length === 100 });
   }));
   // ---------- the dispatch autopilot: how far the bot is with learning dispatching and updates ----------
+  // replies the bot wrote for drivers in onboarding, waiting for someone to send them (Watch and learn)
+  const draftOk = async (req, res, id) => { const dr = (await q(`SELECT * FROM tg_drafts WHERE id = $1`, [+id || 0])).rows[0]; if (!dr) { res.status(404).json({ error: 'Not found' }); return null; }
+    if (dr.driver_id && !(await lib.loadDriver(req, res, dr.driver_id))) return null; return dr; };
+  app.get('/api/tg/drafts', needUser, wrap(async (req, res) => {
+    const params = []; const w = [`x.state = 'open'`, `x.created_at > now() - interval '3 days'`];
+    if (req.query.driverId) { params.push(+req.query.driverId); w.push(`x.driver_id = $${params.length}`); }
+    if (req.query.chatId) { params.push(String(req.query.chatId)); w.push(`x.chat_id = $${params.length}::bigint`); }
+    const vis = visSql(req.user, params); if (vis) w.push(vis);
+    const drafts = (await q(`SELECT x.id, x.chat_id::text chat_id, x.driver_id, x.driver_text, x.draft, x.kind, x.created_at, d.name FROM tg_drafts x LEFT JOIN drivers d ON d.id = x.driver_id WHERE ${w.join(' AND ')} ORDER BY x.created_at DESC LIMIT 50`, params)).rows;
+    const st = (await q(`SELECT count(*) FILTER (WHERE state = 'sent' AND sent_text = draft)::int as_is, count(*) FILTER (WHERE state = 'sent' AND sent_text <> draft)::int changed,
+      count(*) FILTER (WHERE state = 'dismissed')::int not_needed, count(*) FILTER (WHERE state = 'answered')::int team FROM tg_drafts WHERE created_at > now() - interval '30 days'`)).rows[0];
+    res.json({ drafts, stats: st });
+  }));
+  app.post('/api/tg/drafts/:id/send', needUser, wrap(async (req, res) => {
+    const dr = await draftOk(req, res, req.params.id); if (!dr) return;
+    if (dr.state !== 'open') return res.status(400).json({ error: dr.state === 'sent' ? 'Already sent' : 'This reply is no longer waiting' });
+    const text = String((req.body || {}).text || dr.draft).trim().slice(0, 1500); if (!text) return res.status(400).json({ error: 'Write the reply first' });
+    try { await require('./tg/onboard').sendDraft(dr, text, req.user); } catch (e) { return res.status(502).json({ error: 'Telegram did not take it: ' + e.message }); }
+    await lib.history(dr.driver_id, `Sent in Telegram: "${text.slice(0, 200)}"`, req.user.name, 'telegram').catch(() => {});
+    res.json({ ok: true });
+  }));
+  app.post('/api/tg/drafts/:id/dismiss', needUser, wrap(async (req, res) => {
+    const dr = await draftOk(req, res, req.params.id); if (!dr) return;
+    await q(`UPDATE tg_drafts SET state = 'dismissed', sent_by = $2, decided_at = now() WHERE id = $1 AND state = 'open'`, [dr.id, req.user.name]);
+    res.json({ ok: true });
+  }));
   // one dispatcher's work review (admins): by Telegram id, or u<user id> from the Team page
   const dispRef = async (ref) => (await q(String(ref).startsWith('u') ? `SELECT * FROM tg_people WHERE user_id = $1 ORDER BY profile_at DESC NULLS LAST LIMIT 1` : `SELECT * FROM tg_people WHERE tg_id = $1`, [String(ref).replace(/^u/, '')])).rows[0];
   app.get('/api/tg/dispatchers/:ref', needUser, needAdmin, wrap(async (req, res) => {
