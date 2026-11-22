@@ -373,6 +373,18 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => inChat(n, MCHAT).some((m) => /🔔 @rita_r missed the call-back to Cody Coming/.test(m.text)), 15000), 'follow-up: a missed call-back');
   await sleep(2500); ok(inChat(n, MCHAT).filter((m) => /Background check" with Amazon/.test(m.text)).length === 1, 'each follow-up once a day');
   await pg.query(`UPDATE drivers SET callback_state = NULL WHERE id = $1`, [cody]);
+  // ---------- /oil ----------
+  await pg.query(`UPDATE trucks SET odometer = 412500 WHERE unit = '140'`);
+  await pg.query(`INSERT INTO truck_events (truck_id, kind, title, status, odometer, at, fixed_at, done_on) SELECT id, 'oil_change', 'Oil change', 'fixed', 386000, now() - interval '40 days', now() - interval '40 days', (now() - interval '40 days')::date FROM trucks WHERE unit = '140'`);
+  await pg.query(`UPDATE trucks SET odometer = 120400 WHERE unit = 'T7'`);
+  await pg.query(`INSERT INTO truck_events (truck_id, kind, title, status, odometer, at, fixed_at, done_on) SELECT id, 'oil_change', 'Oil change', 'fixed', 110000, now() - interval '10 days', now() - interval '10 days', (now() - interval '10 days')::date FROM trucks WHERE unit = 'T7'`);
+  n = tg.sent.length; priv(RITA, '/oil');
+  const oil = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Oil changes: \d+ trucks/.test(m.text)));
+  ok(oil && /<b>Overdue<\/b> \(1\)\n140 — Walt Worker — now 412,500 mi — done at 386,000 mi on \w+ \d+ — due at 411,000 mi \(1,500 over\)/.test(oil.text), '/oil: overdue first: truck, driver, miles now, done at, due at (miles over)');
+  ok(oil && /T7 — no driver — now 120,400 mi — done at 110,000 mi on \w+ \d+ — due at 135,000 mi \(14,600 left\), by \w+ \d+/.test(oil.text) && /<b>No oil change on record<\/b>/.test(oil.text), 'OK trucks with miles left and the date; trucks with no oil change on record');
+  n = tg.sent.length; priv(X, '/oil');
+  ok(await until(() => sentSince(n).some((m) => m.chat_id === X.id && /Only our team/.test(m.text))), 'not for people outside the team');
+
   // ---------- the chance to make it: how the driver responds ----------
   await pg.query(`UPDATE tg_messages SET at = at - interval '3 days' WHERE chat_id = $1`, [PCHAT.id]);
   say(RITA, 'Paul, are you there?', PCHAT); await sleep(300); say(RITA, 'Paul, please call me back', PCHAT);
@@ -383,7 +395,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(cr && cr.calls.noAnswer === 3 && cr.reasons.some((x) => /not reachable by phone/.test(x.text)), 'Cody: 3 calls not answered this week');
   const obl = await web('/api/onboarding');
   ok(obl.drivers.every((d) => d.reach && typeof d.reach.score === 'number'), 'the onboarding page shows each driver\'s chance');
-  ok(await until(() => inChat(0, MCHAT).some((m) => /🔔 @rita_r: Paul Penn has been silent 3 days \(2 of our messages unanswered\): please give a call/.test(m.text)), 15000), 'management group: the silence countdown tags Rita');
+  ok(await until(() => inChat(0, MCHAT).some((m) => /🔔 @rita_r: Paul Penn has been silent 3 days \([12] of our messages unanswered\): please give a call/.test(m.text)), 15000), 'management group: the silence countdown tags Rita');
   await sleep(2500); ok(inChat(0, MCHAT).filter((m) => /Paul Penn has been silent/.test(m.text)).length === 1, 'once for this silence');
   n = tg.sent.length; priv(RITA, '/onboard');
   const ob2 = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Onboarding: \d+<\/b>/.test(m.text)), 20000);

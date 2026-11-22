@@ -134,6 +134,7 @@
         ] },
         { title: 'Team commands and management groups', items: [
           P('/onboard', 'built', 'Plain onboarding list: Amazon verified and Amazon pending, each split into CD and OO, with each driver\'s start date.', 'Private chat, management group'),
+          P('/oil', 'built', 'Every truck in service, overdue first: truck, driver, miles now, when the oil was done (miles, date) and when it is due (miles left, date).', 'Private chat, management group'),
           P('/empty', 'built', 'Empty trucks by company, days and cost, who is coming.', 'Private chat, management group'),
           P('Morning report', 'built', 'Empty trucks and the onboarding list at a set time.', 'Management groups'),
           P('Follow-ups tagging recruiters', 'built', 'Driver waiting 3+ h, missed call-back, Amazon stuck 5+ days, silence 2 / 4 / 7 days.', 'Management groups'),

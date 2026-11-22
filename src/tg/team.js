@@ -63,6 +63,38 @@ async function onboardCmd(chatId, person, { tagRecruiters = false } = {}) {
   return last;
 }
 
+// /oil: every truck in service, overdue first: the truck, the driver, the miles now, when the oil was done and when it is due
+async function oilText() {
+  const fl = require('../fleet');
+  const ts = (await q(`SELECT t.*, d.name driver, co.name company FROM trucks t LEFT JOIN drivers d ON d.id = t.driver_id LEFT JOIN companies co ON co.id = t.company_id WHERE NOT t.out_of_service ORDER BY t.unit`)).rows;
+  if (!ts.length) return ['No trucks on the website yet.'];
+  const last = await fl.lastOils(ts.map((t) => t.id));
+  const mi = (n) => (n === null || n === undefined ? '?' : Math.round(n).toLocaleString('en-US'));
+  const rows = ts.map((t) => ({ t, o: fl.oilStatus(t, last[t.id]) }));
+  const line = ({ t, o }) => {
+    const who = t.driver || t.driver_name || 'no driver';
+    if (o.state === 'unknown') return `${esc(t.unit)} — ${esc(who)} — now ${mi(t.odometer)} mi — no oil change on record`;
+    const due = [o.dueMiles ? `due at ${mi(o.dueMiles)} mi${o.milesLeft !== null ? ` (${o.milesLeft <= 0 ? `${mi(-o.milesLeft)} over` : `${mi(o.milesLeft)} left`})` : ''}` : '',
+      `${o.daysLeft <= 0 ? `${-o.daysLeft} days past` : `by ${esc(nice(o.dueDate))}`}`].filter(Boolean).join(', ');
+    return `${esc(t.unit)} — ${esc(who)} — now ${mi(o.odometer)} mi — done at ${mi(o.last.odometer)} mi on ${esc(nice(new Date(o.last.at).toISOString()))} — ${due}`;
+  };
+  const by = (s) => rows.filter((x) => x.o.state === s).sort((a, b) => (a.o.milesLeft ?? 1e9) - (b.o.milesLeft ?? 1e9) || (a.o.daysLeft ?? 1e9) - (b.o.daysLeft ?? 1e9));
+  const blocks = [`<b>Oil changes: ${rows.length} trucks</b>`];
+  for (const [title, s] of [['Overdue', 'overdue'], ['Due soon', 'soon'], ['No oil change on record', 'unknown'], ['OK', 'ok']]) {
+    const xs = by(s); if (!xs.length) continue;
+    blocks.push(`\n<b>${title}</b> (${xs.length})`); for (const x of xs) blocks.push(line(x));
+  }
+  const out = []; let cur = '';
+  for (const b of blocks) { if ((cur + '\n' + b).length > 3800) { out.push(cur); cur = b; } else cur = cur ? cur + '\n' + b : b; }
+  if (cur) out.push(cur);
+  return out;
+}
+async function oilCmd(chatId, person) {
+  if (!bot.isStaff(person)) return send(chatId, 'Only our team can see this. Connect your website account first: /me CODE (the code is under Telegram → Connect my Telegram).');
+  let last = null; for (const t of await oilText()) last = await send(chatId, t);
+  return last;
+}
+
 // ---------- management groups: the morning report and follow-ups ----------
 const local = () => { const p = new Intl.DateTimeFormat('en-CA', { timeZone: db.settings.tz, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
   const g = (k) => (p.find((x) => x.type === k) || {}).value; return { date: `${g('year')}-${g('month')}-${g('day')}`, min: (+g('hour') % 24) * 60 + +g('minute') }; };
@@ -127,4 +159,4 @@ async function tick() {
   }
 }
 function start() { setInterval(() => tick().catch((e) => console.error('team tick', e.message)), +process.env.TG_TEAM_MS || 5 * 60000); }
-module.exports = { start, tick, onboardCmd, onboardText, followups, refresh };
+module.exports = { oilCmd, oilText, start, tick, onboardCmd, onboardText, followups, refresh };

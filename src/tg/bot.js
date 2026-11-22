@@ -431,6 +431,7 @@ async function handle(u) {
     const pc = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || ''); const me = m.from ? await person(m.from) : null;
     if (pc && pc[1] === 'me') return connectMe(m, pc[2], me);
     if (pc && pc[1] === 'driver') return driverCard(m, pc[2], me);
+    if ((pc && pc[1] === 'oil') || /^\s*oil( change| changes)?\s*$/i.test(m.text || '')) return require('./team').oilCmd(m.chat.id, me);
     if ((pc && pc[1] === 'onboard') || /^\s*onboard(ing)?\s*$/i.test(m.text || '')) return require('./team').onboardCmd(m.chat.id, me);
     if ((pc && pc[1] === 'empty') || /^\s*empty( trucks)?\s*$/i.test(m.text || '')) return emptyCmd(m.chat.id, me);
     if (pc && pc[1] === 'help') return send(m.chat.id, helpText(false));
@@ -447,6 +448,11 @@ async function handle(u) {
   if (who && m.reply_to_message && m.reply_to_message.from && state.me && m.reply_to_message.from.id === state.me.id && !u.edited_message)
     await log('reply', `Replied to the bot ("${clip(m.reply_to_message.text, 50)}"): ${clip(redact(m.text || m.caption || '[' + (m.photo ? 'photo' : 'file') + ']').replace(/\d{4,}/g, '••••'), 90)}`, { chatId: chat.chat_id, who });
   const cmd = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || '');
+  if ((cmd && cmd[1] === 'oil') || (chat.kind === 'management' && /^\s*oil( change| changes)?\s*$/i.test(m.text || ''))) {
+    if (!isStaff(who)) return;
+    if (chat.driver_id) { const ok = await require('./team').oilCmd(who.tg_id, who).catch(() => null); return react(m.chat.id, m.message_id, ok ? '👌' : '🤷'); } // never in a driver's group
+    return require('./team').oilCmd(m.chat.id, who);
+  }
   if ((cmd && cmd[1] === 'onboard') || (chat.kind === 'management' && /^\s*onboard(ing)?\s*$/i.test(m.text || ''))) {
     if (!isStaff(who)) return;
     if (chat.driver_id) { const ok = await require('./team').onboardCmd(who.tg_id, who).catch(() => null); return react(m.chat.id, m.message_id, ok ? '👌' : '🤷'); } // never in a driver's group
@@ -481,7 +487,7 @@ async function handle(u) {
 // ---------- the command list in Telegram's / menu ----------
 const GROUP_CMDS = [['info', 'ELD group: the driver\'s info, CDL and truck papers'], ['register', 'Connect this group to a driver (dispatch, ELD or accounting)'], ['mode', 'Onboarding: how I work here (watch, answer, run)'], ['status', 'The driver\'s status card'],
   ['sum', 'Sum up today on the website now'], ['help', 'What I do and the commands']];
-const PRIVATE_CMDS = [['onboard', 'Drivers in onboarding: Amazon verified / pending'], ['empty', 'The empty trucks, by company'], ['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
+const PRIVATE_CMDS = [['oil', 'Oil changes: every truck, overdue first'], ['onboard', 'Drivers in onboarding: Amazon verified / pending'], ['empty', 'The empty trucks, by company'], ['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
 async function setCommands() {
   const list = (a) => a.map(([command, description]) => ({ command, description }));
   await call('setMyCommands', { commands: list(GROUP_CMDS), scope: { type: 'all_group_chats' } });
@@ -490,7 +496,7 @@ async function setCommands() {
 }
 const helpText = (group) => group
   ? '<b>FleetHire assistant</b>\nI read this group and keep the team informed on the website.\n\n/register: connect this group to a driver (I also do it myself when the title has the driver\'s name and phone)\n/mode: onboarding groups: 👀 watch and learn, 💬 answer questions, or 🚀 run the onboarding\n/status: the driver\'s status card\n/sum: sum up today on the website now\n\nThe commands are for our team (connect your account first: in a private chat with me, /me CODE from the website).'
-  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/onboard: the drivers in onboarding (Amazon verified, pending)\n/empty: the empty trucks, by company\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
+  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/onboard: the drivers in onboarding (Amazon verified, pending)\n/empty: the empty trucks, by company\n/oil: oil changes for every truck\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
 // /mode in an onboarding group: buttons, or "/mode watch"
 async function modeCmd(m, chat, arg, who) {
   if (!isStaff(who)) return send(m.chat.id, 'Only our team can change this.', { replyTo: m.message_id });
