@@ -19,7 +19,7 @@ function toClient(d) {
     lastContactAt: d.last_contact_at, followUp: d.follow_up || null, tags: d.tags, ownerId: d.owner_id, createdBy: d.created_by, lostReason: d.lost_reason, leadAt: d.lead_at,
     weeksOut: d.weeks_out === null || d.weeks_out === undefined ? null : +d.weeks_out, daysHome: d.days_home ?? null, cdlExpires: d.cdl_expires || null, medExpires: d.med_expires || null,
     outSince: d.out_since || null, leftOn: d.left_on || null, leftReason: d.left_reason || null,
-    relayBefore: d.relay_before === undefined ? null : d.relay_before, callPrep: d.call_prep || null, callPrepAt: d.call_prep_at || null, amazonStep: d.amazon_step || null, amazonLog: d.amazon_log || {}, lostNote: d.lost_note || null,
+    relayBefore: d.relay_before === undefined ? null : d.relay_before, callPrep: d.call_prep || null, callPrepAt: d.call_prep_at || null, amazonStep: d.amazon_step || null, amazonLog: d.amazon_log || {}, lostNote: d.lost_note || null, stage: d.stage,
     expYears: d.exp_years === null || d.exp_years === undefined ? null : +d.exp_years, experience: d.experience, truckYear: d.truck_year, truckModel: d.truck_model, companyId: d.company_id,
     callback: d.callback_at ? { at: d.callback_at, said: d.callback_said, tz: d.callback_tz, by: d.callback_by, state: d.callback_state } : null,
     licenseState: d.license_state || null, hasSsn4: d.ssn4 !== undefined ? !!d.ssn4 : undefined, ssn4At: d.ssn4_at || null,
@@ -68,7 +68,7 @@ const personName = async (id) => { const r = await q(`SELECT name FROM users WHE
 module.exports = (app) => {
   // ---------- list ----------
   app.get('/api/drivers', needUser, wrap(async (req, res) => {
-    const { q: text = '', status = '', account = '', mode = '', due = '', today: dueToday = '', overdue = '', exclude = '', cold = '', working = '', owner = '', source = '', company = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
+    const { q: text = '', status = '', account = '', mode = '', due = '', today: dueToday = '', overdue = '', exclude = '', cold = '', working = '', owner = '', source = '', company = '', stage = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
     const where = []; const params = [];
     const P = (v) => { params.push(v); return '$' + params.length; };
     const vis = visSql(req.user, params); if (vis) where.push(vis);
@@ -106,13 +106,22 @@ module.exports = (app) => {
     if (status) { p2.push(status); w.push(`d.status = $${p2.length}`); }
     const ex = String(exclude).split(',').map((x) => x.trim()).filter(Boolean); // stages left out (the default: Onboarding and Hired)
     if (ex.length && !status) { p2.push(ex); w.push(`d.status <> ALL($${p2.length}::text[])`); }
-    const sortSql = { due: `${overdueSql} DESC, ${todaySql} DESC, coalesce(LEAST(d.follow_up::timestamptz, CASE WHEN ${cbOpen} THEN d.callback_at END), 'infinity') ASC, d.updated_at DESC`, updated: 'd.updated_at DESC', name: 'lower(d.name) ASC', followup: 'd.follow_up ASC NULLS LAST, d.updated_at DESC', created: 'd.created_at DESC' }[sort] || 'd.updated_at DESC';
-    const rows = await q(`SELECT d.*, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, ${todaySql} is_today, ${overdueSql} is_overdue, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count, (SELECT count(*)::int FROM activity a WHERE a.driver_id = d.id AND a.type = 'open') opens,
+    // how many in each stage, with every other filter on. "attention" is there so that every parameter is used.
+    const stages = await q(`SELECT x.stage, count(*)::int n, count(*) FILTER (WHERE x.attention)::int attention FROM (SELECT ${db.stageSql()} stage, (${todaySql} OR ${overdueSql} OR ${coldSql}) attention
+      FROM drivers d ${w.length ? 'WHERE ' + w.join(' AND ') : ''}) x GROUP BY x.stage`, p2);
+    if (db.STAGES.includes(stage)) w.push(`${db.stageSql()} = '${stage}'`); // one of five fixed words
+    const sortSql = { assigned: 'coalesce(d.assigned_at, d.created_at) DESC', due: `${overdueSql} DESC, ${todaySql} DESC, coalesce(LEAST(d.follow_up::timestamptz, CASE WHEN ${cbOpen} THEN d.callback_at END), 'infinity') ASC, d.updated_at DESC`, updated: 'd.updated_at DESC', name: 'lower(d.name) ASC', followup: 'd.follow_up ASC NULLS LAST, d.updated_at DESC', created: 'd.created_at DESC' }[sort] || 'd.updated_at DESC';
+    const rows = await q(`SELECT d.*, ${db.stageSql()} stage, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, ${todaySql} is_today, ${overdueSql} is_overdue, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count, (SELECT count(*)::int FROM activity a WHERE a.driver_id = d.id AND a.type = 'open') opens,
         (SELECT ${lib.NOTE_TEXT} FROM notes n WHERE n.driver_id = d.id ORDER BY n.updated_at DESC LIMIT 1) last_note
       FROM drivers d ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY ${sortSql}, d.id LIMIT ${Math.min(500, Math.max(1, +limit || 100))} OFFSET ${Math.max(0, +offset || 0)}`, p2);
     const pv = []; const v2 = visSql(req.user, pv);
     const accounts = await q(`SELECT DISTINCT account FROM drivers d WHERE account IS NOT NULL ${v2 ? 'AND ' + v2 : ''} ORDER BY 1`, pv);
-    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ ...toClient(d), cold: d.is_cold, dueToday: d.is_today, overdue: d.is_overdue, opens: d.opens })), counts: counts.rows, accounts: accounts.rows.map((r) => r.account) });
+    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ ...toClient(d), cold: d.is_cold, dueToday: d.is_today, overdue: d.is_overdue, opens: d.opens })), counts: counts.rows, stages: Object.fromEntries(db.STAGES.map((k) => [k, (stages.rows.find((x) => x.stage === k) || { n: 0 }).n])), accounts: accounts.rows.map((r) => r.account) });
+  }));
+
+  // The number on Leads in the menu
+  app.get('/api/leads/new-count', needUser, wrap(async (req, res) => {
+    res.json({ n: (await q(`SELECT count(*)::int n FROM drivers d WHERE d.owner_id = $1 AND ${db.stageSql()} = 'new'`, [req.user.id])).rows[0].n });
   }));
 
   // Who opened a lead, how many times (opening it again within 10 minutes counts once), and when
@@ -169,6 +178,7 @@ module.exports = (app) => {
     if (b.licenseState === '') await q(`UPDATE drivers SET license_state = NULL WHERE id = $1`, [d.id]);
     if (b.zip === '') await q(`UPDATE drivers SET zip = NULL WHERE id = $1`, [d.id]);
     if (b.ssn4 === '') { await q(`UPDATE drivers SET ssn4 = NULL, ssn4_at = NULL WHERE id = $1`, [d.id]); await lib.history(d.id, 'Last 4 of SSN deleted', req.user.name, 'web'); }
+    if (b.licenseState || b.zip || b.ssn4) await db.markWorked(db.pool, d.id, req.user.id);
     await mvr.setFacts(d.id, { state: b.licenseState || undefined, zip: b.zip ? String(b.zip).trim() : undefined, ssn4: b.ssn4 || undefined }, req.user.name, { quiet: true });
     await q(`UPDATE drivers SET updated_at = now() WHERE id = $1`, [d.id]);
     res.json({ ok: true, needs: mvr.needs(await mvr.driver(d.id)) });
@@ -225,7 +235,7 @@ module.exports = (app) => {
     await db.statusChanged(db.pool, { id: d.id, status: null }, status, { userId: req.user.id });
     await record(req, 'lead_add', d, `Added the lead (${source}${b.sourceDetail ? ': ' + String(b.sourceDetail).trim().slice(0, 80) : ''})`);
     const note = String(b.note || '').trim();
-    if (note) { await q(`INSERT INTO notes (driver_id, user_id, body) VALUES ($1, $2, $3)`, [d.id, req.user.id, note.slice(0, 5000)]); await act(req.user, 'note', d, note.slice(0, 140)); }
+    if (note) { await db.markWorked(db.pool, d.id, req.user.id); await q(`INSERT INTO notes (driver_id, user_id, body) VALUES ($1, $2, $3)`, [d.id, req.user.id, note.slice(0, 5000)]); await act(req.user, 'note', d, note.slice(0, 140)); }
     if (d.owner_id && d.owner_id !== req.user.id) await db.notify(db.pool, d.owner_id, 'lead_new', `New lead for you: ${d.name} (${source}), added by ${req.user.name}`, `#/driver/${d.id}`, { driverId: d.id });
     res.json({ id: d.id });
   }));
@@ -250,7 +260,7 @@ module.exports = (app) => {
     } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
     const names = Object.fromEntries((await q(`SELECT id, name FROM users WHERE id = ANY($1::int[])`, [Object.keys(given).map(Number)])).rows.map((x) => [x.id, x.name]));
     for (const [id, to] of done) await history(id, `Assigned to ${names[to]} (leads shared evenly)`, req.user.name);
-    for (const [to, k] of Object.entries(given)) await db.notify(db.pool, +to, 'lead_new', `${req.user.name} shared ${k === 1 ? 'a lead' : `${k} leads`} with you`, '#/leads?owner=me');
+    for (const [to, k] of Object.entries(given)) await db.notify(db.pool, +to, 'lead_new', `${req.user.name} shared ${k === 1 ? 'a lead' : `${k} leads`} with you`, '#/leads?owner=me&stage=new');
     const n = done.length;
     if (n) await act(req.user, 'assign', null, `Shared ${n} unassigned lead${n > 1 ? 's' : ''} evenly: ${Object.entries(given).map(([id, k]) => `${names[id]} ${k}`).join(', ')}`);
     res.json({ ok: true, shared: n, given: Object.entries(given).map(([id, k]) => ({ id: +id, name: names[id], n: k })) });
@@ -266,7 +276,7 @@ module.exports = (app) => {
     const r = await q(`UPDATE drivers SET owner_id = $2::int, assigned_at = CASE WHEN $2::int IS NULL THEN NULL ELSE now() END WHERE id = ANY($1::int[]) AND owner_id IS DISTINCT FROM $2::int RETURNING id`, [ids, ownerId]);
     const text = who ? `Assigned to ${who}` : 'Set to no recruiter';
     for (const row of r.rows) await history(row.id, text, req.user.name);
-    if (ownerId && ownerId !== req.user.id && r.rows.length) await db.notify(db.pool, ownerId, 'lead_new', r.rows.length === 1 ? `${req.user.name} gave you a lead` : `${req.user.name} gave you ${r.rows.length} leads`, r.rows.length === 1 ? `#/driver/${r.rows[0].id}` : '#/leads?owner=me', r.rows.length === 1 ? { driverId: r.rows[0].id } : {});
+    if (ownerId && ownerId !== req.user.id && r.rows.length) await db.notify(db.pool, ownerId, 'lead_new', r.rows.length === 1 ? `${req.user.name} gave you a lead` : `${req.user.name} gave you ${r.rows.length} leads`, r.rows.length === 1 ? `#/driver/${r.rows[0].id}` : '#/leads?owner=me&stage=new', r.rows.length === 1 ? { driverId: r.rows[0].id } : {});
     if (r.rows.length) await act(req.user, 'assign', null, who ? `Assigned ${r.rows.length} lead${r.rows.length > 1 ? 's' : ''} to ${who}` : `Removed the recruiter from ${r.rows.length} lead${r.rows.length > 1 ? 's' : ''}`);
     res.json({ ok: true, changed: r.rows.length });
   }));
@@ -278,6 +288,7 @@ module.exports = (app) => {
     let newStatus = null;
     if (b.status !== undefined && db.ORDER.includes(b.status) && b.status !== cur.status) { newStatus = b.status; set.status = b.status; set.status_locked = true; set.status_at = new Date().toISOString(); log.push(['status', `Status: ${cur.status} to ${b.status}`]); }
     if (b.statusLocked === false) set.status_locked = false;
+    if (b.working === true) { set.worked_at = new Date().toISOString(); log.push(['work', 'Moved to In process']); }
     if (b.followUp !== undefined && (b.followUp || null) !== (cur.follow_up || null)) {
       if (b.followUp && !isDate(b.followUp)) return res.status(400).json({ error: 'The follow-up date is not a valid date' });
       set.follow_up = b.followUp || null; log.push(['followup', b.followUp ? `Follow-up set for ${niceDate(b.followUp)}` : 'Follow-up cleared']);
@@ -371,6 +382,8 @@ module.exports = (app) => {
     if (amazonSet) await q(`UPDATE drivers SET amazon_log = amazon_log || jsonb_build_object($2::text, now()) WHERE id = $1`, [id, amazonSet]);
     if (newStatus) for (const text of await db.statusChanged(db.pool, cur, newStatus, { userId: u.id })) log.push(['truck', text]);
     if (b.amazonStep !== undefined) await db.syncAuto(db.pool, id, u.id); // "Amazon Relay verified" on the checklist
+    // information filled in or the lead moved on by its recruiter = in process
+    if (set.owner_id === undefined && b.working !== true && (newStatus || set.answers !== undefined || log.some(([type]) => type === 'edit'))) await db.markWorked(db.pool, id, u.id);
     const named = { id, name: set.name || cur.name };
     for (const [type, text] of log) await record(req, type, named, text);
     {
@@ -407,6 +420,7 @@ module.exports = (app) => {
     if (kind === 'call' && outcome === 'Talked' && body.length < coach.TALK_MIN) return res.status(400).json({ error: 'Write what you talked about first (what he said, what you agreed, what comes next), then log the call', needNote: true });
     const r = await q(`INSERT INTO notes (driver_id, user_id, body, kind, outcome) VALUES ($1, $2, $3, $4, $5) RETURNING id`, [d.id, req.user.id, body, kind, outcome]);
     await touch(d.id, !!kind);
+    if (!kind || outcome === 'Talked') await db.markWorked(db.pool, d.id, req.user.id); // no answer, voicemail or a text sent: still new
     if (kind === 'call') await require('./callback').onCall(db.pool, d.id, req.user.name);
     await coach.callLogged(req.user.id, d.id);
     if (kind) await act(req.user, 'contact', d, `${CONTACT_WORD[kind]}, ${outcome.toLowerCase()}${body ? ': ' + body.slice(0, 140) : ''}`);

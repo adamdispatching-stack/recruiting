@@ -32,5 +32,27 @@ const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) process
   const open = await ids('exclude=Onboarding,Hired&limit=500');
   ok(!open.includes(onb) && !open.includes(hired) && open.includes(late) && open.includes(cold), 'the default stage (still recruiting) leaves out onboarding and hired leads');
   ok((await ids('exclude=Onboarding,Hired&status=Onboarding')).includes(onb), 'picking a stage overrides it');
+  // the five stages
+  const stageOf = async (id) => (await A('/api/drivers?limit=500')).drivers.find((d) => d.id === id).stage;
+  const p = await mk('Pipe Line', 'Interested');
+  ok((await stageOf(p)) === 'new', 'a lead just given is New');
+  await A(`/api/drivers/${p}/notes`, { method: 'POST', body: { kind: 'call', outcome: 'No answer', indeed: false } });
+  ok((await stageOf(p)) === 'new', 'no answer: still New');
+  await A(`/api/drivers/${p}/notes`, { method: 'POST', body: { body: 'Two years CDL-A, can start Monday' } });
+  ok((await stageOf(p)) === 'process', 'information written down: In process');
+  await pg.query('UPDATE drivers SET assigned_at = now() WHERE id = $1', [p]);
+  ok((await stageOf(p)) === 'new', 'given again: New again');
+  await A('/api/drivers/' + p, { method: 'PATCH', body: { working: true } });
+  ok((await stageOf(p)) === 'process', 'the In process button');
+  await A('/api/drivers/' + p, { method: 'PATCH', body: { status: 'Not interested', lostReason: 'Home time' } });
+  ok((await stageOf(p)) === 'red', 'not interested: Red zone');
+  await A('/api/drivers/' + p, { method: 'PATCH', body: { status: 'Interested', working: true } });
+  ok((await stageOf(p)) === 'process', 'reopened: In process');
+  ok((await stageOf(onb)) === 'onboarding' && (await stageOf(hired)) === 'hired', 'Onboarding and Hired are stages of their own');
+  const only = await A('/api/drivers?stage=process');
+  ok(only.drivers.every((d) => d.stage === 'process') && only.stages.process === only.total, 'a tab shows its stage, with the same number');
+  for (const qs of ['stage=new&today=1', 'stage=red&status=Rejected', 'stage=new&q=pipe&owner=me', 'stage=process&working=1&cold=1', 'stage=new&sort=assigned'])
+    ok(Array.isArray((await A('/api/drivers?' + qs)).drivers), 'the query runs: ' + qs);
+  ok(typeof (await A('/api/leads/new-count')).n === 'number', 'the number for the menu');
   await pg.end();
 })();

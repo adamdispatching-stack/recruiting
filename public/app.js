@@ -240,7 +240,18 @@ window.App = (() => {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBell(); });
   document.addEventListener('click', (e) => { const p = document.getElementById('bellpanel'); if (p && !p.contains(e.target) && !e.target.closest('[data-act=bellOpen]')) closeBell(); });
   const seen = async (ids) => { await fetch('/api/notices/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }), credentials: 'same-origin' }).catch(() => {}); };
-  function startSignals() { if (sig.timer) return; beat({ start: true }); refreshGoal(); sig.timer = setInterval(beat, 30000); }
+  // new leads for me: the number on Leads in the menu. The Leads page hears about a change through "newleads".
+  async function refreshNew() {
+    if (!S.me || S.me.role === 'dispatcher' || document.hidden) return;
+    try {
+      const r = await fetch('/api/leads/new-count', { credentials: 'same-origin' }); if (!r.ok) return;
+      const { n } = await r.json(); const changed = n !== S.newLeads; S.newLeads = n;
+      document.querySelectorAll('.newcount').forEach((b) => { b.textContent = n; b.hidden = !n; });
+      if (changed) document.dispatchEvent(new Event('newleads'));
+    } catch (e) { /* offline: the next beat asks again */ }
+  }
+  document.addEventListener('leadmoved', refreshNew);
+  function startSignals() { if (sig.timer) return; beat({ start: true }); refreshGoal(); refreshNew(); sig.timer = setInterval(() => { beat(); refreshNew(); }, 30000); }
   function stopSignals() { clearInterval(sig.timer); sig.timer = null; sig.page = ''; }
   document.addEventListener('visibilitychange', () => { if (document.hidden) beat(); });
   window.addEventListener('pagehide', () => beat());
@@ -336,7 +347,7 @@ window.App = (() => {
     let shut = []; try { shut = JSON.parse(localStorage.getItem('railShut') || '[]'); } catch (e) { /* storage off */ }
     const section = ([label, list]) => { const here = list.some(([, , k]) => k === active); const closed = label && shut.includes(label) && !here;
       return label ? `<div class="rgroup${closed ? ' shut' : ''}"><button type="button" class="rhead" data-act="railGroup" data-g="${esc(label)}" aria-expanded="${closed ? 'false' : 'true'}">${esc(label)}<span aria-hidden="true">${closed ? '+' : '–'}</span></button><div class="ritems">${list.map(link).join('')}</div></div>` : list.map(link).join(''); };
-    const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
+    const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span>${key === 'leads' ? `<b class="newcount" title="New leads for you" ${S.newLeads ? '' : 'hidden'}>${S.newLeads || 0}</b>` : ''}</a>`;
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
         <div class="brand"><a href="#/" aria-label="FleetHire Recruiting, home"><svg class="logo" viewBox="0 0 40 28" width="38" height="27" aria-hidden="true"><path d="M2 5.5h21v15H2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M23 10h8.5l5.5 5.6v4.9H23z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="9" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><path d="M6 10.5h9M6 14.5h6" stroke="#F4B400" stroke-width="2.4" stroke-linecap="round"/></svg><span><b>FleetHire</b><small>Recruiting</small></span></a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>
         <div class="railnav" id="railnav">
