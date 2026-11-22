@@ -533,6 +533,7 @@
     try { await navigator.clipboard.writeText(t); toast('Copied'); } catch { toast('Could not copy'); } });
   App.route(/^#\/dispatcher\/(u?\d+)$/, viewDispatcher);
   App.route(/^#\/telegram$/, viewList);
+  App.route(/^#\/shifts$/, () => { tab = 'desk'; return viewList(); }); // the Shift desk, also from the menu
   App.route(/^#\/telegram\/(-?\d+)$/, viewChat);
   App.tgLeadGroups = leadGroups;
 })();

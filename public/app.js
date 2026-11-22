@@ -324,8 +324,8 @@ window.App = (() => {
           <nav aria-label="Sections">${items.map(link).join('')}</nav>
           <span class="grow"></span>
           ${goalRing()}
-          <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : disp ? 'Dispatcher' : 'Recruiter'}</span></div>
-            <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + link(['#/ai', 'AI usage', 'ai']) + link(['#/map', 'Product map', 'map']) + `<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a>` : link(['#/settings', 'Password', 'settings', 'password'])}
+          <div class="acct"><div class="who"><b>${esc(S.me.name)}</b><span>${admin ? 'Admin' : disp ? 'Dispatcher' : 'Recruiter'}${S.me.version ? ` · v${esc(S.me.version)}` : ''}</span></div>
+            <nav aria-label="Account">${admin ? link(['#/settings', 'Settings', 'settings']) + link(['#/shifts', 'Shift desk', 'shifts', 'team']) + link(['#/ai', 'AI usage', 'ai']) + link(['#/map', 'Product map', 'map']) + `<a href="/api/export.csv">${icon('export')}<span>Export leads</span></a>` : link(['#/settings', 'Password', 'settings', 'password'])}
               <button data-act="logout">${icon('out')}<span>Sign out</span></button></nav></div>
         </div></div></div></aside>${extra ? `<header class="sign"><div class="o"><div class="plate">${extra}</div></div></header>` : ''}`;
   }
