@@ -13,15 +13,26 @@ const db = require('../db');
 const { q } = db;
 const cfg = () => ({ on: true, where: 'private', answerMin: 15, shifts: [], ...((db.settings.tg || {}).desk || {}) });
 const hm = (s) => { const [h, m] = String(s || '0:0').split(':').map(Number); return h * 60 + (m || 0); };
-async function nowMin() { return +(await q(`SELECT extract(hour FROM now() AT TIME ZONE $1) * 60 + extract(minute FROM now() AT TIME ZONE $1) m`, [db.settings.tz])).rows[0].m; }
-// the shift now (the night shift runs past midnight)
+const TZS = { 'America/New_York': 'Eastern time', 'Asia/Tashkent': 'Tashkent time' };
+async function nowMin(tz) { return +(await q(`SELECT extract(hour FROM now() AT TIME ZONE $1) * 60 + extract(minute FROM now() AT TIME ZONE $1) m`, [tz || db.settings.tz])).rows[0].m; }
+// the shift now: each shift's hours are in its own time zone (Eastern or Tashkent); a night shift runs past midnight
 async function shiftNow() {
-  const n = await nowMin();
-  return cfg().shifts.find((s) => { const a = hm(s.start), b = hm(s.end); return a <= b ? n >= a && n < b : n >= a || n < b; }) || null;
+  for (const s of cfg().shifts) { const n = await nowMin(s.tz); const a = hm(s.start), b = hm(s.end); if (a <= b ? n >= a && n < b : n >= a || n < b) return s; }
+  return null;
 }
+// a shift's Telegram groups, each for some companies (none = every company); the old single group still works
+const groupsOf = (s) => (s && Array.isArray(s.groups) ? s.groups : s && s.chatId ? [{ chatId: s.chatId, companies: [] }] : []).filter((g) => g.chatId);
+function groupFor(s, companyId) {
+  const gs = groupsOf(s);
+  return gs.find((g) => (g.companies || []).map(Number).includes(Number(companyId))) || gs.find((g) => !(g.companies || []).length) || null;
+}
+async function driverCo(driverId) { return ((await q(`SELECT company_id FROM drivers WHERE id = $1`, [driverId])).rows[0] || {}).company_id || null; }
 // the people to ask for this driver now: [{ user_id, name, tg_id }]
 async function whoFor(driverId, skip = []) {
-  const sh = await shiftNow(); const ids = sh ? (sh.people || []).map(Number) : [];
+  const sh = await shiftNow(); let ids = sh ? (sh.people || []).map(Number) : [];
+  // the shift has a group for this driver's company: only the shift's dispatchers who are in that group
+  const g = sh ? groupFor(sh, await driverCo(driverId)) : null;
+  if (g && ids.length) { const inG = (await q(`SELECT p.user_id FROM tg_members m JOIN tg_people p ON p.tg_id = m.tg_id WHERE m.chat_id = $1 AND p.user_id IS NOT NULL`, [g.chatId])).rows.map((r) => r.user_id); const both = ids.filter((x) => inG.includes(x)); if (both.length) ids = both; }
   const t = (await q(`SELECT dispatcher_id FROM trucks WHERE driver_id = $1 AND dispatcher_id IS NOT NULL LIMIT 1`, [driverId])).rows[0];
   let pick = t && (!sh || ids.includes(t.dispatcher_id)) ? [t.dispatcher_id] : ids;
   pick = pick.filter((x) => !skip.includes(x));
@@ -29,12 +40,13 @@ async function whoFor(driverId, skip = []) {
   return (await q(`SELECT u.id user_id, u.name, (SELECT tg_id FROM tg_people p WHERE p.user_id = u.id ORDER BY seen_at DESC NULLS LAST LIMIT 1) tg_id FROM users u WHERE u.id = ANY($1::int[]) AND u.active`, [pick])).rows;
 }
 // the shift's own Telegram group (Settings: a group per shift), when the bot asks there
-async function shiftGroup() { const sh = await shiftNow(); return sh && sh.chatId ? sh.chatId : null; }
+async function shiftGroup(driverId) { const sh = await shiftNow(); const g = sh ? groupFor(sh, await driverCo(driverId)) : null; return g ? g.chatId : null; }
 async function tagOf(p) { const t = (await q(`SELECT tg_id, username, name FROM tg_people WHERE tg_id = $1`, [p.tg_id])).rows[0]; return require('./bot').tag(t || { tg_id: p.tg_id, name: p.name }); }
 // "register shift Day" in a group, or the Shift desk page: this group is that shift's group
 async function linkShift(chatId, name, by) {
   const c = cfg(); const i = c.shifts.findIndex((s) => s.name.toLowerCase() === String(name || '').trim().toLowerCase()); if (i < 0) return false;
-  const shifts = c.shifts.map((s, k) => ({ ...s, chatId: k === i ? String(chatId) : String(s.chatId || '') === String(chatId) ? null : s.chatId || null }));
+  // added to that shift's groups (for every company until a company is picked on the Shift desk); taken off any other shift
+  const shifts = c.shifts.map((s, k) => { const gs = groupsOf(s).filter((g) => String(g.chatId) !== String(chatId)); if (k === i) gs.push({ chatId: String(chatId), companies: [] }); const { chatId: _old, ...rest } = s; return { ...rest, groups: gs }; });
   await db.saveSetting('tg', { ...db.settings.tg, desk: { ...c, shifts } });
   await q(`UPDATE tg_chats SET kind = 'shift', driver_id = NULL, mode = 'watch', linked_at = now(), active = true WHERE chat_id = $1`, [chatId]);
   await q(`UPDATE tg_waiting SET done_at = now() WHERE chat_id = $1 AND done_at IS NULL`, [chatId]).catch(() => {});
@@ -64,7 +76,7 @@ async function ask(check, people) {
     const buttons = [(BTN[check.kind] || BTN.other).map(([l, act]) => [l, `desk:${check.id}:${act}`])];
     try {
       let msg;
-      const sg = c.where === 'shift' ? await shiftGroup() : null; const mention = p.tg_id ? await tagOf(p) : bot.esc(p.name);
+      const sg = c.where === 'shift' ? await shiftGroup(check.driver_id) : null; const mention = p.tg_id ? await tagOf(p) : bot.esc(p.name);
       let to;
       if (c.where === 'group') { to = check.chat_id; msg = await bot.send(to, `${mention}, ${text}`, { buttons }); }
       else if (sg) { to = sg; msg = await bot.send(to, `${mention}, ${text}`, { buttons }); }
@@ -151,11 +163,11 @@ async function tick() {
     const w = (await q(`INSERT INTO tg_checks (chat_id, driver_id, kind, quote, until_text) VALUES ($1, $2, 'wake', $3, $4) RETURNING *`, [ch.chat_id, ch.driver_id, ch.quote, ch.until_text])).rows[0];
     const text = `It is ${bot.esc(ch.until_text)}: <b>${bot.esc(ch.driver)}</b> should be up now. Did he check in?`;
     for (const p of people) { if (!p.tg_id) continue;
-      const sg = c.where === 'shift' ? await shiftGroup() : null; const to = sg || p.tg_id;
+      const sg = c.where === 'shift' ? await shiftGroup(ch.driver_id) : null; const to = sg || p.tg_id;
       const msg = await bot.send(to, sg ? `${await tagOf(p)}, ${text}` : text, { buttons: [BTN.wake.map(([l, a]) => [l, `desk:${w.id}:${a}`])] }).catch(() => null);
       if (msg) await q(`INSERT INTO tg_check_asks (check_id, user_id, tg_id, msg_id, chat_id) VALUES ($1, $2, $3, $4, $5)`, [w.id, p.user_id, p.tg_id, msg.message_id, to]); }
     await q(`UPDATE tg_checks SET asked_at = now() WHERE id = $1`, [w.id]);
     await bot.log('desk', `Wake-up check: ${ch.driver} should be up (${ch.until_text})`, { chatId: ch.chat_id, driverId: ch.driver_id });
   }
 }
-module.exports = { linkShift, cfg, shiftNow, whoFor, fromGroup, onButton, privateText, tick, question };
+module.exports = { TZS, groupsOf, groupFor, linkShift, cfg, shiftNow, whoFor, fromGroup, onButton, privateText, tick, question };

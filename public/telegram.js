@@ -100,18 +100,24 @@
         : coHtml ? '' : `<div class="emptycard"><div class="emptyart"><h2>No groups yet.</h2><p>Open a driver in onboarding and use <b>Link a group</b> in the Telegram part of the onboarding card. The bot joins in from there.</p></div></div>`);
     } else if (tab === 'desk' && admin) {
       // the shift desk: shifts and their dispatchers, who can be reached, what the bot asked and what they answered
-      const dk = await api('/api/tg/desk'); if (!live()) return; const D = dk.desk;
+      const dk = await api('/api/tg/desk'); if (!live()) return; const D = dk.desk; App._dk = dk;
       const reach = (p) => (!p.tg_id ? '<span class="small cbad" title="He sends /me CODE to the bot (Connect my Telegram on the website)">Telegram not connected</span>' : p.private_ok ? '<span class="small okt">reachable</span>' : '<span class="small cwarn" title="He opens a chat with the bot and sends /start once">needs /start</span>');
       const KIND = { rest: '😴 Resting until', needs_load: '📦 Needs a load', question: '❓ Unanswered question', other: '🔎 To check', wake: '⏰ Wake-up check' };
       const STATE = { open: ['Waiting', 'cwarn'], ok: ['Got it', 'okt'], done: ['Done', 'okt'], answered: ['Answered', 'okt'], booked: ['Load booked', 'okt'], looking: ['Still looking', 'cwarn'], onit: ['On it', 'okt'], calling: ['Calling him', 'cwarn'], cancelled: ['Called off', ''] };
       const mins = (a, b) => (a && b ? Math.round((new Date(b) - new Date(a)) / 60000) : null);
+      const sgRow = App._sgRow = (g) => `<div class="sgrow"><select name="chatId" aria-label="Group"><option value="">Pick a group…</option>${dk.groups.map((x) => `<option value="${x.chat_id}" ${String(g.chatId || '') === x.chat_id ? 'selected' : ''}>${esc(x.title || 'Group')}${x.kind === 'management' ? ' (management)' : ''}</option>`).join('')}</select>
+        <span class="cos">${dk.companies.map((co) => `<label class="pchip"><input type="checkbox" name="co" value="${co.id}" ${(g.companies || []).map(Number).includes(co.id) ? 'checked' : ''}> ${esc(co.name)}</label>`).join('') || '<span class="small mut">No companies yet</span>'}</span>
+        <button type="button" class="linkbtn danger" data-act="deskDelGroup">Remove</button></div>`;
       body = `<section class="card deskcfg"><h3>Shifts ${dk.now ? `<span class="small mut">· on shift now: <b>${esc(dk.now)}</b></span>` : ''}</h3>
         <p class="hint">The bot reads the working drivers' groups and checks in with the dispatcher on shift, one to one in a private chat with the bot: a driver resting until a time ("Got it? No calls until then", then a check at that time), a driver who needs a load ("send me the best option you see now and why"), a question nobody answered. It asks the truck's own dispatcher when he is on shift, else the dispatchers of the shift. No answer in time: the others on shift, then the admins. Nothing is written in the driver groups.</p>
         <form id="deskForm"><div class="deskrow"><label class="chk"><input type="checkbox" name="on" ${D.on ? 'checked' : ''}> On</label>
           <label class="fld sm">Ask<select name="where"><option value="private" ${D.where !== 'group' ? 'selected' : ''}>In a private chat with the bot</option><option value="shift" ${D.where === 'shift' ? 'selected' : ''}>In the shift's Telegram group (tagging him)</option><option value="group" ${D.where === 'group' ? 'selected' : ''}>In the driver's group (tagging him)</option></select></label>
           <label class="fld sm">Ask the others after (min)<input type="number" name="answerMin" min="5" max="120" value="${D.answerMin}"></label></div>
         ${D.shifts.map((s, i) => `<div class="shiftrow" data-i="${i}"><div class="deskrow"><label class="fld sm">Shift<input name="name" value="${esc(s.name)}"></label><label class="fld sm">From<input type="time" name="start" value="${esc(s.start)}"></label><label class="fld sm">To<input type="time" name="end" value="${esc(s.end)}"></label>
-            <label class="fld sm">Telegram group<select name="chatId"><option value="">None (private chats)</option>${dk.groups.map((g) => `<option value="${g.chat_id}" ${String(s.chatId || '') === g.chat_id ? 'selected' : ''}>${esc(g.title || 'Group')}${g.kind === 'management' ? ' (management)' : ''}</option>`).join('')}</select></label></div>
+            <label class="fld sm">Time zone<select name="tz">${Object.entries(dk.tzs).map(([k, l]) => `<option value="${k}" ${(s.tz || 'America/New_York') === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label></div>
+          <div class="sgroups"><span class="small mut">Telegram groups of this shift (when the bot asks in the shift's group). Give each group its companies, or leave none for every company.</span>
+            ${(s.groups || (s.chatId ? [{ chatId: s.chatId, companies: [] }] : [])).map((g) => sgRow(g)).join('')}
+            <button type="button" class="linkbtn" data-act="deskAddGroup">+ Add a group</button></div>
           <div class="ppl">${dk.people.map((p) => `<label class="pchip"><input type="checkbox" name="p" value="${p.id}" ${(s.people || []).map(Number).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}${p.role === 'admin' ? ' <span class="small mut">admin</span>' : ''} ${reach(p)}</label>`).join('')}</div></div>`).join('')}
         <div class="tgsave"><button class="btn primary">Save</button></div></form></section>
         ${dk.speed.length ? `<section class="card"><h3>How fast they answer the bot, 30 days</h3><table class="mini"><thead><tr><th>Dispatcher</th><th class="n">Asked</th><th class="n">Answered</th><th class="n">Half within</th></tr></thead><tbody>${dk.speed.map((x) => `<tr><td>${esc(x.name)}</td><td class="n">${x.asked}</td><td class="n">${x.answered}</td><td class="n">${x.med === null ? '—' : x.med + ' min'}</td></tr>`).join('')}</tbody></table></section>` : ''}
@@ -421,9 +427,12 @@
   on('tgTab', (b) => { tab = b.dataset.tab; App.render(); });
   on('tgPeople', () => { tab = 'people'; App.go('#/telegram'); });
   on('tgSum', async (b) => { b.disabled = true; try { await api(`/api/tg/chats/${b.dataset.chat}/summary`, { method: 'POST', body: {} }); toast('Summary written'); App.render(); } catch (e) { fail(e); b.disabled = false; } });
+  on('deskAddGroup', (b) => b.insertAdjacentHTML('beforebegin', App._sgRow({ chatId: '', companies: [] })));
+  on('deskDelGroup', (b) => b.closest('.sgrow').remove());
   // the shift desk settings
   document.addEventListener('submit', async (e) => { if (e.target.id !== 'deskForm') return; e.preventDefault(); const f = e.target;
-    const shifts = [...f.querySelectorAll('.shiftrow')].map((r) => ({ name: r.querySelector('[name=name]').value, start: r.querySelector('[name=start]').value, end: r.querySelector('[name=end]').value, chatId: r.querySelector('[name=chatId]').value || null, people: [...r.querySelectorAll('[name=p]:checked')].map((x) => +x.value) }));
+    const shifts = [...f.querySelectorAll('.shiftrow')].map((r) => ({ name: r.querySelector('[name=name]').value, start: r.querySelector('[name=start]').value, end: r.querySelector('[name=end]').value, tz: r.querySelector('[name=tz]').value,
+      groups: [...r.querySelectorAll('.sgrow')].map((g) => ({ chatId: g.querySelector('[name=chatId]').value, companies: [...g.querySelectorAll('[name=co]:checked')].map((x) => +x.value) })).filter((g) => g.chatId), people: [...r.querySelectorAll('[name=p]:checked')].map((x) => +x.value) }));
     try { await api('/api/tg/desk', { method: 'PUT', body: { on: f.querySelector('[name=on]').checked, where: f.querySelector('[name=where]').value, answerMin: +f.querySelector('[name=answerMin]').value, shifts } }); toast('Saved'); App.render(); } catch (er) { fail(er); } });
   // All groups tab: connect, change, disconnect in the row
   onChange('agKind', (el) => { const i = el.closest('tr').querySelector('.agdrv'); i.disabled = ['management', 'shift'].includes(el.value); });

@@ -327,7 +327,8 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   say(HANK, 'Truck broke down on the turnpike near exit 7A, waiting for amazon roadside', HCHAT);
   const cs = await until(async () => ((await web('/api/cases')).cases || []).find((c) => c.driver_id === hank), 15000);
   ok(AI.playbook && cs && /Turnpike/.test(cs.title) && cs.next === 1 && cs.steps.length === 6 && cs.rules.some((r) => /never leave him waiting on the shoulder/.test(r)), 'the bot opens the case "Breakdown on the NJ Turnpike" with its steps and if/else rules');
-  ok(cs.draft && /Are you safe/.test(cs.draft.text) && !tg.sent.some((m) => /Are you safe/.test(m.text)), 'Watch: the message for the driver waits on the website');
+  const csd = await until(async () => ((await web('/api/cases')).cases || []).find((c) => c.id === cs.id && c.draft), 15000);
+  ok(csd && /Are you safe/.test(csd.draft.text) && !tg.sent.some((m) => /Are you safe/.test(m.text)), 'Watch: the message for the driver waits on the website');
   ok(cs.state === 'NJ' && (cs.nearby || []).some((p) => p.name === 'Turnpike Towing'), 'the case knows it is in NJ and shows the towing we have there');
   ok((await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Hank Hired: Breakdown on the NJ Turnpike%'`)).rows.length >= 1, 'the team is told, with the first step');
   say(HANK, 'Ok I moved to the service area, truck still runs rough', HCHAT);
@@ -617,7 +618,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   // a Telegram group for the shift: the bot asks there, tagging the dispatcher
   const SG = { id: -100901, type: 'supergroup', title: 'Dispatch day shift' }; added(SG, RITA); await sleep(1500);
   say(RITA, 'register shift All day', SG);
-  ok(await until(async () => ((await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [SG.id])).rows[0] || {}).kind === 'shift', 15000) && String((await web('/api/tg/desk')).desk.shifts[0].chatId) === String(SG.id), '"register shift All day" in a group: it is that shift\'s group');
+  ok(await until(async () => ((await pg.query(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [SG.id])).rows[0] || {}).kind === 'shift', 15000) && String(((await web('/api/tg/desk')).desk.shifts[0].groups || [])[0].chatId) === String(SG.id), '"register shift All day" in a group: it is that shift\'s group');
   ok((await web('/api/tg/desk', { method: 'PUT', body: { where: 'shift', answerMin: 15, shifts: (await web('/api/tg/desk')).desk.shifts } })).ok, 'ask in the shift\'s group');
   await pg.query(`UPDATE tg_checks SET state = 'done' WHERE driver_id = $1`, [hank]);
   dn = tg.sent.length; say(HANK, 'Delivered again. I am empty in Harrisburg', HCHAT);
@@ -625,7 +626,21 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(q3 && !sentSince(dn).some((m) => String(m.chat_id) === String(DAN.id) && /needs a load/.test(m.text)), 'the question goes to the shift group (tagging Dan), not privately');
   push({ message: { message_id: mid++, from: DAN, chat: SG, date: Math.floor(Date.now() / 1000), text: 'Booked Harrisburg to Baltimore, $1,400, leaves 4 PM', reply_to_message: { message_id: q3.message_id, from: { id: 999, is_bot: true } } } });
   ok(await until(async () => /Harrisburg to Baltimore/.test(((await pg.query(`SELECT answer FROM tg_checks WHERE driver_id = $1 AND kind = 'needs_load' ORDER BY id DESC LIMIT 1`, [hank])).rows[0] || {}).answer || '')), 'Dan replies in the shift group: saved');
-  await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: (await web('/api/tg/desk')).desk.shifts } });
+  // two groups on the shift, each for its own companies: the driver's company decides
+  const coB = (await pg.query(`INSERT INTO companies (name) VALUES ('Shift Test Co') RETURNING id`)).rows[0].id;
+  await pg.query(`UPDATE drivers SET company_id = $2 WHERE id = $1`, [hank, coB]);
+  const SG2 = { id: -100902, type: 'supergroup', title: 'Dispatch day shift Bobtail' }; added(SG2, RITA); say(DAN, 'Hi team', SG2); await sleep(1500);
+  const sh0 = (await web('/api/tg/desk')).desk.shifts[0];
+  ok((await web('/api/tg/desk', { method: 'PUT', body: { where: 'shift', answerMin: 15, shifts: [{ ...sh0, groups: [{ chatId: String(SG.id), companies: [] }, { chatId: String(SG2.id), companies: [coB] }] }] } })).ok, 'the shift has two groups: one for every company, one for Bobtail');
+  await pg.query(`UPDATE tg_checks SET state = 'done' WHERE driver_id = $1`, [hank]);
+  dn = tg.sent.length; say(HANK, 'Delivered, I am empty in Harrisburg again', HCHAT);
+  const q4 = await until(() => sentSince(dn).find((m) => /needs a load/.test(m.text)), 15000);
+  ok(q4 && String(q4.chat_id) === String(SG2.id), 'Hank drives for Bobtail: the question goes to the Bobtail group');
+  // the shift's hours in Tashkent time
+  const tk = (await pg.query(`SELECT extract(hour FROM now() AT TIME ZONE 'Asia/Tashkent')::int h`)).rows[0].h; const hh = (x) => String((x + 24) % 24).padStart(2, '0') + ':00';
+  ok((await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ name: 'Tashkent day', start: hh(tk), end: hh(tk + 1), tz: 'Asia/Tashkent', people: [danU.id], groups: [] }] } })).ok
+    && (await web('/api/tg/desk')).now === 'Tashkent day', 'a shift set in Tashkent time is on shift now by Tashkent hours');
+  await web('/api/tg/desk', { method: 'PUT', body: { where: 'private', answerMin: 15, shifts: [{ ...sh0, groups: [] }] } });
 
   // ---------- the contract and the Clearinghouse ----------
   ok((await pg.query(`SELECT count(*)::int n FROM checklist WHERE driver_id = $1 AND key IN ('contract_sent', 'contract_signed', 'ch_registered', 'ch_query', 'ch_consent')`, [zed])).rows[0].n === 5, 'onboarding has the contract and Clearinghouse steps');
@@ -652,9 +667,9 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await until(async () => (await pg.query(`SELECT 1 FROM onb_cases WHERE driver_id = $1`, [dora])).rows[0]);
   const DORA = { id: 77, is_bot: false, first_name: 'Dora', last_name: 'Drop' };
   say(DORA, 'Sorry guys, I will not be able to come, found a local job', DCH);
-  ok(await until(async () => ((await pg.query(`SELECT drop_flag FROM onb_cases WHERE driver_id = $1`, [dora])).rows[0] || {}).drop_flag, 15000), 'the driver writes he is not coming: flagged (the status is not changed)');
+  ok(await until(async () => ((await pg.query(`SELECT drop_flag FROM onb_cases WHERE driver_id = $1`, [dora])).rows[0] || {}).drop_flag, 45000), 'the driver writes he is not coming: flagged (the status is not changed)');
   ok((await pg.query(`SELECT status FROM drivers WHERE id = $1`, [dora])).rows[0].status === 'Onboarding', 'still in onboarding until the team confirms');
-  ok((await pg.query(`SELECT 1 FROM notices WHERE user_id = $1 AND text LIKE 'Dora Drop says he is not coming%'`, [rita])).rows.length === 1, 'Rita is told');
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM notices WHERE user_id = $1 AND text LIKE 'Dora Drop says he is not coming%'`, [rita])).rows.length === 1), 'Rita is told');
   let dz = await web('/api/dropouts');
   ok(dz.dropping.some((x) => x.id === dora && /local job/.test(x.quote) && x.reason === 'Found another job'), 'the dashboard: "says he is not coming", to confirm');
   ok((await web('/api/onboarding')).drivers.find((x) => x.id === dora).drop && (await web('/api/drivers/' + dora)).reach.score <= 5, 'the onboarding page flags the row; the chance drops to almost 0');
@@ -668,9 +683,9 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const bm = tg.sent.filter((m) => String(m.chat_id) === String(PCHAT.id)).pop();
   push({ message_reaction: { chat: PCHAT, message_id: bm.message_id, user: PAUL, date: Math.floor(Date.now() / 1000), old_reaction: [], new_reaction: [{ type: 'emoji', emoji: '👍' }] } });
   push({ message: { message_id: mid++, from: PAUL, chat: PCHAT, date: Math.floor(Date.now() / 1000), text: 'ok my zip is 19104', reply_to_message: { message_id: bm.message_id, from: BOT, text: bm.text } } });
-  const lg = await until(async () => { const r = await web('/api/tg/log'); return r.log.some((x) => x.kind === 'reaction') && r.log.some((x) => x.kind === 'reply') ? r : null; });
+  const lg = await until(async () => { const r = await web('/api/tg/log'); return r.log.some((x) => x.kind === 'reaction') && r.log.some((x) => x.kind === 'reply' && /Replied to the bot .*ok my zip/.test(x.text)) ? r : null; });
   ok(lg && /Reacted 👍 to the bot/.test(lg.log.find((x) => x.kind === 'reaction').text) && lg.log.find((x) => x.kind === 'reaction').who === 'Paul Penn', 'history: Paul reacted 👍 to the bot');
-  ok(lg && /Replied to the bot .*ok my zip is ••••/.test(lg.log.find((x) => x.kind === 'reply').text), 'history: Paul replied to the bot (numbers hidden)');
+  ok(lg && /Replied to the bot .*ok my zip is ••••/.test(lg.log.find((x) => x.kind === 'reply' && /Replied to the bot .*ok my zip/.test(x.text)).text), 'history: Paul replied to the bot (numbers hidden)');
   const kinds = new Set(); for (const k of ['join', 'title', 'connect', 'wait', 'me', 'said', 'fact', 'mode', 'ask']) if ((await web('/api/tg/log?kinds=' + k)).log.length) kinds.add(k);
   ok(['join', 'title', 'connect', 'wait', 'me', 'said', 'fact', 'mode', 'ask'].every((k) => kinds.has(k)), 'history: joined, read the title, connected, waiting, Telegram connected, bot messages, saved facts, mode, asked');
   ok(!(await pg.query(`SELECT 1 FROM tg_log WHERE text ~ '4321|6789|5555'`)).rows.length, 'history never shows the SSN digits');

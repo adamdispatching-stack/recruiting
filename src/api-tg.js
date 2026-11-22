@@ -113,16 +113,20 @@ module.exports = (app) => {
     const speed = (await q(`SELECT a.user_id, u.name, count(*)::int asked, count(a.said_at)::int answered, round((percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM a.said_at - a.asked_at) / 60) FILTER (WHERE a.said_at IS NOT NULL))::numeric)::int med
       FROM tg_check_asks a JOIN users u ON u.id = a.user_id WHERE a.asked_at > now() - interval '30 days' GROUP BY 1, 2 ORDER BY 3 DESC`)).rows;
     const groups = (await q(`SELECT chat_id::text chat_id, title, kind FROM tg_chats WHERE active AND driver_id IS NULL AND (kind IS NULL OR kind IN ('shift', 'management')) ORDER BY (kind = 'shift') DESC NULLS LAST, title`)).rows;
-    res.json({ desk: D.cfg(), now: sh ? sh.name : null, people, checks, speed, groups });
+    const companies = (await q(`SELECT id, name FROM companies ORDER BY lower(name)`)).rows;
+    res.json({ desk: D.cfg(), tzs: D.TZS, now: sh ? sh.name : null, people, checks, speed, groups, companies });
   }));
   app.put('/api/tg/desk', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const cur = require('./tg/desk').cfg(); const hm = (x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
-    const shifts = (Array.isArray(b.shifts) ? b.shifts : cur.shifts).slice(0, 4).map((s) => ({ name: String(s.name || '').trim().slice(0, 30) || 'Shift', start: String(s.start || '').trim(), end: String(s.end || '').trim(), people: [...new Set((s.people || []).map(Number).filter(Boolean))], chatId: /^-?\d+$/.test(String(s.chatId || '')) ? String(s.chatId) : null }));
+    const D = require('./tg/desk');
+    const shifts = (Array.isArray(b.shifts) ? b.shifts : cur.shifts).slice(0, 4).map((s) => ({ name: String(s.name || '').trim().slice(0, 30) || 'Shift', start: String(s.start || '').trim(), end: String(s.end || '').trim(),
+      tz: D.TZS[s.tz] ? s.tz : db.settings.tz, people: [...new Set((s.people || []).map(Number).filter(Boolean))],
+      groups: D.groupsOf(s).filter((g) => /^-?\d+$/.test(String(g.chatId || ''))).slice(0, 6).map((g) => ({ chatId: String(g.chatId), companies: [...new Set((g.companies || []).map(Number).filter(Boolean))] })) }));
     if (shifts.some((s) => !hm(s.start) || !hm(s.end))) return res.status(400).json({ error: 'Write the shift times like 06:00 and 14:00' });
     const v = { on: b.on === undefined ? cur.on : !!b.on, where: ['group', 'shift'].includes(b.where) ? b.where : 'private', answerMin: Math.max(5, Math.min(120, Math.round(+b.answerMin || cur.answerMin))), shifts };
     await db.saveSetting('tg', { ...db.settings.tg, desk: v });
     // the shift groups: marked as such (not a driver's group); a group no longer used for a shift is let go
-    const ids = shifts.map((s) => s.chatId).filter(Boolean);
+    const ids = [...new Set(shifts.flatMap((s) => s.groups.map((g) => g.chatId)))];
     if (ids.length) await q(`UPDATE tg_chats SET kind = 'shift', driver_id = NULL, mode = 'watch' WHERE chat_id = ANY($1::bigint[])`, [ids]);
     await q(`UPDATE tg_chats SET kind = NULL WHERE kind = 'shift' AND NOT (chat_id = ANY($1::bigint[]))`, [ids]);
     for (const id of ids) await q(`UPDATE tg_waiting SET done_at = now() WHERE chat_id = $1 AND done_at IS NULL`, [id]).catch(() => {});
