@@ -75,10 +75,10 @@
     const admin = S.me.role === 'admin';
     document.title = 'Telegram · FleetHire';
     const status = !st.on ? '' : st.bot ? `<p class="tgstat ${st.lastError ? 'bad' : 'ok'}"><b>@${esc(st.bot.username)}</b> is ${st.lastError ? `having trouble: ${esc(st.lastError)}` : 'on'}${st.ai ? ', AI on' : ', AI off (no ANTHROPIC_API_KEY)'}.</p>` : `<p class="tgstat bad">The bot is starting${st.lastError ? `: ${esc(st.lastError)}` : ''}.</p>`;
-    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ...(admin ? [['all', 'All groups'], ['desk', 'Shift desk']] : []), ['history', 'Bot history'], ...(S.me.role === 'dispatcher' ? [] : [['knowledge', 'Autopilot']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
+    const tabs = `<nav class="fbtabs" aria-label="Telegram pages">${[['groups', 'Groups'], ...(admin ? [['all', 'All groups'], ['desk', 'Shift desk']] : []), ...(S.me.role === 'dispatcher' ? [] : [['history', 'Bot history'], ['knowledge', 'Autopilot']]), ...(admin ? [['people', 'People'], ['settings', 'Settings']] : []), ['how', 'How it works']].map(([k, l]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-act="tgTab" data-tab="${k}" aria-current="${tab === k ? 'page' : 'false'}">${l}</button>`).join('')}</nav>`;
     let body = '';
     if (tab === 'groups') {
-      const [qs, al, act, ws] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts), api('/api/active').then((x) => x.drivers), api('/api/tg/waiting').then((x) => x.waiting)]); if (!live()) return;
+      const [qs, al, act, ws] = await Promise.all([(S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/questions').then((x) => x.questions)), api('/api/tg/alerts').then((x) => x.alerts), (S.me.role === 'member' ? Promise.resolve([]) : api('/api/active').then((x) => x.drivers)), (S.me.role === 'dispatcher' ? Promise.resolve([]) : api('/api/tg/waiting').then((x) => x.waiting))]); if (!live()) return;
       // active drivers, one table per company, with their three groups; the other groups (onboarding, not linked) below
       const byChat = Object.fromEntries(r.chats.map((c) => [c.chatId, c])); const used = new Set();
       const cell = (d, k) => { const c = d.groups && byChat[d.groups[k]]; if (!c) return `<td><span class="tgdot" title="In the group, type register ${k}">Not registered</span></td>`; used.add(c.chatId);
@@ -185,7 +185,7 @@
         <section class="card"><ul class="list tgloglist">${lg.log.map((x) => logLi(x)).join('') || '<li class="hint">Nothing yet. Everything the bot does, and every button, emoji and reply to it, shows up here.</li>'}</ul>
         ${lg.more ? `<p><button type="button" class="btn plain sm" data-act="tgLogMore" data-before="${lg.log[lg.log.length - 1].id}">Show older</button></p>` : ''}</section>`;
     } else if (tab === 'knowledge') {
-      const [kAll, rd, dr] = await Promise.all([api('/api/tg/knowledge').then((x) => x.knowledge), api('/api/tg/readiness'), api('/api/tg/dispatch-readiness')]); if (!live()) return;
+      const [kAll, rd, dr] = await Promise.all([api('/api/tg/knowledge').then((x) => x.knowledge), api('/api/tg/readiness'), admin ? api('/api/tg/dispatch-readiness') : Promise.resolve(null)]); if (!live()) return;
       const disp = kAll.filter((x) => x.kind === 'dispatch'); const kN = kAll.filter((x) => x.kind !== 'dispatch');
       const review = kN.filter((x) => x.review && !x.active);
       const pct = (v) => (v === null ? 'not measured yet' : Math.round(v * 100) + '%');
@@ -197,7 +197,7 @@
         <p class="small mut">Ready when it was right on at least 90% of 15 or more steps, and answers 70% of 20 or more questions itself.</p>
         ${admin ? `<form id="autoForm" class="autof"><label class="fld">New onboarding groups start in<select name="onbMode">${[['watch', '👀 Watch and learn'], ['assist', '💬 Answer questions'], ['run', '🚀 Run the onboarding']].map(([m, l]) => `<option value="${m}" ${rd.settings.onbMode === m ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="chk"><input type="checkbox" name="autoTick" ${rd.settings.autoTick ? 'checked' : ''}> The AI ticks onboarding steps by itself (you can still undo)</label><button class="btn primary sm">Save</button></form>` : ''}</section>
-        <section class="card autop dautop"><h3>Dispatch autopilot<span class="grow"></span>${dr.ready ? '<span class="onl">Ready to run updates</span>' : '<span class="small mut">Still learning</span>'}</h3>
+        ${dr ? `        <section class="card autop dautop"><h3>Dispatch autopilot<span class="grow"></span>${dr.ready ? '<span class="onl">Ready to run updates</span>' : '<span class="small mut">Still learning</span>'}</h3>
         <p class="hint">The bot learns from every working driver's dispatch group: how each dispatcher writes and runs updates, the load updates, and each driver (mood, whether he keeps his word). When it is right often enough, the groups can switch to 🚚 Updater.</p>
         <dl class="figs"><div><dd>${dr.groups.groups}</dd><dt>working groups (${dr.groups.watched} watched 14+ days${dr.groups.updater ? `, ${dr.groups.updater} on Updater` : ''})</dt></div>
           <div><dd>${dr.messages30}</dd><dt>messages read, last 30 days</dt></div>
@@ -210,7 +210,7 @@
           return `<article class="dcard"><header><a href="#/dispatcher/${x.tg_id}"><b>${esc(x.name)}</b></a> <a class="small" href="#/dispatcher/${x.tg_id}">Full review →</a><span class="small mut">${plural(x.msgs30, 'message')}, ${plural(x.groups, 'group')}, 30 days${x.reply_min !== null && x.reply_min !== undefined ? ` · answers drivers in ${x.reply_min < 60 ? x.reply_min + ' min' : (x.reply_min / 60).toFixed(1) + ' h'}` : ''}</span></header>
             ${x.profile ? `<div class="dchips">${chip(p.tone, { friendly: 'Friendly', neutral: 'Neutral', firm: 'Firm', harsh: 'Harsh' })}${chip(p.clarity, { clear: 'Clear', mostly_clear: 'Mostly clear', unclear: 'Unclear' })}${chip(p.professionalism, { high: 'Very professional', medium: 'Professional', low: 'Not professional' })}</div>
             <p>${esc(p.summary || '')}</p>${[['How he runs updates', p.update_habits], ['Typical messages', p.phrases], ['Strengths', p.strengths], ['To improve', p.improve]].filter(([, a]) => a && a.length).map(([t, a]) => `<div class="small"><b>${t}</b><ul>${a.map((y) => `<li>${esc(y)}</li>`).join('')}</ul></div>`).join('')}
-            <p class="small mut">Written by the AI from the messages, ${esc(when(x.profile_at))}.</p>` : '<p class="small mut">The profile is written once the bot has read 20 or more of this dispatcher\'s messages.</p>'}</article>`; }).join('')}</div>` : '<p class="small mut">No dispatchers known yet: the bot learns who they are from the working groups (or set them under People).</p>'}</section>
+            <p class="small mut">Written by the AI from the messages, ${esc(when(x.profile_at))}.</p>` : '<p class="small mut">The profile is written once the bot has read 20 or more of this dispatcher\'s messages.</p>'}</article>`; }).join('')}</div>` : '<p class="small mut">No dispatchers known yet: the bot learns who they are from the working groups (or set them under People).</p>'}</section>` : ''}
         <section class="card kbcard"><h3>Knowledge base<span class="grow"></span><a class="btn primary sm" href="#/kb">Open the knowledge base</a></h3>
           <p class="hint">What the bot learns from the groups (answers the team gives drivers, how dispatchers handle things, facts about sites and roads) is kept in the knowledge base, by topic, with how often it came up. The bot answers drivers only with approved answers.</p>
           <dl class="figs"><div><dd>${kAll.filter((x) => x.active).length}</dd><dt>in use</dt></div><div><dd>${review.length + disp.filter((x) => x.review && !x.active).length}</dd><dt>to approve</dt></div><div><dd>${disp.length}</dd><dt>dispatching practices</dt></div></dl></section>`;
@@ -333,7 +333,7 @@
         <section class="card tglogc"><h3>Bot history in this group</h3><ul class="list tgloglist" id="tgLogBox"><li class="hint">Loading…</li></ul></section>
         ${admin ? `<p class="inrow"><button type="button" class="btn plain sm" data-act="tgRelink" data-chat="${c.chatId}" data-kind="${c.kind || ''}" data-driver="${c.driverId || ''}">${c.kind ? 'Wrong type or driver? Change it' : 'Connect this group'}</button>${c.kind ? ` <button type="button" class="btn plain sm" data-act="tgUnlink" data-chat="${c.chatId}">Unlink this group</button>` : ''}</p>` : ''}
       </div></div></main>`;
-    api('/api/tg/log?chat=' + encodeURIComponent(c.chatId)).then((lg) => { const bx = $('#tgLogBox'); if (!bx) return;
+    (S.me.role === 'dispatcher' ? Promise.resolve({ log: [] }) : api('/api/tg/log?chat=' + encodeURIComponent(c.chatId))).then((lg) => { const bx = $('#tgLogBox'); if (!bx) return;
       bx.innerHTML = lg.log.map((x) => logLi(x, false)).join('') || '<li class="hint">Nothing yet.</li>';
       if (lg.more) bx.insertAdjacentHTML('afterend', `<p><button type="button" class="btn plain sm" data-act="tgLogMore" data-chat="${c.chatId}" data-before="${lg.log[lg.log.length - 1].id}">Show older</button></p>`); }).catch(() => {});
     const box = document.querySelector('.tgmsgs'); if (box) box.scrollTop = box.scrollHeight;

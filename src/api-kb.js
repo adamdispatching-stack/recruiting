@@ -8,25 +8,29 @@ const { wrap, needUser, needAdmin } = lib;
 
 const clean = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
 const mayEdit = (req, res) => { if (req.user.role === 'dispatcher') { res.status(403).json({ error: 'Only recruiters and admins change the knowledge base' }); return false; } return true; };
+// a recruiter changes only the answers for drivers
+const mayKind = (req, res, kind) => { if (kb.kindsFor(req.user.role).includes(kind)) return true; res.status(403).json({ error: 'Only the dispatch team and admins change this' }); return false; };
 
 module.exports = (app) => {
   app.get('/api/kb', needUser, wrap(async (req, res) => {
     const reader = req.user.role === 'dispatcher';
+    const kinds = kb.kindsFor(req.user.role);
     const rows = (await q(`SELECT k.id, k.kind, k.topic, k.question, k.answer, k.source, k.added_by, k.approved_by, k.uses, k.seen, k.active, k.review, k.variants, k.conflict_note,
         k.place_key, k.city, k.state, k.created_at, coalesce(k.last_seen, k.created_at) last_seen, k.updated_at, k.locked, k.tidied,
         (SELECT array_agg(DISTINCT coalesce(d.name, c.title)) FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.chat_id = ANY(k.chats)) groups,
         cardinality(k.chats) ngroups
-      FROM tg_knowledge k ${reader ? 'WHERE k.active' : ''} ORDER BY k.active DESC, k.seen DESC, k.id DESC LIMIT 3000`)).rows;
+      FROM tg_knowledge k WHERE k.kind = ANY($1::text[]) ${reader ? 'AND k.active' : ''} ORDER BY k.active DESC, k.seen DESC, k.id DESC LIMIT 3000`, [kinds])).rows;
     const more = (await q(`SELECT (SELECT count(*)::int FROM tg_terms WHERE active) terms, (SELECT count(*)::int FROM places WHERE NOT hidden) places, (SELECT count(*)::int FROM tg_playbooks WHERE active) playbooks`)).rows[0];
-    res.json({ entries: rows, topics: kb.TOPICS, kinds: kb.KINDS, auto: (db.settings.tg || {}).kbAuto !== false, autoGroups: kb.AUTO_GROUPS, more,
+    res.json({ entries: rows, topics: kb.TOPICS, kinds: Object.fromEntries(Object.entries(kb.KINDS).filter(([k]) => kinds.includes(k))), recruiter: req.user.role === 'member', auto: (db.settings.tg || {}).kbAuto !== false, autoGroups: kb.AUTO_GROUPS, more,
       untidied: reader ? 0 : rows.filter((r) => r.tidied === false).length, canEdit: !reader, admin: req.user.role === 'admin' });
   }));
   app.get('/api/kb/search', needUser, wrap(async (req, res) => {
-    res.json({ results: await kb.search(clean(req.query.q, 200), { all: req.user.role !== 'dispatcher' }) });
+    res.json({ results: await kb.search(clean(req.query.q, 200), { all: req.user.role !== 'dispatcher', role: req.user.role }) });
   }));
   app.post('/api/kb', needUser, wrap(async (req, res) => {
     if (!mayEdit(req, res)) return;
     const b = req.body || {}; const kind = kb.KINDS[b.kind] ? b.kind : 'general';
+    if (!mayKind(req, res, kind)) return;
     const question = clean(b.question, 600), answer = clean(b.answer, 1500);
     if (!question || !answer) return res.status(400).json({ error: kind === 'site' ? 'Write the place and the fact' : kind === 'dispatch' ? 'Write the situation and what to do' : 'Write the question and the answer' });
     const r = await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, kind, topic, active, review, place_key, city, state, tidied, locked, last_seen)
@@ -38,6 +42,7 @@ module.exports = (app) => {
     if (!mayEdit(req, res)) return;
     const id = +req.params.id || 0; const b = req.body || {};
     const k = (await q(`SELECT * FROM tg_knowledge WHERE id = $1`, [id])).rows[0]; if (!k) return res.status(404).json({ error: 'Not found' });
+    if (!mayKind(req, res, k.kind) || (b.kind !== undefined && !mayKind(req, res, b.kind))) return;
     const set = ['updated_at = now()']; const vals = [id];
     const put = (sql, v) => { vals.push(v); set.push(sql.replace('?', '$' + vals.length)); };
     if (b.question !== undefined) { const v = clean(b.question, 600); if (!v) return res.status(400).json({ error: 'Write the question' }); put('question = ?', v); set.push('locked = true'); if (k.kind === 'site') put('place_key = ?', kb.placeKey(v)); }
@@ -62,6 +67,7 @@ module.exports = (app) => {
     if (!into || into === id) return res.status(400).json({ error: 'Pick the entry to merge it into' });
     const [a, t] = await Promise.all([id, into].map(async (x) => (await q(`SELECT * FROM tg_knowledge WHERE id = $1`, [x])).rows[0]));
     if (!a || !t) return res.status(404).json({ error: 'Not found' });
+    if (!mayKind(req, res, a.kind) || !mayKind(req, res, t.kind)) return;
     const chats = [...new Set([...(t.chats || []), ...(a.chats || [])].map(String))];
     const variants = [...(t.variants || []), ...(a.variants || [])]; if (kb.sim(kb.toks(a.answer), kb.toks(t.answer)) < 0.6) variants.push({ answer: a.answer, by: a.added_by, at: String(a.created_at).slice(0, 10) });
     await q(`UPDATE tg_knowledge SET seen = seen + $2, uses = uses + $3, chats = $4::bigint[], variants = $5::jsonb, active = active OR $6, review = CASE WHEN active OR $6 THEN false ELSE review END, updated_at = now() WHERE id = $1`,

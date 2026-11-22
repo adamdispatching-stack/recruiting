@@ -58,7 +58,7 @@ const add = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.get
   const mail = `act${uniq}@example.com`;
   await A('/api/users', { method: 'POST', body: { name: 'Act Rec', email: mail, password: 'act-password-123', role: 'member' } });
   const R = session(); await R('/api/login', { method: 'POST', body: { email: mail, password: 'act-password-123' } });
-  r = await R('/api/active'); ok(r.status === 200 && !r.body.drivers.some((x) => x.id === id), "a recruiter who sees only their own leads does not see others' drivers");
+  r = await R('/api/active'); ok(r.status === 403, 'active drivers are the dispatch team\'s: a recruiter cannot open them');
   await A('/api/settings', { method: 'PUT', body: { visibility: 'all' } });
   console.log(failed ? `\n${failed} failed` : '\nAll passed');
 })().catch((e) => { console.log('ERROR', e); process.exit(1); });

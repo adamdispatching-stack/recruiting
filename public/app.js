@@ -274,6 +274,7 @@ window.App = (() => {
     // a dispatcher's screens: trucks, active drivers, their Telegram groups, their own activity and password
     if (S.me.role === 'dispatcher' && /^#\/driver\/\d+$/.test(path)) return go(path.replace('#/driver/', '#/active/'));
     if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active(\/\d+)?|cases|playbook|places|kb(\/handbook)?|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
+    if (S.me.role === 'member' && /^#\/(trucks|truck\/|active|cases|playbook|places|shifts|dispatcher\/|team\/dispatchers)/.test(path)) return go('#/');
     pageOpened(h);
     for (const [re, fn] of routes) { const m = path.match(re); if (m) { try { return await fn(...m.slice(1), new URLSearchParams(qs || '')); } catch (e) { return fail(e); } } }
     go('#/');
@@ -324,9 +325,11 @@ window.App = (() => {
     ] : [
       ['', [['#/', admin ? 'Dashboard' : 'My day', 'home']]],
       ['Recruiting', [['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges']]],
-      ['Dispatch', [['#/active', 'Active drivers', 'active'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ...(admin ? [['#/shifts', 'Shift desk', 'shifts']] : []), ['#/telegram', 'Telegram', 'telegram']]],
-      ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places']]],
-      ['Company', [['#/companies', 'Companies', 'companies'], ...(admin ? [['#/team', 'Team', 'team']] : [])]],
+      // a recruiter: his onboarding groups in Telegram, the answers for drivers; the dispatching pages are not his
+      ...(admin ? [['Dispatch', [['#/active', 'Active drivers', 'active'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ['#/shifts', 'Shift desk', 'shifts'], ['#/telegram', 'Telegram', 'telegram']]],
+        ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places']]],
+        ['Company', [['#/companies', 'Companies', 'companies'], ['#/team', 'Team', 'team']]]]
+        : [['Drivers', [['#/telegram', 'Telegram', 'telegram'], ['#/kb', 'Answers for drivers', 'kb'], ['#/companies', 'Companies', 'companies']]]]),
     ];
     let shut = []; try { shut = JSON.parse(localStorage.getItem('railShut') || '[]'); } catch (e) { /* storage off */ }
     const section = ([label, list]) => { const here = list.some(([, , k]) => k === active); const closed = label && shut.includes(label) && !here;

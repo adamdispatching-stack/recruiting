@@ -513,7 +513,8 @@ const helpText = (group) => group
 async function kbCmd(chatId, words, me) {
   if (!me || !isStaff(me)) return send(chatId, 'This is for our team. Connect your website account first: /me CODE');
   if (!String(words || '').trim()) return send(chatId, 'What are you looking for? For example: /kb Kearny parking, /kb pay day, /kb DPF');
-  const r = await require('../kb').search(words, { limit: 6 });
+  const role = me.user_id ? ((await q(`SELECT role FROM users WHERE id = $1`, [me.user_id])).rows[0] || {}).role : 'admin';
+  const r = await require('../kb').search(words, { limit: 6, role });
   if (!r.length) return send(chatId, `Nothing found for "${esc(words)}". The bot keeps learning from the groups; you can also add it on the website (Knowledge base).`);
   const icon = { kb: '📘', term: '💬', place: '🔧', playbook: '🧭' };
   return send(chatId, r.map((x) => `${icon[x.type] || '•'} <b>${esc(x.title)}</b>\n${esc(String(x.text || '').slice(0, 400))}`).join('\n\n'));

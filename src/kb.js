@@ -132,13 +132,17 @@ async function pick({ kinds = ['general'], text = '', limit = 25 }) {
 }
 
 // One search across everything the team knows: the knowledge base, the team's words, shops & services, road case playbooks
-async function search(text, { limit = 40, all = false } = {}) {
+// role: a recruiter searches the answers for drivers only (not the dispatching practices, sites, shops, playbooks, dispatch words)
+const kindsFor = (role) => (role === 'member' ? ['general', 'accounting'] : Object.keys(KINDS));
+async function search(text, { limit = 40, all = false, role = 'admin' } = {}) {
+  const recruiter = role === 'member';
   const t = toks(text); if (!t.size) return [];
   const score = (s) => { const w = toks(s); let n = 0; for (const x of t) if (w.has(x) || [...w].some((y) => y.startsWith(x) && x.length >= 3)) n++; return n / t.size; };
   const out = [];
-  for (const r of (await q(`SELECT id, kind, topic, question, answer, active, seen FROM tg_knowledge ${all ? '' : 'WHERE active'} LIMIT 5000`)).rows) {
+  for (const r of (await q(`SELECT id, kind, topic, question, answer, active, seen FROM tg_knowledge WHERE kind = ANY($1::text[]) ${all ? '' : 'AND active'} LIMIT 5000`, [kindsFor(role)])).rows) {
     const s = score(r.question + ' ' + r.answer); if (s >= 0.5) out.push({ type: 'kb', id: r.id, kind: r.kind, topic: r.topic, title: r.question, text: r.answer, active: r.active, s: s + Math.min(r.seen || 1, 10) / 100 });
   }
+  if (recruiter) return out.sort((a, b) => b.s - a.s).slice(0, limit).map(({ s, ...x }) => x);
   for (const r of (await q(`SELECT id, term, meaning FROM tg_terms WHERE active`)).rows) { const s = score(r.term + ' ' + r.meaning); if (s >= 0.5) out.push({ type: 'term', id: r.id, title: `"${r.term}"`, text: r.meaning, s }); }
   for (const r of (await q(`SELECT id, name, kind, services, phone, city, state, area, notes FROM places WHERE NOT hidden`).catch(() => ({ rows: [] }))).rows) {
     const s = score(`${r.name} ${r.kind} ${(r.services || []).join(' ')} ${r.city || ''} ${r.state || ''} ${r.area || ''} ${r.notes || ''}`);
@@ -210,4 +214,4 @@ async function backfill() {
   }
 }
 
-module.exports = { TOPICS, KINDS, AUTO_GROUPS, guess, toks, sim, placeKey, add, pick, search, tidy, tick, backfill };
+module.exports = { kindsFor, TOPICS, KINDS, AUTO_GROUPS, guess, toks, sim, placeKey, add, pick, search, tidy, tick, backfill };

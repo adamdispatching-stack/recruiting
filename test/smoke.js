@@ -121,14 +121,13 @@ const sql = async (text, params) => {
   ok((await sam('/api/drivers/' + frank)).status === 200, 'shared mode again: everyone sees every lead');
 
   console.log('\n# trucks');
-  { const rt = await post(don, '/api/trucks', { unit: '300' }); // recruiters add trucks; only an admin removes one
-    ok(rt.status === 200 && (await don('/api/trucks/' + rt.body.id, { method: 'DELETE' })).status === 403 && (await admin('/api/trucks/' + rt.body.id, { method: 'DELETE' })).status === 200, 'a recruiter can add a truck but not remove it'); }
+  ok((await post(don, '/api/trucks', { unit: '300' })).status === 403 && (await don('/api/trucks')).status === 403, 'trucks are the dispatch team\'s: a recruiter cannot open or add them (he picks a free truck in onboarding)');
   const t104 = (await post(admin, '/api/trucks', { unit: '104', details: '2021 Freightliner Cascadia', location: 'Newark yard' })).body.id;
   const t9 = (await post(admin, '/api/trucks', { unit: '9', details: '2019 Cascadia' })).body.id;
   const t220 = (await post(admin, '/api/trucks', { unit: '220', driverName: 'Mike (current driver)' })).body.id;
   ok(t104 && t9 && t220, 'admin added three trucks');
   ok((await post(admin, '/api/trucks', { unit: '104' })).status === 400, 'same unit number twice refused');
-  let trucks = (await don('/api/trucks')).body.trucks;
+  let trucks = (await admin('/api/trucks')).body.trucks;
   ok(trucks.map((t) => t.unit).join() === '9,104,220' && trucks.filter((t) => t.state === 'empty').length === 2 && trucks[2].state === 'assigned', 'truck list: sorted by number, 2 empty, 1 with a current driver');
 
   console.log('\n# onboarding');

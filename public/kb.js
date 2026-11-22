@@ -40,7 +40,7 @@
     const byTopic = {}; for (const x of base) (byTopic[x.topic || 'other'] = byTopic[x.topic || 'other'] || []).push(x);
     const order = Object.keys(T).filter((k) => byTopic[k]);
     const shown = topic ? order.filter((k) => k === topic) : order;
-    const kinds = [['', 'Everything'], ['general', 'Answers for drivers'], ['dispatch', 'How we dispatch'], ['site', 'Places & roads']];
+    const kinds = data.recruiter ? [] : [['', 'Everything'], ['general', 'Answers for drivers'], ['dispatch', 'How we dispatch'], ['site', 'Places & roads']];
     const section = (k) => {
       const list = byTopic[k];
       // places & roads: one block per place
@@ -53,16 +53,16 @@
       ${found.length ? `<ul>${found.map((r) => `<li class="kbr t-${r.type}"><span class="kbty">${{ kb: (data.kinds[r.kind] || 'Knowledge'), term: 'Team word', place: 'Shops & services', playbook: 'Road case playbook' }[r.type]}</span>
         ${r.type === 'kb' ? `<a href="#/kb" data-act="kbGo" data-id="${r.id}" data-topic="${esc(r.topic || '')}"><b>${esc(r.title)}</b></a>` : r.type === 'place' ? `<a href="#/places"><b>${esc(r.title)}</b></a>` : r.type === 'playbook' ? `<a href="#/playbook"><b>${esc(r.title)}</b></a>` : `<b>${esc(r.title)}</b>`}${r.type === 'kb' && !r.active ? ' <span class="kbs new">not used yet</span>' : ''}
         <div>${esc(r.text || '')}</div></li>`).join('')}</ul>` : '<p class="hint">The bot keeps learning from the groups. If you know the answer, add it.</p>'}</section>` : '';
-    view.innerHTML = header('kb') + `<main class="kbpage">${App.pageHead('Knowledge base', 'What the team knows, learned from the driver and dispatch groups and added here. The bot answers drivers with the approved answers, and new dispatchers learn how we work. The more groups say the same thing, the surer it is.',
+    view.innerHTML = header('kb') + `<main class="kbpage">${App.pageHead(data.recruiter ? 'Answers for drivers' : 'Knowledge base', data.recruiter ? 'What drivers ask and what we answer, learned from the onboarding groups and added here. The bot answers drivers with the approved answers. The more groups say the same thing, the surer it is.' : 'What the team knows, learned from the driver and dispatch groups and added here. The bot answers drivers with the approved answers, and new dispatchers learn how we work. The more groups say the same thing, the surer it is.',
       `${data.canEdit ? `<button class="btn primary lg" data-act="kbAdd">${App.plus} Add</button>` : ''}<a class="btn plain lg" href="#/kb/handbook">Handbook</a>`)}
-      <div class="kbsearch"><input type="search" id="kbFind" placeholder="Search everything: Kearny parking, pay day, DPF, 34 reset, didn't catch…" value="${esc(words)}" aria-label="Search the knowledge base"></div>
+      <div class="kbsearch"><input type="search" id="kbFind" placeholder="${data.recruiter ? 'Search: pay day, orientation, drug test, home time…' : 'Search everything: Kearny parking, pay day, DPF, 34 reset, didn\'t catch…'}" value="${esc(words)}" aria-label="Search the knowledge base"></div>
       ${results}
       <div class="pagebar">${data.canEdit ? `<div class="seg" role="group" aria-label="Show">${[['use', 'In use', all.filter((x) => x.active).length], ['review', 'To approve', nReview], ['conflict', 'Disagree', nConf], ['off', 'Turned off', nOff]].filter(([k, , n]) => n || k === 'use' || k === show)
         .map(([k, l, n]) => `<button data-act="kbShow" data-k="${k}" class="${show === k ? 'on' : ''}">${l} ${n}</button>`).join('')}</div>` : ''}
-        <div class="seg" role="group" aria-label="Kind">${kinds.map(([k, l]) => `<button data-act="kbKind" data-k="${k}" class="${kind === k ? 'on' : ''}">${l}</button>`).join('')}</div><span class="grow"></span></div>
+        ${kinds.length ? '<div class="seg" role="group" aria-label="Kind">' : '<div hidden>'}${kinds.map(([k, l]) => `<button data-act="kbKind" data-k="${k}" class="${kind === k ? 'on' : ''}">${l}</button>`).join('')}</div><span class="grow"></span></div>
       <div class="kbgrid"><div class="kbleft"><nav class="kbnav" aria-label="Topics"><button data-act="kbTopic" data-k="" class="${topic ? '' : 'on'}">All topics <span>${base.length}</span></button>
           ${order.map((k) => `<button data-act="kbTopic" data-k="${k}" class="${topic === k ? 'on' : ''}">${esc(T[k])} <span>${byTopic[k].length}</span></button>`).join('')}</nav>
-          <div class="kbside"><div class="kbmore"><b>Also what the team knows</b><a href="#/places">Shops & services <span>${data.more.places}</span></a><a href="#/playbook">Road case playbooks <span>${data.more.playbooks}</span></a>${S.me.role === 'admin' ? `<a href="#/telegram?tab=desk">Team words <span>${data.more.terms}</span></a>` : `<span class="kbml">Team words <span>${data.more.terms}</span></span>`}</div>
+          <div class="kbside">${data.recruiter ? '' : `<div class="kbmore"><b>Also what the team knows</b><a href="#/places">Shops & services <span>${data.more.places}</span></a><a href="#/playbook">Road case playbooks <span>${data.more.playbooks}</span></a>${S.me.role === 'admin' ? `<a href="#/telegram?tab=desk">Team words <span>${data.more.terms}</span></a>` : `<span class="kbml">Team words <span>${data.more.terms}</span></span>`}</div>`}
           ${data.admin ? `<div class="kbmore"><label class="chk"><input type="checkbox" data-ch="kbAuto" ${data.auto ? 'checked' : ''}> Approve by itself when ${data.autoGroups} different groups say the same thing</label>
             ${data.untidied ? `<p class="small mut">${plural(data.untidied, 'new entry', 'new entries')} wait for the AI tidy (wording, topic, duplicates), every 6 hours. <button class="linkbtn" data-act="kbTidy">Tidy now</button></p>` : ''}</div>` : ''}
           <p class="small mut kbtip">In Telegram, message the bot <b>/kb</b> and a few words to search this from the road.</p></div></div>

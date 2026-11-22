@@ -56,7 +56,7 @@ module.exports = (app) => {
         (SELECT row_to_json(u) FROM (SELECT status, place, eta, at FROM tg_updates WHERE chat_id = c.chat_id ORDER BY at DESC LIMIT 1) u) last_update,
         (SELECT count(*)::int FROM tg_alerts a WHERE a.chat_id = c.chat_id AND a.resolved_at IS NULL AND a.at > now() - interval '14 days' ${req.user.role === 'admin' ? '' : "AND a.kind <> 'unprofessional_dispatcher'"}) open_alerts
       FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id LEFT JOIN eld_cases e ON e.driver_id = c.driver_id AND e.chat_id = c.chat_id
-      WHERE c.active ${req.user.role === 'admin' ? '' : `AND c.driver_id IS NOT NULL${vis ? ' AND ' + vis : ''}`} ORDER BY c.kind IS NULL, c.last_at DESC NULLS LAST`, params)).rows;
+      WHERE c.active ${req.user.role === 'admin' ? '' : `AND c.driver_id IS NOT NULL${vis ? ' AND ' + vis : ''}${lib.groupScopeSql(req.user)}`} ORDER BY c.kind IS NULL, c.last_at DESC NULLS LAST`, params)).rows;
     res.json({ chats: rows.map((c) => ({ lastUpdate: c.last_update || null, mode: c.mode, chatId: c.chat_id, title: c.title, kind: c.kind, driverId: c.driver_id, driver: c.driver, ownerId: c.owner_id, botAdmin: c.bot_admin, lastAt: c.last_at, todayMsgs: c.today_msgs,
       eld: c.kind === 'eld' && c.steps ? eldView(c) : null, openChecks: c.open_checks, lastCheck: c.last_check, lastSummary: c.last_summary,
       onb: c.kind === 'dispatch' && c.driver_status !== 'Hired' ? { amazonStep: c.amazon_step, amazonLabel: c.amazon_step ? db.AMAZON.find((x) => x.key === c.amazon_step).label : null, openQuestions: c.open_questions, reportsToReview: c.reports_to_review } : null,
@@ -66,7 +66,7 @@ module.exports = (app) => {
   async function loadChat(req, res) {
     const c = (await q(`SELECT c.*, d.name driver, d.owner_id, d.status driver_status FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.chat_id = $1`, [req.params.id])).rows[0];
     if (!c) { res.status(404).json({ error: 'Group not found' }); return null; }
-    if (req.user.role !== 'admin') { if (!c.driver_id) { res.status(404).json({ error: 'Group not found' }); return null; } if (!(await loadDriver(req, res, c.driver_id))) return null; }
+    if (req.user.role !== 'admin') { if (!c.driver_id || !lib.groupScopeOk(req.user, c.driver_status)) { res.status(404).json({ error: 'Group not found' }); return null; } if (!(await loadDriver(req, res, c.driver_id))) return null; }
     return c;
   }
   app.get('/api/tg/chats/:id', needUser, wrap(async (req, res) => {
@@ -275,7 +275,7 @@ module.exports = (app) => {
   app.get('/api/tg/alerts', needUser, wrap(async (req, res) => {
     const params = []; const vis = visSql(req.user, params);
     const r = (await q(`SELECT a.*, d.name driver FROM tg_alerts a JOIN drivers d ON d.id = a.driver_id WHERE a.resolved_at IS NULL AND a.at > now() - interval '14 days'
-      ${req.user.role === 'admin' ? '' : `AND a.kind <> 'unprofessional_dispatcher'${vis ? ' AND ' + vis : ''}`} ORDER BY (a.severity = 'high') DESC, a.at DESC LIMIT 100`, params)).rows;
+      ${req.user.role === 'admin' ? '' : `AND a.kind <> 'unprofessional_dispatcher'${vis ? ' AND ' + vis : ''}${lib.groupScopeSql(req.user)}`} ORDER BY (a.severity = 'high') DESC, a.at DESC LIMIT 100`, params)).rows;
     res.json({ alerts: r.map((a) => ({ id: a.id, chatId: a.chat_id, driverId: a.driver_id, driver: a.driver, kind: a.kind, severity: a.severity, text: a.text, at: a.at })) });
   }));
   app.patch('/api/tg/alerts/:id', needUser, wrap(async (req, res) => {
@@ -317,9 +317,11 @@ module.exports = (app) => {
   app.get('/api/tg/log', needUser, wrap(async (req, res) => {
     const chat = req.query.chat ? String(req.query.chat) : null; const kinds = req.query.kinds ? String(req.query.kinds).split(',').filter(Boolean) : null;
     const before = req.query.before ? +req.query.before : null;
+    // not an admin: only his drivers' groups (recruiters: not hired yet; dispatchers: working), never the shift desk (who was asked, who answered)
+    const scope = req.user.role === 'admin' ? '' : ` AND l.driver_id IS NOT NULL AND l.kind <> 'desk'${lib.groupScopeSql(req.user)}`;
     const r = await q(`SELECT l.id, l.at, l.chat_id, l.driver_id, l.kind, l.text, l.who, ch.title, d.name driver, d.status FROM tg_log l LEFT JOIN tg_chats ch ON ch.chat_id = l.chat_id LEFT JOIN drivers d ON d.id = l.driver_id
-      WHERE ($1::bigint IS NULL OR l.chat_id = $1) AND ($2::text[] IS NULL OR l.kind = ANY($2)) AND ($3::int IS NULL OR l.id < $3) ORDER BY l.id DESC LIMIT 100`, [chat, kinds, before]);
-    const counts = (await q(`SELECT kind, count(*)::int n FROM tg_log WHERE at > now() - interval '7 days' AND ($1::bigint IS NULL OR chat_id = $1) GROUP BY kind`, [chat])).rows;
+      WHERE ($1::bigint IS NULL OR l.chat_id = $1) AND ($2::text[] IS NULL OR l.kind = ANY($2)) AND ($3::int IS NULL OR l.id < $3)${scope} ORDER BY l.id DESC LIMIT 100`, [chat, kinds, before]);
+    const counts = (await q(`SELECT l.kind, count(*)::int n FROM tg_log l LEFT JOIN drivers d ON d.id = l.driver_id WHERE l.at > now() - interval '7 days' AND ($1::bigint IS NULL OR l.chat_id = $1)${scope} GROUP BY l.kind`, [chat])).rows;
     res.json({ log: r.rows.map((x) => ({ id: x.id, at: x.at, chatId: x.chat_id, driverId: x.driver_id, driver: x.driver, hired: x.status === 'Hired', kind: x.kind, text: x.text, who: x.who, title: x.title })),
       week: Object.fromEntries(counts.map((c) => [c.kind, c.n])), more: r.rows.length === 100 });
   }));
@@ -369,7 +371,7 @@ module.exports = (app) => {
     if (!prof) return res.status(400).json({ error: 'Too few messages from him in the last 30 days to review.' });
     res.json({ ok: true });
   }));
-  app.get('/api/tg/dispatch-readiness', needUser, wrap(async (req, res) => {
+  app.get('/api/tg/dispatch-readiness', needUser, needAdmin, wrap(async (req, res) => {
     const W = `c.active AND c.kind = 'dispatch' AND c.driver_id IS NOT NULL AND (d.status = 'Hired' OR c.member_count > 10)`;
     const g = (await q(`SELECT count(*)::int groups, count(*) FILTER (WHERE (SELECT min(at) FROM tg_messages m WHERE m.chat_id = c.chat_id) < now() - interval '14 days')::int watched,
       count(*) FILTER (WHERE c.mode = 'updater')::int updater FROM tg_chats c JOIN drivers d ON d.id = c.driver_id WHERE ${W}`)).rows[0];

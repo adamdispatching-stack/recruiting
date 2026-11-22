@@ -15,12 +15,22 @@ async function sessionUser(req) {
 const DISPATCH_OK = [/^\/api\/(cases|playbooks|orientation|places|hometime)(\/|$)/, /^\/api\/(me|logout|beat|track)(\/|$)/, /^\/api\/notices/, /^\/api\/trucks(\/|$)/, /^\/api\/truck-events\//, /^\/api\/docs(\/|$)/, /^\/api\/fleet\//,
   /^\/api\/drivers\/\d+\/profile/, /^\/api\/team\/(\d+|me)(\/month)?$/, /^\/api\/tg\/(chats|alerts|me-code|status)(\/|$)/];
 const DISPATCH_GET = [/^\/api\/companies(\/\d+)?$/, /^\/api\/active(\/\d+)?$/, /^\/api\/kb(\/search)?$/];
+// A recruiter works with leads and onboarding: the dispatching screens (trucks, active drivers, road cases, shops,
+// the shift desk, the dispatchers' learning) are not theirs.
+const RECRUIT_NO = [/^\/api\/(trucks|truck-events|cases|playbooks|places|hometime|active)(\/|$)/, /^\/api\/fleet\/(dispatchers|settings)(\/|$)/, /^\/api\/drivers\/\d+\/profile/,
+  /^\/api\/tg\/(dispatch-readiness|updates|desk|routines|notes|terms|dispatchers)(\/|$)/];
+const recruiterMay = (req) => !RECRUIT_NO.some((r) => r.test(req.path));
 const dispatcherMay = (req) => { const p = req.path; return DISPATCH_OK.some((r) => r.test(p)) || (req.method === 'GET' && DISPATCH_GET.some((r) => r.test(p))); };
 const needUser = wrap(async (req, res, next) => {
   const u = await sessionUser(req); if (!u) return res.status(401).json({ error: 'Sign in first' });
   if (u.role === 'dispatcher' && !dispatcherMay({ method: req.method, path: (req.baseUrl || '') + req.path })) return res.status(403).json({ error: 'Dispatchers work with trucks and active drivers only' });
+  if (u.role === 'member' && !recruiterMay({ path: (req.baseUrl || '') + req.path })) return res.status(403).json({ error: 'Recruiters work with leads and onboarding only' });
   req.user = u; next();
 });
+// Telegram groups by role: recruiters see the groups of drivers not hired yet (leads, onboarding); dispatchers the
+// groups of working (hired) drivers; admins everything. statusSql is the driver's status column.
+const groupScopeSql = (u, statusSql = 'd.status') => (u.role === 'member' ? ` AND ${statusSql} IS DISTINCT FROM 'Hired'` : u.role === 'dispatcher' ? ` AND ${statusSql} = 'Hired'` : '');
+const groupScopeOk = (u, status) => (u.role === 'member' ? status !== 'Hired' : u.role === 'dispatcher' ? status === 'Hired' : true);
 const needAdmin = (req, res, next) => (req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Only an admin can do this' }));
 const needKey = wrap(async (req, res, next) => {
   const t = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
@@ -87,4 +97,4 @@ const validTz = (v) => { try { new Intl.DateTimeFormat('en-US', { timeZone: v })
 // Phones and tablets: their time on the site is not counted (activity is the website on a computer only).
 const MOBILE_UA = /Mobi|Android|iPhone|iPod|iPad|Windows Phone|webOS|BlackBerry|Opera Mini|IEMobile|Silk|Kindle/i;
 const isMobile = (req) => MOBILE_UA.test(String(req.headers['user-agent'] || '')) || req.headers['sec-ch-ua-mobile'] === '?1' || !!(req.body && req.body.mobile === true);
-module.exports = { isMobile, wrap, cookieOf, sessionUser, needUser, needAdmin, needKey, seesAll, visSql, canSee, loadGone, unowned, unownedSql, loadDriver, act, history, record, range, today, isDate, niceDate, validTz, PERIODS, NOTE_TEXT };
+module.exports = { groupScopeSql, groupScopeOk, isMobile, wrap, cookieOf, sessionUser, needUser, needAdmin, needKey, seesAll, visSql, canSee, loadGone, unowned, unownedSql, loadDriver, act, history, record, range, today, isDate, niceDate, validTz, PERIODS, NOTE_TEXT };

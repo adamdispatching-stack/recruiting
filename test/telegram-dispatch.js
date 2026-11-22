@@ -113,7 +113,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => tg.sent.some((m) => /Connected: you are <b>Rita Recruiter<\/b>/.test(m.text))), 'Rita connects her Telegram (/me code)');
   // register the dispatch group: the driver is found from the group's name
   let n = tg.sent.length; say(RITA, 'register dispatch');
-  ok(await until(async () => ((await R('/api/tg/chats')).chats.find((c) => c.chatId == DCHAT.id) || {}).kind === 'dispatch'), 'register dispatch: the group name says Hank Hired: linked as Hank\'s dispatch group');
+  ok(await until(async () => ((await web('/api/tg/chats')).chats.find((c) => c.chatId == DCHAT.id) || {}).kind === 'dispatch'), 'register dispatch: the group name says Hank Hired: linked as Hank\'s dispatch group');
   await sleep(800); ok(!sentSince(n).some((m) => String(m.chat_id) === String(DCHAT.id)), 'an active driver\'s group: silent, nothing written');
   ok((await pg.query(`SELECT mode FROM tg_chats WHERE chat_id = $1`, [DCHAT.id])).rows[0].mode === 'watch', 'a working driver\'s group starts in Watch and learn');
   ok((await web(`/api/tg/chats/${DCHAT.id}/mode`, { method: 'PATCH', body: { mode: 'updater' } })).ok, 'switched to 🚚 Updater for the checks below');
@@ -123,16 +123,16 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const add = pick2 && pick2.reply_markup.inline_keyboard.flat().find((b) => /Add "Zed Newman" as an active driver/.test(b.text));
   ok(!!add, 'no such driver: "Add Zed Newman as an active driver"');
   tap(RITA, add.callback_data, 1, ECHAT);
-  ok(await until(async () => ((await R('/api/tg/chats')).chats.find((c) => c.chatId == ECHAT.id) || {}).kind === 'eld'), 'added and linked');
+  ok(await until(async () => ((await web('/api/tg/chats')).chats.find((c) => c.chatId == ECHAT.id) || {}).kind === 'eld'), 'added and linked');
   const zed = (await pg.query(`SELECT id, status FROM drivers WHERE name = 'Zed Newman'`)).rows[0];
   ok(zed && zed.status === 'Hired', 'Zed Newman is on the website as an active driver');
   // accounting group, with the name in the command
   n = tg.sent.length; say(RITA, 'register accounting Hank', {}, ACHAT);
   const pick3 = await until(() => sentSince(n).find((m) => /<b>Accounting<\/b> group for\?/.test(m.text)));
   tap(RITA, pick3.reply_markup.inline_keyboard[0][0].callback_data, 1, ACHAT);
-  ok(await until(async () => ((await R('/api/tg/chats')).chats.find((c) => c.chatId == ACHAT.id) || {}).kind === 'accounting'), 'accounting group registered for Hank');
+  ok(await until(async () => ((await web('/api/tg/chats')).chats.find((c) => c.chatId == ACHAT.id) || {}).kind === 'accounting'), 'accounting group registered for Hank');
   await sleep(600); ok(!tg.sent.some((m) => /accounting<\/b> group for <b>Hank Hired<\/b>/.test(m.text)), 'Hank is already active: the accounting group stays silent');
-  await R(`/api/tg/chats/${ACHAT.id}/mode`, { method: 'PATCH', body: { mode: 'updater' } });
+  await web(`/api/tg/chats/${ACHAT.id}/mode`, { method: 'PATCH', body: { mode: 'updater' } });
   ok(await until(() => tg.sent.some((m) => /accounting<\/b> group for <b>Hank Hired<\/b>/.test(m.text))), 'switched to "Answer pay questions" on the group page: the bot says hello and answers');
   tap(ACC, `acc:${hank}:iam`, 1, ACHAT);
   ok(await until(() => tg.answers.some((a) => /you are with accounting/.test(a.text))), 'Amy says she is with accounting');
@@ -160,7 +160,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const tr = await until(async () => { const t = (await web('/api/trucks')).trucks.find((x) => x.id === truck); return t && t.openIssues ? t : null; });
   ok(tr && tr.openIssues === 1 && /Check engine light/.test(tr.lastEvent.title), 'the check engine light is on truck T200\'s issues');
   ok(await until(async () => ((await web('/api/notices')).notices || []).some((x) => /Truck T200 of Hank Hired: Check engine light/.test(x.text))), 'the admins hear about the warning light');
-  const pr = await R(`/api/drivers/${hank}/profile`);
+  const pr = await web(`/api/drivers/${hank}/profile`);
   ok(pr.notesCount === 2 && pr.notes.some((x) => /7 AM/.test(x.text)) && pr.notes.some((x) => /NYC/.test(x.text)), 'two notes about Hank: the 7 AM call and no NYC loads');
   // next batch: fixed, oil change, a rude dispatcher
   say(HANK, 'Shop says all good, the light is off now. Oil change done at Speedco too');
@@ -174,9 +174,9 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(al.some((a) => a.kind === 'container_mismatch') && al.some((a) => a.kind === 'unprofessional_dispatcher'), 'the admin sees the alerts');
   ok((await web('/api/tg/alerts/' + al[0].id, { method: 'PATCH', body: {} })).ok && (await web('/api/tg/alerts')).alerts.length === al.length - 1, 'an alert can be marked done');
   // the profile for dispatchers
-  await R(`/api/drivers/${hank}/profile`, { method: 'PUT', body: { pins: 'No night driving.' } });
-  await R(`/api/drivers/${hank}/profile/build`, { method: 'POST', body: {} });
-  const pf = await R(`/api/drivers/${hank}/profile`);
+  await web(`/api/drivers/${hank}/profile`, { method: 'PUT', body: { pins: 'No night driving.' } });
+  await web(`/api/drivers/${hank}/profile/build`, { method: 'POST', body: {} });
+  const pf = await web(`/api/drivers/${hank}/profile`);
   ok(pf.profile && pf.profile.reliability === 'high' && !/no pins/.test(pf.profile.summary) && pf.pins === 'No night driving.', 'the profile is built, with the team\'s own notes');
   ok(/Wake-up call at 7 AM/.test(pf.text) && /NYC loads/.test(pf.text) && /No night driving/.test(pf.text), 'a text to hand to a new dispatcher');
   n = tg.sent.length; push({ message: { message_id: mid++, from: RITA, chat: { id: 11, type: 'private', first_name: 'Rita' }, date: Math.floor(Date.now() / 1000), text: '/driver Hank' } });
@@ -185,9 +185,9 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => sentSince(n).some((m) => m.chat_id === 99 && /Only our team/.test(m.text))), 'not to strangers');
   ok(!tg.sent.some((m) => m.chat_id === DCHAT.id && /Reliability/.test(m.text)), 'the profile is never posted in the driver\'s group');
   // trucks by hand
-  ok((await R(`/api/trucks/${truck}/events`, { method: 'POST', body: { title: 'New steer tires', kind: 'tires', status: 'scheduled' } })).ok, 'an issue logged by hand');
-  const e2 = (await R(`/api/trucks/${truck}/events`)).events.find((e) => e.title === 'New steer tires');
-  ok((await R('/api/truck-events/' + e2.id, { method: 'PATCH', body: { status: 'fixed' } })).ok && (await R(`/api/trucks/${truck}/events`)).events.find((e) => e.id === e2.id).status === 'fixed', 'and marked fixed');
+  ok((await web(`/api/trucks/${truck}/events`, { method: 'POST', body: { title: 'New steer tires', kind: 'tires', status: 'scheduled' } })).ok, 'an issue logged by hand');
+  const e2 = (await web(`/api/trucks/${truck}/events`)).events.find((e) => e.title === 'New steer tires');
+  ok((await web('/api/truck-events/' + e2.id, { method: 'PATCH', body: { status: 'fixed' } })).ok && (await web(`/api/trucks/${truck}/events`)).events.find((e) => e.id === e2.id).status === 'fixed', 'and marked fixed');
   const g = (await web('/api/tg/chats/' + DCHAT.id));
   ok(g.alerts.length >= 2 && g.truckEvents.length >= 2 && g.notes.length === 2, 'the group page shows alerts, truck issues and notes');
   if (process.env.SHOTS) {
