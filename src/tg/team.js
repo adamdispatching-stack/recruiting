@@ -34,37 +34,20 @@ async function onboardText({ tagRecruiters = false } = {}) {
     LEFT JOIN tg_chats ch ON ch.driver_id = d.id AND ch.kind = 'dispatch' AND ch.active
     WHERE d.status = 'Onboarding' ORDER BY o.expected_arrival NULLS LAST, d.name`)).rows;
   if (!rows.length) return ['Nobody is in onboarding right now.'];
-  const reach = await require('../reach').scoreMany(rows.map((d) => d.id));
-  rows.sort((a, b) => ((reach[b.id] || {}).score || 0) - ((reach[a.id] || {}).score || 0)); // the most likely first
-  // one driver, short: "🟢80 Paul Penn · Rita · 🗓 Nov 24 · 2021 Cascadia", then a few short lines only when there is something to say
-  const short = (t) => { const x = String(t || ''); return x.length > 90 ? x.slice(0, 88) + '…' : x; };
-  const line = async (d, { truck = false } = {}) => {
-    const s = d.ai_status || {}; const rc = reach[d.id];
-    const step = d.amazon_step === 'verified' ? '' : `${esc(AMZ[d.amazon_step] || 'No invite')}${d.amazon_step && d.amazon_log && d.amazon_log[d.amazon_step] ? ` ${ago(d.amazon_log[d.amazon_step]).replace(/ (min|h|days)$/, (m, u) => (u === 'days' ? 'd' : u))}` : ''}`;
-    const first = (d.owner || '').split(/\s+/)[0];
-    const head = [`${rc ? `${rc.icon}${rc.score} ` : ''}<b>${esc(d.name)}</b>`, tagRecruiters ? await who(d.owner_id, first || d.owner) : esc(first || '—'),
-      d.start ? `🗓 ${esc(nice(d.start))}` : '🗓 ?', step, truck && (d.truck_year || d.truck_model) ? esc([d.truck_year, d.truck_model].filter(Boolean).join(' ')) : '', d.chat_id ? '' : '✈️❌'].filter(Boolean).join(' · ');
-    const more = [
-      s.summary ? `📝 ${esc(short(s.summary))}` : '',
-      s.waiting_on && s.waiting_on !== 'nobody' ? `⏳ ${esc(s.waiting_on)}${s.next_step ? ` → ${esc(short(s.next_step))}` : ''}` : s.next_step ? `➡️ ${esc(short(s.next_step))}` : '',
-      (s.blockers || []).length ? `⚠️ ${esc(short(s.blockers.slice(0, 2).join('; ')))}` : '',
-      s.driver_mood && !['good', 'unknown', 'neutral'].includes(s.driver_mood) ? `😟 ${esc(s.driver_mood)}` : '',
-      rc && rc.silentDays >= 1 ? `🔇 ${rc.silentDays}d${rc.unanswered ? ` · ${rc.unanswered} unanswered` : ''}${rc.calls.noAnswer ? ` · 📞${rc.calls.noAnswer} missed` : ''}` : d.last_msg ? `💬 ${ago(d.last_msg)}` : ''
-    ].filter(Boolean);
-    return `• ${head}${more.length ? '\n   ' + more.join('\n   ') : ''}`;
+  // plain: Amazon verified, then Amazon pending; inside each CD, then OO (and anyone not marked); name and start date
+  rows.sort((a, b) => (a.start || '9999').localeCompare(b.start || '9999') || a.name.localeCompare(b.name));
+  const line = (d) => `${esc(d.name)} — ${d.start ? esc(nice(d.start)) : 'no start date'}`;
+  const part = (title, list) => {
+    const out = [`\n<b>${title}</b> (${list.length})`];
+    for (const [label, ds] of [['CD', list.filter((d) => d.dtype === 'Company drivers')], ['OO', list.filter((d) => d.dtype === 'Owner-operators')], ['Not marked CD or OO', list.filter((d) => d.dtype !== 'Company drivers' && d.dtype !== 'Owner-operators')]]) {
+      if (!ds.length) continue;
+      out.push(`${label} (${ds.length})`); for (const d of ds) out.push(line(d));
+    }
+    if (!list.length) out.push('None');
+    return out;
   };
   const ver = rows.filter((d) => d.amazon_step === 'verified'), pend = rows.filter((d) => d.amazon_step !== 'verified');
-  const lv = (l) => rows.filter((d) => (reach[d.id] || {}).level === l).length;
-  const blocks = [`🧭 <b>Onboarding ${rows.length}</b> · ✅ ${ver.length} · ⏳ ${pend.length} · 🟢${lv('likely')} 🟡${lv('unsure')} 🔴${lv('risk')}`];
-  blocks.push(`\n✅ <b>Amazon</b> (${ver.length})`);
-  // verified: company drivers (CD) first, then owner-operators (OO), then anyone not marked yet
-  const groups = [['CD', ver.filter((d) => d.dtype === 'Company drivers')], ['OO', ver.filter((d) => d.dtype === 'Owner-operators')], ['❔ Not marked', ver.filter((d) => d.dtype !== 'Company drivers' && d.dtype !== 'Owner-operators')]];
-  for (const [label, ds] of groups) {
-    if (!ds.length) continue;
-    blocks.push(`<b>${label}</b> (${ds.length})`);
-    for (const d of ds) blocks.push(await line(d, { truck: label === 'OO' }));
-  }
-  blocks.push(`\n⏳ <b>Amazon</b> (${pend.length})`); for (const d of pend) blocks.push(await line(d, { truck: d.dtype === 'Owner-operators' }));
+  const blocks = [`<b>Onboarding: ${rows.length}</b>`, ...part('Amazon verified', ver), ...part('Amazon pending', pend)];
   // Telegram allows 4096 characters a message: split between drivers
   const out = []; let cur = '';
   for (const b of blocks) { if ((cur + '\n' + b).length > 3800) { out.push(cur); cur = b; } else cur = cur ? cur + '\n' + b : b; }
@@ -75,7 +58,7 @@ async function onboardText({ tagRecruiters = false } = {}) {
 async function onboardCmd(chatId, person, { tagRecruiters = false } = {}) {
   if (!bot.isStaff(person)) return send(chatId, 'Only our team can see this. Connect your website account first: /me CODE (the code is under Telegram → Connect my Telegram).');
   const n = (await q(`SELECT count(DISTINCT m.chat_id)::int n FROM tg_messages m JOIN tg_chats c ON c.chat_id = m.chat_id AND c.kind = 'dispatch' JOIN drivers d ON d.id = c.driver_id AND d.status = 'Onboarding' WHERE NOT m.digested`)).rows[0].n;
-  if (n) { await send(chatId, `🔄 Reading the newest messages in ${n} onboarding group${n === 1 ? '' : 's'} first…`); await refresh(); }
+  if (n) await refresh(); // the newest messages first, quietly, so start dates are up to date
   let last = null; for (const t of await onboardText({ tagRecruiters })) last = await send(chatId, t);
   return last;
 }
