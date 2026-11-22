@@ -17,6 +17,9 @@ async function ask({ model, system, content, tool, maxTokens = 800, cache = fals
   return use.input;
 }
 
+// topics of the knowledge base (src/kb.js)
+const KB_TOPIC = { type: 'string', enum: Object.keys(require('../kb').TOPICS), description: 'What it is about.' };
+
 // What document is in this picture or PDF?
 const DOC_TOOL = { name: 'document_kind', description: 'Say what document this is.', input_schema: { type: 'object', properties: {
   kind: { type: 'string', enum: ['cdl', 'registration', 'eld_manual', 'paper_logs', 'eld_screen', 'bol', 'other'], description: 'cdl = commercial driver license; registration = truck or trailer registration (cab card); eld_manual = ELD instruction card or manual; paper_logs = blank or filled paper log book; eld_screen = an ELD app or tablet screen; bol = bill of lading or shipping paper' },
@@ -118,11 +121,16 @@ const DIGEST_TOOL = { name: 'group_digest', description: 'What the new messages 
     lesson: { type: 'string', description: 'When resolved: what to do better or the same next time in a case like this, as general practice. Empty if nothing new.' } }, required: ['case_id', 'steps_done', 'resolved'] } },
   dispatch_lessons: { type: 'array', description: 'ONLY in a WORKING driver\'s dispatch group: how OUR dispatchers handle things, as general practice a new dispatcher (or a bot doing updates) can follow. Only when the NEW messages clearly show it. No names, numbers, places or dates.', items: { type: 'object', properties: {
     situation: { type: 'string', description: 'When this happens, for example "The driver says he will be late to the delivery".' },
-    practice: { type: 'string', description: 'What the dispatcher does or says, for example "Asks for the new ETA right away and tells the driver he will update the broker".' } }, required: ['situation', 'practice'] } },
+    practice: { type: 'string', description: 'What the dispatcher does or says, for example "Asks for the new ETA right away and tells the driver he will update the broker".' },
+    topic: KB_TOPIC }, required: ['situation', 'practice'] } },
   people: { type: 'array', description: 'ONLY for the people listed as "role not known yet": what each one is, when what they write makes it clear. Leave a person out when unsure.', items: { type: 'object', properties: {
     name: { type: 'string', description: 'Exactly as listed.' }, role: { type: 'string', enum: ['driver', 'dispatcher', 'eld', 'accounting', 'other'], description: 'driver = the driver of this group; dispatcher = gives loads, times, addresses, follows up; eld = logs and ELD; accounting = pay and settlements.' } }, required: ['name', 'role'] } },
-  learned: { type: 'array', description: 'When a person from our team (not the bot) answered a question the driver asked in the NEW messages: the general question and the answer, reworded so they help any future driver (no names, dates, phone numbers or personal details). Leave out answers that only fit this driver.', items: { type: 'object', properties: {
-    question: { type: 'string' }, answer: { type: 'string' } }, required: ['question', 'answer'] } },
+  learned: { type: 'array', description: 'When a person from our team (not the bot) answered a question the driver asked in the NEW messages, or clearly stated a company rule or how something works with us (pay, fuel cards, tolls, logs, home time, paperwork, equipment): the general question and the answer, reworded so they help any future driver (no names, dates, phone numbers or personal details). Leave out answers that only fit this driver or this one load.', items: { type: 'object', properties: {
+    question: { type: 'string' }, answer: { type: 'string' }, topic: KB_TOPIC }, required: ['question', 'answer'] } },
+  site_notes: { type: 'array', description: 'In ANY group: lasting facts the NEW messages teach about a place or a road that will help any driver or dispatcher going there later. Amazon sites and customers (gate or check-in rules, which door or lane, parking, usual waits, hours, what to show), yards and drop lots, truck parking, weigh stations, low bridges, roads trucks must avoid, tolls. Not one-time events (today\'s traffic, one late load) and no people\'s names, phone numbers or load numbers.', items: { type: 'object', properties: {
+    place: { type: 'string', description: 'The facility code or name as the team calls it, for example "KRB1", "Amazon Hazleton", "Chambersburg drop yard", "I-78 Pennsylvania".' },
+    city: { type: 'string' }, state: { type: 'string', description: 'Two letters.' },
+    fact: { type: 'string', description: 'One short, concrete fact, for example "Check-in at gate 3; trucks wait on the right shoulder, not on the street".' }, topic: KB_TOPIC }, required: ['place', 'fact'] } },
   onboarding: { type: 'object', description: 'ONLY when ONBOARDING STEPS are listed in the instructions: where this driver\'s onboarding stands after all messages (earlier and new).', properties: {
     summary: { type: 'string', description: '2 or 3 sentences: where things stand, what was done, what is next.' },
     waiting_on: { type: 'string', enum: ['driver', 'recruiter', 'amazon', 'company', 'nobody'], description: 'Who has to act next.' },
@@ -151,6 +159,7 @@ Flag unprofessional_dispatcher only for clear rudeness, insults, or telling the 
 Never include passwords, SSN, license or account numbers. Be factual and short.
 Oil changes, shop visits and repairs are truck_events. "Oil change done" is an oil_change with status fixed; say paid=true when they say it is paid, and give the cost, shop and mileage when said. Do not repeat an event already listed in OPEN TRUCK ISSUES: mark it fixed (fixed_issue_ids) or paid (paid_ids) instead.
 In a WORKING driver's dispatch group (the driver hauls loads for us) also fill load_updates (each message is numbered #id), promises, promise_results and dispatch_lessons: the bot is learning how our dispatchers run updates and whether the driver keeps his word. Leave them empty in other groups.
+In any group, when the messages teach something lasting (an answer, a company rule, a fact about a site or a road), fill learned or site_notes: the company is building its knowledge base from the groups.
 When the driver is ONBOARDING (not driving for us yet), fill "onboarding" every time. Mark a step done only when a message or a picture clearly shows it is done (a result, a confirmation, a ticket, "done", "passed"), never when it is only planned or asked for.${words}${playbook}`;
   const about = `ABOUT THIS GROUP: the ${kind} group of ${driver}${truck ? `, truck ${truck}` : ''}.
 OPEN TRUCK ISSUES (id: title): ${openIssues.length ? openIssues.map((i) => `${i.id}: ${i.title}`).join('; ') : 'none'}
@@ -218,5 +227,25 @@ async function dispatcherProfile({ name, stats, lines, previous }) {
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: `Dispatcher: ${name}\n${stats}${prev}\nMESSAGES (oldest first; with the driver's message before when it was a reply):\n${lines.join('\n').slice(-90000)}` }], tool: DISP_TOOL, maxTokens: 4000 });
 }
 // every job the bot does, with its model (for the Test button: one real call each)
-const jobs = () => [[DOC_TOOL, MODEL()], [SUM_TOOL, DAY_MODEL()], [ONB_TOOL, MODEL()], [REPLY_TOOL, MODEL()], [DIGEST_TOOL, DIGEST_MODEL()], [PROFILE_TOOL, SUMMARY_MODEL()], [DISP_TOOL, SUMMARY_MODEL()]];
-module.exports = { AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile };
+// The knowledge base tidy (a few times a day, new entries only): clear wording, topic, duplicates, answers that disagree
+const KB_TOOL = { name: 'kb_tidy', description: 'Tidy entries of the company knowledge base.', input_schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object', properties: {
+  id: { type: 'integer' },
+  question: { type: 'string', description: 'Short and general: what a driver or dispatcher would ask, or the situation (for a place: the place name as the team calls it). Empty = keep.' },
+  answer: { type: 'string', description: 'The best single answer, short and concrete, combining the other answers when they agree. Empty = keep.' },
+  topic: KB_TOPIC,
+  duplicate_of: { type: 'integer', description: 'The id of another entry (in ENTRIES or OTHER ENTRIES, same kind) that says the same thing; 0 if none.' },
+  conflict: { type: 'string', description: 'Only when the answers of this entry disagree with each other, or with another entry: one sentence saying how (for example "One group says pay is Friday, another says Monday"). Empty if they agree.' } },
+  required: ['id', 'topic'] } } }, required: ['items'] } };
+async function kbTidy({ items, others }) {
+  const T = require('../kb').TOPICS;
+  const system = `You keep the knowledge base of a US trucking company tidy (Amazon Relay loads, Northeast hubs: Chambersburg, Baltimore, Hazleton, Kearny). The entries come from the team's Telegram groups with drivers and dispatchers.
+For every entry in ENTRIES give: a short clear question (or situation), the best answer, its topic, duplicate_of, and conflict. Keep the meaning: never add facts that are not in the entry. Plain words, no names of people, phone numbers, load, license or account numbers.
+Kinds: general/accounting = answers for drivers; dispatch = what our dispatchers do in a situation; site = a fact about a place or road (the question is the place).
+Entries marked LOCKED were written by a manager: do not reword them (leave question and answer empty); still give topic, duplicate_of and conflict.
+TOPICS: ${Object.entries(T).map(([k, v]) => `${k} = ${v}`).join('; ')}`;
+  const line = (r) => `[${r.id}] (${r.kind}${r.source === 'added' || r.locked ? ', LOCKED' : ''}) Q: ${String(r.question).slice(0, 300)} | A: ${String(r.answer).slice(0, 600)}${(r.variants || []).length ? ` | Other answers: ${(r.variants || []).map((v) => String(v.answer).slice(0, 200)).join(' / ')}` : ''}`;
+  const text = `ENTRIES:\n${items.map(line).join('\n')}\n\nOTHER ENTRIES (already tidy; for duplicates and conflicts):\n${others.map((o) => `[${o.id}] (${o.kind}, ${o.topic || '-'}) ${String(o.question).slice(0, 160)} -> ${String(o.answer).slice(0, 160)}`).join('\n') || '(none)'}`;
+  return ask({ model: MODEL(), system, content: [{ type: 'text', text }], tool: KB_TOOL, maxTokens: 6000 });
+}
+const jobs = () => [[KB_TOOL, MODEL()], [DOC_TOOL, MODEL()], [SUM_TOOL, DAY_MODEL()], [ONB_TOOL, MODEL()], [REPLY_TOOL, MODEL()], [DIGEST_TOOL, DIGEST_MODEL()], [PROFILE_TOOL, SUMMARY_MODEL()], [DISP_TOOL, SUMMARY_MODEL()]];
+module.exports = { AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile, kbTidy };

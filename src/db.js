@@ -528,6 +528,21 @@ async function migrate() {
     CREATE UNIQUE INDEX IF NOT EXISTS tg_waiting_open ON tg_waiting(chat_id) WHERE done_at IS NULL;
     -- answers the AI picked up from the team's own replies: waiting for an admin to approve before the bot uses them
     ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS review BOOLEAN NOT NULL DEFAULT false;
+    -- the knowledge base: topic, how often it came up and in which groups, other ways it was said, place (for site facts)
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS topic TEXT;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS seen INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS chats BIGINT[] NOT NULL DEFAULT '{}';
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '[]';
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS place_key TEXT;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS city TEXT;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS state TEXT;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS conflict_note TEXT;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS approved_by TEXT;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS tidied BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+    ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT false;
+    CREATE INDEX IF NOT EXISTS tg_knowledge_kind ON tg_knowledge (kind, active);
     -- a truck filled: its driver started (hired) in it; the recruiter whose driver it is gets the credit
     CREATE TABLE IF NOT EXISTS truck_fills (id SERIAL PRIMARY KEY, truck_id INT REFERENCES trucks(id) ON DELETE SET NULL, driver_id INT REFERENCES drivers(id) ON DELETE SET NULL,
       user_id INT REFERENCES users(id) ON DELETE SET NULL, unit TEXT, driver_name TEXT, at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (truck_id, driver_id));
@@ -689,6 +704,12 @@ async function migrate() {
     up.reread = true;
     await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
   }
+  if (!up.kb) {
+    // the knowledge base: give the old entries a topic and their group; the AI tidy cleans them up over the next hours
+    await require('./kb').backfill().catch((e) => console.error('kb backfill', e.message));
+    up.kb = true;
+    await q(`INSERT INTO settings (key, value) VALUES ('upgrades', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(up)]);
+  }
   await loadSettings();
 }
 
@@ -741,7 +762,7 @@ const DEFAULTS = {
   // Telegram bot: ELD team checks after the setup (times in the team's time zone, for how many days; 0 = always),
   // a second tag if nobody answers after remindMin, and the daily AI summary of each group
   // onbMode: how the bot starts in a new onboarding group (watch / assist / run); autoTick: the AI ticks onboarding steps itself
-  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, workMode: 'watch', onbMode: 'watch', autoTick: false, readEvery: 25, autoAccounts: true,
+  tg: { eldTimes: ['11:00', '18:00'], eldDays: 14, remindMin: 90, summaryAt: '21:00', eldTeam: [], autoPhone: true, workMode: 'watch', onbMode: 'watch', autoTick: false, readEvery: 25, autoAccounts: true, kbAuto: true,
     // the shift desk: who is on shift (team time zone), where the bot asks (private chat with the bot, or the group), minutes before asking the others
     desk: { on: true, where: 'private', answerMin: 15, hubs: ['Chambersburg', 'Baltimore', 'Hazleton', 'Kearny'], routines: { board: true, boardMin: 45, notes: true, notesMin: 45 }, shifts: [{ name: 'Day', start: '06:00', end: '14:00', people: [] }, { name: 'Evening', start: '14:00', end: '22:00', people: [] }, { name: 'Night', start: '22:00', end: '06:00', people: [] }] } },
   // After a call with no answer (or a voicemail), the Chrome extension sends this Indeed message to the driver.

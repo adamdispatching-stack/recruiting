@@ -87,6 +87,7 @@ require('./badges')(app);
 require('./api-tg')(app);
 require('./api-cases')(app);
 require('./api-places')(app);
+require('./api-kb')(app);
 require('./api-drivers')(app);
 require('./api-ops')(app);
 require('./api-fleet')(app);

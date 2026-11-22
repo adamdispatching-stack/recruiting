@@ -273,7 +273,7 @@ window.App = (() => {
     const [path, qs] = h.split('?');
     // a dispatcher's screens: trucks, active drivers, their Telegram groups, their own activity and password
     if (S.me.role === 'dispatcher' && /^#\/driver\/\d+$/.test(path)) return go(path.replace('#/driver/', '#/active/'));
-    if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active(\/\d+)?|cases|playbook|places|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
+    if (S.me.role === 'dispatcher' && !/^#\/(trucks|truck\/\d+|active(\/\d+)?|cases|playbook|places|kb(\/handbook)?|telegram(\/.*)?|team\/me|settings)$/.test(path)) return go('#/trucks');
     pageOpened(h);
     for (const [re, fn] of routes) { const m = path.match(re); if (m) { try { return await fn(...m.slice(1), new URLSearchParams(qs || '')); } catch (e) { return fail(e); } } }
     go('#/');
@@ -303,6 +303,7 @@ window.App = (() => {
     active: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M3.8 10.5c2.6-.9 5.3-1.2 8.2-1.2s5.6.3 8.2 1.2M10.4 13.6 7 19.6M13.6 13.6l3.4 6"/>',
     companies: '<path d="M4 21V5.5L12 3v18M12 8.5l8 2.5v10"/><path d="M3 21h18M7.5 8h1.5M7.5 12h1.5M7.5 16h1.5M15.5 13h1.5M15.5 17h1.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    kb: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M9 8h7M9 11.5h5"/>',
     places: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>',
     cases: '<path d="M9 5h6M9 3h6a1 1 0 0 1 1 1v1H8V4a1 1 0 0 1 1-1z"/><path d="M8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2"/><path d="m9 13 2 2 4-4"/>',
     telegram: '<path d="m21.5 4.5-3.2 15.1c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.2 13.4l-4.7-1.5c-1-.3-1-1 .2-1.5L20.2 3.3c.9-.3 1.6.2 1.3 1.2z"/>',
@@ -315,7 +316,7 @@ window.App = (() => {
   function header(active, extra = '') {
     const admin = S.me.role === 'admin';
     const disp = S.me.role === 'dispatcher';
-    const items = disp ? [['#/trucks', 'Trucks', 'trucks'], ['#/active', 'Active drivers', 'active'], ['#/cases', 'Road cases', 'cases'], ['#/places', 'Shops & services', 'places'], ['#/telegram', 'Telegram', 'telegram'], ['#/team/me', 'My activity', 'team']] : [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ['#/places', 'Shops & services', 'places'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges'], ['#/telegram', 'Telegram', 'telegram'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
+    const items = disp ? [['#/trucks', 'Trucks', 'trucks'], ['#/active', 'Active drivers', 'active'], ['#/cases', 'Road cases', 'cases'], ['#/places', 'Shops & services', 'places'], ['#/kb', 'Knowledge base', 'kb'], ['#/telegram', 'Telegram', 'telegram'], ['#/team/me', 'My activity', 'team']] : [['#/', admin ? 'Dashboard' : 'My day', 'home'], ['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ['#/active', 'Active drivers', 'active'], ['#/companies', 'Companies', 'companies'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ['#/places', 'Shops & services', 'places'], ['#/kb', 'Knowledge base', 'kb'], ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges'], ['#/telegram', 'Telegram', 'telegram'], admin ? ['#/team', 'Team', 'team'] : ['#/team/me', 'My activity', 'team']];
     const link = ([href, label, key, ic]) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${icon(ic || key)}<span>${label}</span></a>`;
     return `<aside class="rail" id="rail"><div class="o"><div class="plate">
         <div class="brand"><a href="#/" aria-label="FleetHire Recruiting, home"><svg class="logo" viewBox="0 0 40 28" width="38" height="27" aria-hidden="true"><path d="M2 5.5h21v15H2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M23 10h8.5l5.5 5.6v4.9H23z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="9" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="22.5" r="3.2" fill="#0B5B3A" stroke="currentColor" stroke-width="2.4"/><path d="M6 10.5h9M6 14.5h6" stroke="#F4B400" stroke-width="2.4" stroke-linecap="round"/></svg><span><b>FleetHire</b><small>Recruiting</small></span></a><button class="navbtn" data-act="navToggle" aria-expanded="false" aria-controls="railnav">${icon('menu')}<span>Menu</span></button></div>

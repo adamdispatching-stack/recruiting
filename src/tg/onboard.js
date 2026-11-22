@@ -196,7 +196,8 @@ async function qa(c, chat, m, who, text, opts) {
   const mode = opts.mode || 'run';
   // someone from the team is talking with the driver right now: let them (a draft is still fine in watch)
   const busy = mode !== 'watch' && (await q(`SELECT 1 FROM tg_messages x JOIN tg_people p ON p.tg_id = x.from_id WHERE x.chat_id = $1 AND x.at > now() - interval '10 minutes' AND (p.role IN ('staff', 'accounting') OR p.user_id IS NOT NULL) AND x.text NOT LIKE '/%' AND x.text !~* '^register\\y' LIMIT 1`, [chat.chat_id])).rows[0];
-  const knowledge = (await q(`SELECT question, answer FROM tg_knowledge WHERE active AND kind = ANY($1::text[]) ORDER BY uses DESC, created_at DESC LIMIT 80`, [opts.kinds])).rows;
+  // only the entries that fit this message (plus places and roads), not the whole knowledge base
+  const knowledge = await require('../kb').pick({ kinds: [...opts.kinds, 'site'], text, limit: 30 });
   const recent = (await q(`SELECT from_name, is_bot, text FROM tg_messages WHERE chat_id = $1 AND text IS NOT NULL ORDER BY at DESC LIMIT 12`, [chat.chat_id])).rows.reverse().map((x) => `${x.is_bot ? 'Bot' : x.from_name}: ${String(x.text).slice(0, 300)}`);
   let plan;
   try { plan = await ai.driverReply({ facts: companyFacts(c), knowledge, context: opts.context, recent, text, role: opts.role }); } catch (e) { console.error('tg qa ai', e.message); return; }
@@ -230,7 +231,7 @@ async function qa(c, chat, m, who, text, opts) {
 }
 async function learn(qn, answer, by, kind = 'general') {
   await q(`UPDATE tg_questions SET answer = $2, answered_by = $3, answered_at = now() WHERE id = $1`, [qn.id, answer.slice(0, 1500), by]);
-  await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind) VALUES ($1, $2, 'learned', $3, $4, $5)`, [qn.text, answer.slice(0, 1500), by, qn.chat_id, kind]);
+  await require('../kb').add({ kind, question: qn.text, answer: answer.slice(0, 1500), by, chatId: qn.chat_id, sure: true, source: 'learned' });
 }
 async function readFile(c, m, who, file) {
   let r;

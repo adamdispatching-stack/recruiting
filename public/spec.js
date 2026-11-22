@@ -143,6 +143,16 @@
           P('Updater mode', 'partial', 'Today it only asks about mix-ups and confirms appointment changes. Full updater (ETA checks, check calls) waits for your decision on what Smart Update keeps doing.', 'Group page → Updater'),
           P('Full updater', 'next', 'ETA check-ins, check calls, seal / BOL reminders following the approved dispatching practices.', 'Dispatch groups')
         ] },
+        { title: 'Knowledge base', items: [
+          P('Knowledge from the groups', 'built', 'Answers the team gives drivers, company rules, how dispatchers handle each situation, and facts about sites and roads (gates, parking, waits, weigh stations), by topic. The same thing again counts as seen once more, in one more group.', 'Knowledge base'),
+          P('Sure when many groups agree', 'built', 'Each entry shows how often it came up and in how many groups; approved by itself when 3 groups say the same thing (can be turned off). Other ways the team said it are kept; answers that disagree are flagged.', 'Knowledge base'),
+          P('AI tidy', 'built', 'Every 6 hours, only for new entries: clear wording, topic, duplicates merged, disagreements found. One small AI call.', 'Knowledge base'),
+          P('Search everything', 'built', 'One search across the knowledge base, the team words, shops & services and road case playbooks, on the website and in Telegram (/kb Kearny parking).', 'Knowledge base'),
+          P('Team handbook', 'built', 'Everything approved, by topic, ready to print or save as PDF for new dispatchers and recruiters.', 'Knowledge base → Handbook'),
+          P('The bot reads what fits', 'built', 'When it answers a driver the bot reads only the entries that fit the question (and places and roads), not everything: better answers, fewer AI tokens.'),
+          P('Site notes on the shift desk', 'idea', 'When the desk asks about a driver going to a site, it adds what we know about that site (gate, parking, waits).'),
+          P('Ask the knowledge base in plain words', 'idea', 'A dispatcher asks the bot a question in Telegram; the AI answers from the approved entries only.'),
+        ] },
         { title: 'Shift desk', items: [
           P('Shifts and the dispatcher on shift', 'built', 'Three shifts (team time zone) with their dispatchers; the truck\'s own dispatcher is asked when on shift, else the shift. Who can be reached privately is shown.', 'Telegram → Shift desk'),
           P('One to one check-ins', 'built', 'From the working groups, privately to the dispatcher on shift: driver resting until a time (Got it? no calls; checked again at that time), needs a load (book one, or send the best option and why), a question nobody answered. No answer: the others on shift, then the admins.', 'Private chat with the bot'),

@@ -171,8 +171,7 @@ async function apply(chat, r, fresh, { quiet = false, mode = 'watch' } = {}) {
       await q(`UPDATE tg_cases SET done = $2, status = 'resolved', closed_at = now(), note = coalesce($3, note), lesson = $4 WHERE id = $1`, [c.id, done, note, u.lesson ? bot.redact(String(u.lesson)).slice(0, 500) : null]);
       await bot.log('case', `Case resolved: ${c.title}${note ? ` (${note})` : ''}`, { chatId: chat.chat_id, driverId: chat.driver_id });
       // what to do better next time: to approve in Knowledge (the team may then add it to the playbook)
-      if (u.lesson) await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', 'AI, from a case', $3, 'dispatch', false, true)`,
-        [`Case: ${c.title}`, bot.redact(String(u.lesson)).slice(0, 1000), chat.chat_id]);
+      if (u.lesson) await require('../kb').add({ kind: 'dispatch', topic: 'breakdowns', question: `Case: ${c.title}`, answer: bot.redact(String(u.lesson)).slice(0, 1000), by: 'AI, from a case', chatId: chat.chat_id });
       continue;
     }
     const after = nextStep({ done }, c.steps);
@@ -204,5 +203,5 @@ async function tick() {
     if (Date.now() - new Date(c.last_at || c.opened_at) > 72 * 3600e3) await q(`UPDATE tg_cases SET status = 'stale', closed_at = now() WHERE id = $1`, [c.id]);
   }
 }
-function start() { seed().catch((e) => console.error('playbook seed', e.message)); require('./routines').seed().catch((e) => console.error('terms seed', e.message)); setInterval(() => { tick().catch((e) => console.error('case tick', e.message)); require('../hometime').tick().catch((e) => console.error('home time tick', e.message)); require('./desk').tick().catch((e) => console.error('desk tick', e.message)); require('./routines').tick().catch((e) => console.error('routines tick', e.message)); }, +process.env.TG_CASE_MS || 60000); }
+function start() { seed().catch((e) => console.error('playbook seed', e.message)); require('./routines').seed().catch((e) => console.error('terms seed', e.message)); setInterval(() => { tick().catch((e) => console.error('case tick', e.message)); require('../hometime').tick().catch((e) => console.error('home time tick', e.message)); require('./desk').tick().catch((e) => console.error('desk tick', e.message)); require('./routines').tick().catch((e) => console.error('routines tick', e.message)); require('../kb').tick().catch((e) => console.error('kb tick', e.message)); }, +process.env.TG_CASE_MS || 60000); }
 module.exports = { STARTERS, seed, list, forAi, openFor, apply, tick, start, nextStep };

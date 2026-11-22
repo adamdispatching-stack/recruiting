@@ -8,6 +8,7 @@
 const db = require('../db');
 const bot = require('./bot');
 const ai = require('./ai');
+const kb = require('../kb');
 const { q } = db;
 const { send, esc, tag } = bot;
 
@@ -125,10 +126,9 @@ async function digestChat(chatId) {
     }
     for (const k of (r.dispatch_lessons || []).slice(0, 4)) {
       const qn = bot.redact(String(k.situation || '')).trim().slice(0, 300), an = bot.redact(String(k.practice || '')).trim().slice(0, 800);
-      if (qn.length < 8 || an.length < 8 || (await q(`SELECT 1 FROM tg_knowledge WHERE lower(question) = lower($1) LIMIT 1`, [qn])).rows[0]) continue;
-      await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', 'AI, from the dispatchers', $3, 'dispatch', false, true)`, [qn, an, chatId]);
-      await bot.log('fact', `Learned how dispatchers handle: ${qn}`, { chatId, driverId: chat.driver_id });
-      out.lessons = (out.lessons || 0) + 1;
+      if (qn.length < 8 || an.length < 8) continue;
+      const res = await kb.add({ kind: 'dispatch', topic: k.topic, question: qn, answer: an, chatId, by: 'AI, from the dispatchers' });
+      if (res && res.added) { await bot.log('fact', `Learned how dispatchers handle: ${qn}`, { chatId, driverId: chat.driver_id }); out.lessons = (out.lessons || 0) + 1; }
     }
   }
   // who is who: the AI says which unknown people are the driver, a dispatcher, ELD or accounting (never "our team": that unlocks buttons)
@@ -145,9 +145,15 @@ async function digestChat(chatId) {
   for (const k of (r.learned || []).slice(0, 5)) {
     const qn = bot.redact(String(k.question || '')).trim().slice(0, 500), an = bot.redact(String(k.answer || '')).trim().slice(0, 1500);
     if (qn.length < 8 || an.length < 4) continue;
-    if ((await q(`SELECT 1 FROM tg_knowledge WHERE lower(question) = lower($1) LIMIT 1`, [qn])).rows[0]) continue;
-    await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', $5, $3, $4, false, true)`, [qn, an, chatId, chat.kind === 'accounting' ? 'accounting' : 'general', "AI, from the team's replies"]);
-    out.learned = (out.learned || 0) + 1;
+    const res = await kb.add({ kind: chat.kind === 'accounting' ? 'accounting' : 'general', topic: k.topic, question: qn, answer: an, chatId, by: "AI, from the team's replies" });
+    if (res && res.added) out.learned = (out.learned || 0) + 1;
+  }
+  // lasting facts about places and roads (Amazon sites, yards, parking, weigh stations...)
+  for (const k of (r.site_notes || []).slice(0, 5)) {
+    const place = bot.redact(String(k.place || '')).trim().slice(0, 80), fact = bot.redact(String(k.fact || '')).trim().slice(0, 600);
+    if (place.length < 2 || fact.length < 8) continue;
+    const res = await kb.add({ kind: 'site', topic: k.topic, question: place, answer: fact, place, city: k.city, state: k.state, chatId, by: 'AI, from the groups' });
+    if (res && res.added) { await bot.log('fact', `Learned about ${place}: ${fact.slice(0, 120)}`, { chatId, driverId: chat.driver_id }); out.sites = (out.sites || 0) + 1; }
   }
   // an update note for the next shift
   if (working && r.shift_note && !imported) await require('./routines').noteFromGroup({ ...chat, chat_id: chatId }, r.shift_note.by).catch((e) => console.error('shift note', e.message));

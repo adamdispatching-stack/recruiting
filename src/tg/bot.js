@@ -442,6 +442,7 @@ async function handle(u) {
     if ((pc && pc[1] === 'onboard') || /^\s*onboard(ing)?\s*$/i.test(m.text || '')) return require('./team').onboardCmd(m.chat.id, me);
     if ((pc && pc[1] === 'empty') || /^\s*empty( trucks)?\s*$/i.test(m.text || '')) return emptyCmd(m.chat.id, me);
     if (pc && pc[1] === 'help') return send(m.chat.id, helpText(false));
+    if (pc && pc[1] === 'kb') return kbCmd(m.chat.id, pc[2], me);
     if (me && isStaff(me) && await require('./routines').fromMessage(null, m, me)) return; // a booking list sent to the bot
     if (me && isStaff(me) && await require('./desk').privateText(m, me)) return; // an answer to the shift desk (a load option and why...)
     if (/^\/start/.test(m.text || '')) await send(m.chat.id, 'Hi! I work in the driver groups. Add me to a group and send the link code from the website there. Alerts from the Indeed extension also come here.');
@@ -498,7 +499,7 @@ async function handle(u) {
 // ---------- the command list in Telegram's / menu ----------
 const GROUP_CMDS = [['info', 'ELD group: the driver\'s info, CDL and truck papers'], ['register', 'Connect this group to a driver (dispatch, ELD or accounting)'], ['mode', 'Onboarding: how I work here (watch, answer, run)'], ['status', 'The driver\'s status card'],
   ['sum', 'Sum up today on the website now'], ['help', 'What I do and the commands']];
-const PRIVATE_CMDS = [['oil', 'Oil changes: every truck, overdue first'], ['onboard', 'Drivers in onboarding: Amazon verified / pending'], ['empty', 'The empty trucks, by company'], ['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
+const PRIVATE_CMDS = [['kb', 'Ask the knowledge base: /kb Kearny parking'], ['oil', 'Oil changes: every truck, overdue first'], ['onboard', 'Drivers in onboarding: Amazon verified / pending'], ['empty', 'The empty trucks, by company'], ['me', 'Connect your website account: /me CODE'], ['driver', 'A driver\'s profile for dispatchers: /driver Name'], ['help', 'What I do and the commands']];
 async function setCommands() {
   const list = (a) => a.map(([command, description]) => ({ command, description }));
   await call('setMyCommands', { commands: list(GROUP_CMDS), scope: { type: 'all_group_chats' } });
@@ -507,7 +508,16 @@ async function setCommands() {
 }
 const helpText = (group) => group
   ? '<b>FleetHire assistant</b>\nI read this group and keep the team informed on the website.\n\n/register: connect this group to a driver (I also do it myself when the title has the driver\'s name and phone)\n/mode: onboarding groups: 👀 watch and learn, 💬 answer questions, or 🚀 run the onboarding\n/status: the driver\'s status card\n/sum: sum up today on the website now\n\nThe commands are for our team (connect your account first: in a private chat with me, /me CODE from the website).'
-  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/onboard: the drivers in onboarding (Amazon verified, pending)\n/empty: the empty trucks, by company\n/oil: oil changes for every truck\n/driver Name: a driver\'s profile for dispatchers\n\nAdd me to a driver\'s group and send /register there.';
+  : '<b>FleetHire assistant</b>\n/me CODE: connect your website account (the code is on the website: Telegram → Connect my Telegram)\n/onboard: the drivers in onboarding (Amazon verified, pending)\n/empty: the empty trucks, by company\n/oil: oil changes for every truck\n/driver Name: a driver\'s profile for dispatchers\n/kb words: what the team knows (sites, pay, logs, breakdowns...)\n\nAdd me to a driver\'s group and send /register there.';
+// /kb words: search what the team knows (no AI): the knowledge base, the team's words, shops & services, case playbooks
+async function kbCmd(chatId, words, me) {
+  if (!me || !isStaff(me)) return send(chatId, 'This is for our team. Connect your website account first: /me CODE');
+  if (!String(words || '').trim()) return send(chatId, 'What are you looking for? For example: /kb Kearny parking, /kb pay day, /kb DPF');
+  const r = await require('../kb').search(words, { limit: 6 });
+  if (!r.length) return send(chatId, `Nothing found for "${esc(words)}". The bot keeps learning from the groups; you can also add it on the website (Knowledge base).`);
+  const icon = { kb: '📘', term: '💬', place: '🔧', playbook: '🧭' };
+  return send(chatId, r.map((x) => `${icon[x.type] || '•'} <b>${esc(x.title)}</b>\n${esc(String(x.text || '').slice(0, 400))}`).join('\n\n'));
+}
 // /mode in an onboarding group: buttons, or "/mode watch"
 async function modeCmd(m, chat, arg, who) {
   if (!isStaff(who)) return send(m.chat.id, 'Only our team can change this.', { replyTo: m.message_id });

@@ -59,8 +59,7 @@ module.exports = (app) => {
       await q(`INSERT INTO place_events (place_id, driver_id, chat_id, what, outcome, cost, by) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [pid, c.driver_id, c.chat_id, c.title, b.rate || null, cost, req.user.name]); }
     await q(`UPDATE tg_drafts SET state = 'dismissed', decided_at = now() WHERE chat_id = $1 AND state = 'open' AND kind = 'case'`, [c.chat_id]);
     await require('./tg/bot').log('case', `Case "${c.title}" ${st === 'dismissed' ? 'was not a case' : 'resolved'} (${req.user.name})`, { chatId: c.chat_id, driverId: c.driver_id, who: req.user.name });
-    if (b.lesson && String(b.lesson).trim()) await q(`INSERT INTO tg_knowledge (question, answer, source, added_by, chat_id, kind, active, review) VALUES ($1, $2, 'conversation', $3, $4, 'dispatch', false, true)`,
-      [`Case: ${c.title}`, String(b.lesson).slice(0, 1000), req.user.name, c.chat_id]);
+    if (b.lesson && String(b.lesson).trim()) await require('./kb').add({ kind: 'dispatch', topic: 'breakdowns', question: `Case: ${c.title}`, answer: String(b.lesson).slice(0, 1000), by: req.user.name, chatId: c.chat_id });
     res.json({ ok: true });
   }));
   // the message for the driver: sent in the group by the bot (as written or changed), or not needed
