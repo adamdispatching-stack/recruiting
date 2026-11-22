@@ -69,8 +69,9 @@
         ${r.byFeature.map((x) => `<tr><td><b>${esc(x.name)}</b>${x.failed ? ` <span class="small mut">${x.failed} failed</span>` : ''}</td><td class="n">${x.calls}</td><td class="n">${num(x.in)} / ${num(x.out)}</td><td class="n"><b>${usd(x.cost)}</b></td><td><span class="pbar sm"><i style="width:${Math.round((x.cost / total30) * 100)}%"></i></span></td></tr>`).join('') || '<tr><td colspan="5" class="hint">No AI used yet.</td></tr>'}</tbody></table></div></section>
       <div class="twocol"><section class="card"><h3>By part, last 30 days</h3><table class="mini"><tbody>${r.bySource.map((x) => `<tr><td>${PART[x.key] || esc(x.key)}</td><td class="n">${x.calls} calls</td><td class="n"><b>${usd(x.cost)}</b></td></tr>`).join('') || '<tr><td class="hint">Nothing yet.</td></tr>'}</tbody></table></section>
         <section class="card"><h3>By model, last 30 days</h3><table class="mini"><tbody>${r.byModel.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td class="n">${x.calls} calls</td><td class="n"><b>${usd(x.cost)}</b></td></tr>`).join('') || '<tr><td class="hint">Nothing yet.</td></tr>'}</tbody></table></section></div>
+      ${r.dailyCap && r.today.cost >= r.dailyCap ? `<section class="card"><p class="unpaidline"><b>The AI stopped for today:</b> it reached the daily cap of ${usd(r.dailyCap)}. It starts again at midnight, or raise the cap below.</p></section>` : ''}
       <section class="card"><h3>Budget and prices</h3>
-        <form id="aiBudget" class="autof"><label class="fld">Monthly budget, USD (0 = none)<input type="number" name="budget" min="0" step="1" value="${r.budget || 0}"></label><button class="btn primary sm">Save</button><span class="small mut">Admins get a notification at 80% and 100%.</span></form>
+        <form id="aiBudget" class="autof"><label class="fld">Monthly budget, USD (0 = none)<input type="number" name="budget" min="0" step="1" value="${r.budget || 0}"></label><label class="fld">Daily cap, USD (0 = none)<input type="number" name="dailyCap" min="0" step="1" value="${r.dailyCap || 0}" title="The AI stops for the day at this cost and starts again at midnight"></label><button class="btn primary sm">Save</button><span class="small mut">Admins get a notification at 80% and 100%.</span></form>
         <p class="hint">Dollars per million tokens. Change them when Anthropic changes its prices (platform.claude.com → pricing).</p>
         <form id="aiPrices"><div class="scroll"><table class="mini aiprice"><thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th></tr></thead><tbody>
           ${prices.map(([m, p]) => `<tr data-m="${esc(m)}"><td><code>${esc(m)}</code></td>${['in', 'out', 'cr', 'cw'].map((k) => `<td><input type="number" step="0.001" min="0" name="${k}" value="${p[k] ?? ''}" aria-label="${esc(m)} ${k}"></td>`).join('')}</tr>`).join('')}
@@ -80,7 +81,7 @@
   document.addEventListener('submit', async (e) => {
     const b = e.target.closest('#aiBudget'), p = e.target.closest('#aiPrices'); if (!b && !p) return; e.preventDefault();
     try {
-      if (b) await api('/api/ai-usage/settings', { method: 'PUT', body: { budget: b.budget.value } });
+      if (b) await api('/api/ai-usage/settings', { method: 'PUT', body: { budget: b.budget.value, dailyCap: b.dailyCap.value } });
       else {
         const prices = {};
         for (const tr of p.querySelectorAll('tr[data-m]')) {

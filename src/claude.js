@@ -59,6 +59,7 @@ async function tellAdmins(why) {
 async function call({ source = 'bot', feature = 'other', model, body, timeout = 60000, force = false }) {
   const usage = require('./ai-usage');
   if (!on()) { const e = new Error('AI is off: add ANTHROPIC_API_KEY on Railway'); e.kind = 'account'; e.why = e.message; throw e; }
+  if (!force) { const capped = await usage.overCap().catch(() => null); if (capped) { const e = new Error(capped); e.kind = 'paused'; e.why = capped; throw e; } }
   if (!force && Date.now() < pausedUntil) { const e = new Error('AI paused: ' + pauseWhy); e.kind = 'paused'; e.why = pauseWhy; throw e; }
   const base = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
   const models = [swap[model] || model, ...(BACKUP[model] || [])].filter((m, i, a) => a.indexOf(m) === i);

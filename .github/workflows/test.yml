@@ -1,0 +1,33 @@
+# Every push runs every test suite. In Railway, turn on "Wait for CI" for the service
+# (Settings → Deploy), so a change goes live only when this check is green.
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: |
+          npm ci
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Start Postgres (port 5433, socket in /tmp)
+        run: |
+          sudo systemctl stop postgresql || true
+          PGBIN=$(ls -d /usr/lib/postgresql/*/bin | tail -1)
+          sudo install -d -o postgres -g postgres /tmp/pgdata
+          sudo -u postgres $PGBIN/initdb -D /tmp/pgdata -A trust >/dev/null
+          sudo -u postgres $PGBIN/pg_ctl -D /tmp/pgdata -o "-p 5433 -k /tmp" -l /tmp/pg.log -w start
+      - name: Run every suite
+        run: sudo -E env "PATH=$PATH" "NODE_PATH=$(pwd)/node_modules" "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright" bash test/all.sh
+      - name: Server log (when something failed)
+        if: failure()
+        run: tail -60 /tmp/server.log || true

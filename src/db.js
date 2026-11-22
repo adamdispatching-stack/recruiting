@@ -7,6 +7,8 @@ const url = process.env.DATABASE_URL;
 if (!url) { console.error('DATABASE_URL is not set. On Railway, add a Postgres database and link it to this service.'); process.exit(1); }
 const pool = new Pool({
   connectionString: url,
+  max: +process.env.PG_POOL || 14, // one is held by the background-jobs lock (src/guard.js)
+  connectionTimeoutMillis: 30000, // every connection busy for 30 s: fail that request (and record it) instead of hanging the website
   ssl: /localhost|127\.0\.0\.1|\/tmp|railway\.internal/.test(url) || process.env.PGSSL === 'off' ? false : { rejectUnauthorized: false }
 });
 const q = (text, params) => pool.query(text, params);
@@ -544,6 +546,8 @@ async function migrate() {
     ALTER TABLE tg_knowledge ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT false;
     -- dispatcher levels (1 updates, 2 booking, 3 senior): which shift desk questions each one gets
     ALTER TABLE users ADD COLUMN IF NOT EXISTS dispatch_level INTEGER;
+    -- errors nobody caught (the last 500): Settings → Backups and data
+    CREATE TABLE IF NOT EXISTS server_errors (id SERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), kind TEXT NOT NULL, place TEXT, message TEXT, stack TEXT);
     ALTER TABLE tg_checks ADD COLUMN IF NOT EXISTS level INTEGER;
     CREATE INDEX IF NOT EXISTS tg_knowledge_kind ON tg_knowledge (kind, active);
     -- a truck filled: its driver started (hired) in it; the recruiter whose driver it is gets the credit
@@ -757,7 +761,10 @@ const DEFAULTS = {
     { key: 'or_pay', label: 'Pay, settlements and home time explained once more' },
     { key: 'or_load', label: 'First load assigned' }
   ],
-  ai: { budget: 0 },          // AI cost: a monthly budget in USD (0 = none); admins are told at 80% and 100%
+  backup: { tg: false, hour: 3 }, // the nightly backup to the admins in Telegram (off until an admin turns it on)
+  data: { keepMessagesDays: 0 },  // delete raw group messages older than this (0 = keep forever, else 30+)
+  ai: { budget: 0, dailyCap: 20 }, // dailyCap: the AI stops for the day at this cost in USD (0 = no cap)
+  //          // AI cost: a monthly budget in USD (0 = none); admins are told at 80% and 100%
   aiPrices: {},               // USD per million tokens per model, over the built-in list (ai-usage.js)
   fleet: { oilMiles: 25000, oilDays: 90, warnMiles: 2500, warnDays: 10, askDriver: false, costLease: 5000, costInsurance: 2000, costOther: 1000 },
   // trucks the team means to fill each month: { '2026-11': 6 }; a month not set aims at the trucks empty when it started

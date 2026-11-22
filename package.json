@@ -1,12 +1,12 @@
 {
   "name": "recruiting",
-  "version": "2.57.0",
+  "version": "2.58.0",
   "private": true,
   "description": "Driver recruiting pipeline: leads from Indeed and other sources, follow-ups, onboarding, trucks, and what each recruiter did.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node test/smoke.js"
+    "test": "bash test/all.sh"
   },
   "engines": { "node": ">=20" },
   "dependencies": {

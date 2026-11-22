@@ -143,6 +143,15 @@
           P('Updater mode', 'partial', 'Today it only asks about mix-ups and confirms appointment changes. Full updater (ETA checks, check calls) waits for your decision on what Smart Update keeps doing.', 'Group page → Updater'),
           P('Full updater', 'next', 'ETA check-ins, check calls, seal / BOL reminders following the approved dispatching practices.', 'Dispatch groups')
         ] },
+        { title: 'Safety net', items: [
+          P('Crash alerts', 'built', 'An error nobody caught is saved; the admins are told on the website and in Telegram; the server restarts by itself and stops cleanly on a deploy.', 'Settings → Backups and data'),
+          P('One runner', 'built', 'The bot and the background jobs run in one copy of the server only (a database lock); a second copy serves the website and takes over when the first stops. No double messages.'),
+          P('Backups you own', 'built', 'Download every table in one file any time; a nightly copy to the admins in Telegram when turned on; a restore script for an empty database.', 'Settings → Backups and data'),
+          P('Raw messages kept for N days', 'built', 'Old raw group messages can be deleted after a set time (30+ days); what was learned from them stays.', 'Settings → Backups and data'),
+          P('Hard daily AI cap', 'built', 'The AI stops for the day at a cost you set ($20 to start) and the admins are told; it starts again at midnight.', 'AI usage'),
+          P('Tests before every deploy', 'built', 'Every push runs every test suite on GitHub; with "Wait for CI" on in Railway a failing change never goes live.'),
+          P('Two-step sign-in and password reset', 'next', 'A code from an authenticator app for admins; a reset link by email.'),
+        ] },
         { title: 'Knowledge base', items: [
           P('Knowledge from the groups', 'built', 'Answers the team gives drivers, company rules, how dispatchers handle each situation, and facts about sites and roads (gates, parking, waits, weigh stations), by topic. The same thing again counts as seen once more, in one more group.', 'Knowledge base'),
           P('Sure when many groups agree', 'built', 'Each entry shows how often it came up and in how many groups; approved by itself when 3 groups say the same thing (can be turned off). Other ways the team said it are kept; answers that disagree are flagged.', 'Knowledge base'),

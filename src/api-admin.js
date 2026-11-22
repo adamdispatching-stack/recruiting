@@ -208,4 +208,29 @@ module.exports = (app) => {
       FROM drivers d WHERE d.web_updated_at > $1 AND ($3::int IS NULL OR d.owner_id = $3::int OR ${lib.unownedSql()}) ORDER BY d.web_updated_at LIMIT 1000`, [sinceIso, 'ext:' + req.key.name, own]);
     res.json({ now: new Date().toISOString(), drivers: r.rows.map((d) => ({ name: d.name, phones: d.phones, emails: d.emails, account: d.account, status: d.status, statusLocked: d.status_locked, followUp: d.follow_up || null, tags: d.tags, teamNotes: d.team_notes || '', url: `/#/driver/${d.id}` })) });
   }));
+  // ---------- backups, data, errors (admins) ----------
+  app.get('/api/admin/backup', needUser, needAdmin, wrap(async (req, res) => {
+    const b = await require('./backup').make({ files: req.query.files === '1' });
+    await act(req.user, 'admin', null, `Downloaded a backup (${b.rows} rows${req.query.files === '1' ? ', with files' : ''})`);
+    res.set({ 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="${b.name}"`, 'Cache-Control': 'no-store' }).send(b.buffer);
+  }));
+  app.get('/api/admin/safety', needUser, needAdmin, wrap(async (req, res) => {
+    const size = (await q(`SELECT pg_database_size(current_database())::bigint b, (SELECT count(*)::int FROM tg_messages) msgs, (SELECT min(at) FROM tg_messages) oldest`)).rows[0];
+    res.json({ backup: require('./backup').cfg(), data: { keepMessagesDays: 0, ...(db.settings.data || {}) }, runner: require('./guard').isLeader(), botOn: require('./tg/bot').on(),
+      size: { bytes: +size.b, messages: size.msgs, oldest: size.oldest },
+      errors: (await q(`SELECT id, at, kind, place, message FROM server_errors ORDER BY id DESC LIMIT 30`)).rows });
+  }));
+  app.put('/api/admin/safety', needUser, needAdmin, wrap(async (req, res) => {
+    const b = req.body || {};
+    if (b.backup) { const h = Math.round(+b.backup.hour); if (!(h >= 0 && h <= 23)) return res.status(400).json({ error: 'The hour is 0 to 23' });
+      await db.saveSetting('backup', { ...require('./backup').cfg(), tg: !!b.backup.tg, hour: h }); }
+    if (b.data) { const d = Math.round(+b.data.keepMessagesDays || 0); if (d !== 0 && !(d >= 30 && d <= 3650)) return res.status(400).json({ error: 'Keep messages at least 30 days, or 0 to keep them forever' });
+      await db.saveSetting('data', { keepMessagesDays: d }); }
+    await act(req.user, 'admin', null, 'Changed the backup and data settings');
+    res.json({ ok: true });
+  }));
+  app.post('/api/admin/backup/send', needUser, needAdmin, wrap(async (req, res) => {
+    if (!require('./tg/bot').on()) return res.status(400).json({ error: 'The Telegram bot is off' });
+    res.json(await require('./backup').sendNow());
+  }));
 };

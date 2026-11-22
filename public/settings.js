@@ -9,6 +9,24 @@
   const readSteps = () => { $$('#tplList li').forEach((li) => { steps[+li.dataset.i].label = li.querySelector('input').value; }); };
   const drawSteps = () => { $('#tplList').innerHTML = stepRows(); };
 
+  // Backups, how long raw group messages are kept, and the server's recent errors
+  async function drawSafety() {
+    let r; try { r = await api('/api/admin/safety'); } catch (e) { return; }
+    const box = $('#safetyBox'); if (!box) return; const L = r.backup.last;
+    const mb = (b) => (b / 1048576).toFixed(b > 10485760 ? 0 : 1) + ' MB';
+    box.innerHTML = `<p class="hint">A backup is every table of the database in one file. Keep a copy outside Railway. Sign-in sessions and access keys are never in it.</p>
+      <p><a class="btn primary sm" href="/api/admin/backup" download>Download a backup now</a> <a class="btn plain sm" href="/api/admin/backup?files=1" download title="Also the uploaded driver papers and pictures: a bigger file">With uploaded files</a></p>
+      <form id="safetyForm" class="form"><label class="chk"><input type="checkbox" name="tg" ${r.backup.tg ? 'checked' : ''}> Send a backup to the admins in Telegram every night, after <input type="number" name="hour" min="0" max="23" value="${r.backup.hour}" style="width:56px">:00 (private chat with the bot; without uploaded files)</label>
+        ${L ? `<p class="small ${L.error ? 'cbad' : 'mut'}">Last nightly backup ${esc(App.when(L.at))}: ${L.error ? 'not sent, ' + esc(L.error) : `sent to ${L.sent} admin${L.sent === 1 ? '' : 's'}, ${mb(L.bytes)}, ${L.rows} rows`}</p>` : ''}
+        <label class="fld">Delete raw group messages older than (days, 0 = keep forever)<input type="number" name="keep" min="0" max="3650" value="${r.data.keepMessagesDays || 0}" style="max-width:120px"></label>
+        <p class="small mut">Now: ${r.size.messages} messages${r.size.oldest ? ', the oldest from ' + esc(App.when(r.size.oldest)) : ''}; the database is ${mb(r.size.bytes)}. What the bot learned from them (summaries, updates, knowledge, profiles) stays.</p>
+        <div><button class="btn primary sm">Save</button> ${r.botOn ? '<button type="button" class="btn plain sm" data-act="backupSend">Send a backup to Telegram now</button>' : ''}</div></form>
+      <p class="small mut">${r.runner ? 'This server runs the bot and the background jobs.' : 'Another copy of the server runs the bot and the background jobs right now.'} If the server crashes, the admins are told on the website and in Telegram.</p>
+      ${r.errors.length ? `<details><summary>Server errors (${r.errors.length} latest)</summary><table class="mini"><tbody>${r.errors.map((e) => `<tr><td class="small nowrap">${esc(App.when(e.at))}</td><td class="small">${esc(e.kind)}${e.place ? ' · ' + esc(e.place) : ''}</td><td class="small">${esc(e.message || '')}</td></tr>`).join('')}</tbody></table></details>` : '<p class="small okt">No server errors recorded.</p>'}`;
+    $('#safetyForm').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
+      try { await api('/api/admin/safety', { method: 'PUT', body: { backup: { tg: f.tg.checked, hour: +f.hour.value }, data: { keepMessagesDays: +f.keep.value } } }); toast('Saved'); drawSafety(); } catch (er) { fail(er); } };
+  }
+  on('backupSend', async (b) => { b.disabled = true; try { const r = await api('/api/admin/backup/send', { method: 'POST' }); toast(r.sent ? `Sent to ${r.sent} admin${r.sent === 1 ? '' : 's'}` : 'Not sent: ' + r.error, !r.sent); } catch (e) { fail(e); } drawSafety(); });
   async function viewSettings() {
     document.title = 'Settings · FleetHire';
     const admin = S.me.role === 'admin';
@@ -17,6 +35,7 @@
     const people = S.me.people.filter((p) => p.active);
     view.innerHTML = header('settings') + `<main class="narrow">${App.pageHead(admin ? 'Settings' : 'Your password', admin ? 'Time zone, working hours, lead sources, the onboarding checklist and the Chrome extension.' : '')}
       ${admin ? `
+      <section class="card" id="safety"><h3>Backups and data</h3><div id="safetyBox"><p class="hint">Loading…</p></div></section>
       <section class="card"><h3>Team time zone</h3>
         <p class="hint lead">Reports count a day from midnight to midnight in this time zone, and "today" for follow-ups starts here. Pick the zone your recruiters' working day belongs to, so one shift is one day.</p>
         <form id="tzForm" class="form"><label class="fld">Time zone<select name="tz">${(ZONES.some(([z]) => z === cfg.tz) ? ZONES : [[cfg.tz, cfg.tz]].concat(ZONES)).map(([z, l]) => `<option value="${z}" ${z === cfg.tz ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label><button class="btn primary">Save</button></form></section>
@@ -86,6 +105,7 @@
         <label class="fld">New password<input name="next" type="password" autocomplete="new-password" minlength="10" required></label><button class="btn primary">Change password</button></form></section>
       ${admin ? '<p class="hint foot">People and their accounts are on the <a href="#/team">Team</a> page. Trucks are on the <a href="#/trucks">Trucks</a> page.</p>' : ''}
     </main>`;
+    if (admin) drawSafety();
     $('#pwForm').onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target); try { await api('/api/me/password', { method: 'POST', body: { current: f.get('current'), next: f.get('next') } }); e.target.reset(); toast('Password changed'); } catch (err) { fail(err); } };
     if (!admin) return;
     const save = async (body, msg) => { try { await api('/api/settings', { method: 'PUT', body }); S.me = await api('/api/me'); toast(msg); viewSettings(); } catch (err) { fail(err); } };

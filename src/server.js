@@ -101,8 +101,9 @@ app.get('/healthz', (req, res) => res.send('ok'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html', setHeaders: (res, file) => res.set('Cache-Control', /\.(woff2|webp|jpg)$/.test(file) ? 'public, max-age=604800' : 'no-cache') }));
 app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
-app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Something went wrong on the server. Try again.' }); });
+app.use((err, req, res, next) => { require('./guard').requestError(err, req); res.status(500).json({ error: 'Something went wrong on the server. Try again.' }); });
 
+require('./guard').install();
 (async () => {
   await db.migrate();
   const n = (await q(`SELECT count(*)::int n FROM users`)).rows[0].n;
@@ -112,19 +113,27 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
     else { await q(`INSERT INTO users (email, name, pass_hash, role) VALUES ($1, $2, $3, 'admin')`, [email.toLowerCase(), process.env.ADMIN_NAME || 'Admin', hashPassword(pw)]); console.log('Created the first admin:', email); }
   }
   await lib.loadGone();
-  // the Telegram bot (only with TELEGRAM_BOT_TOKEN), its ELD reminders and checks, and the evening summaries
-  require('./fleet').start();
-  require('./share').start();
-  require('./callback').start();
-  require('./api-coach').start();
-  if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/digest').start(); require('./tg/profile').start(); require('./tg/dispatchers').start(); require('./tg/team').start(); }
-  if (require('./tg/bot').on()) require('./tg/cases').start(); else { require('./tg/cases').seed().catch(() => {}); require('./tg/routines').seed().catch(() => {}); }
-  require('./needed').start(); // verified drivers missing the arrival date, company or truck
+  // the bot and every background job run in one copy of the server only (the one holding the database lock)
+  const guard = require('./guard');
+  await guard.lead(async () => {
+    // the Telegram bot (only with TELEGRAM_BOT_TOKEN), its ELD reminders and checks, and the evening summaries
+    require('./fleet').start();
+    require('./share').start();
+    require('./callback').start();
+    require('./api-coach').start();
+    if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/digest').start(); require('./tg/profile').start(); require('./tg/dispatchers').start(); require('./tg/team').start(); }
+    if (require('./tg/bot').on()) require('./tg/cases').start(); else { require('./tg/cases').seed().catch(() => {}); require('./tg/routines').seed().catch(() => {}); }
+    require('./needed').start(); // verified drivers missing the arrival date, company or truck
+    require('./idle').start(); // idle time and idle alerts, checked every minute
+    const backup = require('./backup'); setInterval(() => backup.tick().catch((e) => guard.record('backup', e)), 10 * 60000);
+    // raw group messages older than the keep time go (what was learned from them stays): Settings → Backups and data
+    const prune = () => { const days = +((db.settings.data || {}).keepMessagesDays || 0); if (days >= 30) q(`DELETE FROM tg_messages WHERE at < now() - make_interval(days => $1) AND digested`, [days]).catch((e) => guard.record('prune', e)); };
+    setTimeout(prune, 120000); setInterval(prune, 6 * 3600000);
+  });
   await q(`DELETE FROM sessions WHERE expires_at < now()`);
   await q(`DELETE FROM activity WHERE at < now() - interval '400 days'`); // the activity log keeps about 13 months
   await q(`DELETE FROM activity_hours WHERE hour < now() - interval '400 days'`);
   await q(`DELETE FROM logins WHERE at < now() - interval '400 days'`);
   const port = process.env.PORT || 3000;
-  app.listen(port, () => console.log(`Recruiting pipeline on port ${port}`));
-  require('./idle').start(); // idle time and idle alerts, checked every minute
+  guard.setServer(app.listen(port, () => console.log(`Recruiting pipeline on port ${port}`)));
 })().catch((e) => { console.error(e); process.exit(1); });

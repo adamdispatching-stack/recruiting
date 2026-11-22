@@ -13,19 +13,26 @@ const ICON = { likely: '🟢', unsure: '🟡', risk: '🔴' };
 
 async function scoreMany(ids) {
   if (!ids.length) return {};
-  const rows = (await q(`SELECT d.id, CASE WHEN c.drop_dismissed_at IS NULL THEN c.drop_flag END drop_flag, d.amazon_step, d.amazon_log, d.callback_state, o.expected_arrival::text start, c.ai_status, ch.chat_id, ch.linked_at,
-      (SELECT max(m.at) FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)) AND NOT m.imported) drv_last,
-      (SELECT count(*)::int FROM tg_messages m JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)) AND m.at > now() - interval '7 days') drv7,
-      (SELECT count(*)::int FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ch.chat_id AND NOT coalesce((p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)), false)
-         AND m.at > coalesce((SELECT max(m2.at) FROM tg_messages m2 JOIN tg_people p2 ON p2.tg_id = m2.from_id WHERE m2.chat_id = ch.chat_id AND NOT m2.is_bot AND (p2.role = 'driver' OR (p2.role IS NULL AND p2.user_id IS NULL))), ch.linked_at, 'epoch')) unanswered,
-      (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY x.mins) FROM (
-         SELECT extract(epoch FROM (SELECT min(r.at) FROM tg_messages r JOIN tg_people rp ON rp.tg_id = r.from_id WHERE r.chat_id = ch.chat_id AND NOT r.is_bot AND (rp.role = 'driver' OR (rp.role IS NULL AND rp.user_id IS NULL)) AND r.at > t.at AND r.at < t.at + interval '48 hours') - t.at) / 60 mins
-         FROM tg_messages t LEFT JOIN tg_people tp ON tp.tg_id = t.from_id WHERE t.chat_id = ch.chat_id AND NOT coalesce(tp.role = 'driver' OR (tp.role IS NULL AND tp.user_id IS NULL), false) AND t.at > now() - interval '14 days' AND NOT t.imported) x WHERE x.mins IS NOT NULL) reply_min,
-      (SELECT count(*)::int FROM notes n WHERE n.driver_id = d.id AND n.kind = 'call' AND n.outcome IN ('No answer', 'Left voicemail') AND n.created_at > now() - interval '7 days') no_answer,
-      (SELECT count(*)::int FROM notes n WHERE n.driver_id = d.id AND n.kind = 'call' AND n.outcome = 'Talked' AND n.created_at > now() - interval '7 days') talked,
-      (SELECT max(n.created_at) FROM notes n WHERE n.driver_id = d.id AND n.kind = 'call' AND n.outcome = 'Talked') talked_last
+  // the group's messages are read once (one pass with window functions), not once per message: this list is on the
+  // Onboarding page and the bot's team list, and must stay fast with thousands of messages in a group
+  const rows = (await q(`WITH ch AS (SELECT DISTINCT ON (driver_id) driver_id, chat_id, linked_at FROM tg_chats WHERE driver_id = ANY($1::int[]) AND kind = 'dispatch' AND active ORDER BY driver_id, linked_at DESC NULLS LAST),
+      m AS (SELECT m.chat_id, m.at, m.imported,
+          (p.tg_id IS NOT NULL AND NOT m.is_bot AND (p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL))) isdrv,
+          NOT coalesce((p.role = 'driver' OR (p.role IS NULL AND p.user_id IS NULL)), false) nondrv
+        FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id IN (SELECT chat_id FROM ch)),
+      w AS (SELECT m.*, max(at) FILTER (WHERE isdrv) OVER (PARTITION BY chat_id) last_drv,
+          min(at) FILTER (WHERE isdrv) OVER (PARTITION BY chat_id ORDER BY at RANGE BETWEEN interval '1 microsecond' FOLLOWING AND UNBOUNDED FOLLOWING) next_drv FROM m),
+      st AS (SELECT w.chat_id, max(w.at) FILTER (WHERE w.isdrv AND NOT w.imported) drv_last, count(*) FILTER (WHERE w.isdrv AND w.at > now() - interval '7 days')::int drv7,
+          count(*) FILTER (WHERE w.nondrv AND w.at > coalesce(w.last_drv, ch.linked_at, 'epoch'))::int unanswered,
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM w.next_drv - w.at) / 60) FILTER (WHERE w.nondrv AND w.at > now() - interval '14 days' AND NOT w.imported AND w.next_drv < w.at + interval '48 hours') reply_min
+        FROM w JOIN ch ON ch.chat_id = w.chat_id GROUP BY w.chat_id),
+      nt AS (SELECT n.driver_id, count(*) FILTER (WHERE n.outcome IN ('No answer', 'Left voicemail') AND n.created_at > now() - interval '7 days')::int no_answer,
+          count(*) FILTER (WHERE n.outcome = 'Talked' AND n.created_at > now() - interval '7 days')::int talked, max(n.created_at) FILTER (WHERE n.outcome = 'Talked') talked_last
+        FROM notes n WHERE n.driver_id = ANY($1::int[]) AND n.kind = 'call' GROUP BY 1)
+    SELECT d.id, CASE WHEN c.drop_dismissed_at IS NULL THEN c.drop_flag END drop_flag, d.amazon_step, d.amazon_log, d.callback_state, o.expected_arrival::text start, c.ai_status, ch.chat_id, ch.linked_at,
+      st.drv_last, coalesce(st.drv7, 0) drv7, coalesce(st.unanswered, 0) unanswered, st.reply_min, coalesce(nt.no_answer, 0) no_answer, coalesce(nt.talked, 0) talked, nt.talked_last
     FROM drivers d LEFT JOIN onboarding o ON o.driver_id = d.id LEFT JOIN onb_cases c ON c.driver_id = d.id
-    LEFT JOIN tg_chats ch ON ch.driver_id = d.id AND ch.kind = 'dispatch' AND ch.active WHERE d.id = ANY($1::int[])`, [ids])).rows;
+    LEFT JOIN ch ON ch.driver_id = d.id LEFT JOIN st ON st.chat_id = ch.chat_id LEFT JOIN nt ON nt.driver_id = d.id WHERE d.id = ANY($1::int[])`, [ids])).rows;
   const out = {};
   for (const r of rows) {
     let s = 70; const why = [];

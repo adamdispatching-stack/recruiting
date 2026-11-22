@@ -73,7 +73,7 @@ async function report() {
     return Object.values(g).sort((a, b) => b.cost - a.cost || b.calls - a.calls); };
   const days = []; for (let i = 29; i >= 0; i--) { const d = new Date(new Date(t.today + 'T12:00:00Z') - i * 864e5).toISOString().slice(0, 10); const s2 = sum((r) => r.day === d); days.push({ day: d, cost: s2.cost + (extraBy[d] || 0), calls: s2.calls }); }
   const budget = +((db.settings.ai || {}).budget || 0);
-  return { today, week, month, projected: t.dom ? (month.cost / t.dom) * t.dim : 0, budget, days,
+  return { dailyCap: +((db.settings.ai || {}).dailyCap || 0), today, week, month, projected: t.dom ? (month.cost / t.dom) * t.dim : 0, budget, days,
     byFeature: group('feature', d30).map((x) => ({ ...x, name: NAMES[x.key] || x.key })), byModel: group('model', d30), bySource: group('source', d30),
     unknownModels: [...unknown], prices: prices(), serverKey: !!process.env.ANTHROPIC_API_KEY, state: require('./claude').state(),
     jobs: (await q(`WITH x AS (SELECT feature, source, max(at) FILTER (WHERE failed = 0 AND calls > 0) ok_at, max(at) FILTER (WHERE failed > 0) bad_at FROM ai_usage WHERE feature <> 'test' AND day > (now() AT TIME ZONE $1)::date - 30 GROUP BY 1, 2)
@@ -96,4 +96,21 @@ async function checkBudget() {
     break;
   }
 }
-module.exports = { recheck: () => { lastCheck = 0; }, report, checkBudget, addExtension, record, cost, priceOf, prices, PRICES, NAMES };
+// The daily cap: what the server's own AI calls cost today (checked at most once a minute). Over the cap the AI stops
+// until midnight (team time zone); the admins are told once that day. The Chrome extension's calls use its own key.
+let capAt = 0, capCost = 0;
+async function todayCost(fresh = false) {
+  if (!fresh && Date.now() - capAt < 60000) return capCost;
+  const rows = (await q(`SELECT model, calls, input_tokens, output_tokens, cache_read, cache_write FROM ai_usage WHERE day = (now() AT TIME ZONE $1)::date AND source <> 'extension'`, [db.settings.tz])).rows;
+  capCost = rows.reduce((a, r) => a + (cost(r) || 0), 0); capAt = Date.now();
+  return capCost;
+}
+async function overCap() {
+  const cap = +((db.settings.ai || {}).dailyCap || 0); if (!cap) return null;
+  const c = await todayCost(); if (c < cap) return null;
+  const day = (await q(`SELECT to_char(now() AT TIME ZONE $1, 'YYYY-MM-DD') d`, [db.settings.tz])).rows[0].d;
+  if ((await q(`INSERT INTO tg_state (key, value) VALUES ($1, '{}'::jsonb) ON CONFLICT (key) DO NOTHING RETURNING key`, ['aicap:' + day])).rows[0])
+    for (const a of (await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows) await db.notify(db.pool, a.id, 'admin', `The AI stopped for today: it reached the daily cap of $${cap} ($${c.toFixed(2)} spent). It starts again at midnight. Raise the cap on the AI usage page if this is normal use.`, '#/ai');
+  return `The daily AI cap of $${cap} is reached ($${c.toFixed(2)} spent today). It starts again at midnight, or raise the cap on the AI usage page.`;
+}
+module.exports = { todayCost, overCap, recheck: () => { lastCheck = 0; }, report, checkBudget, addExtension, record, cost, priceOf, prices, PRICES, NAMES };

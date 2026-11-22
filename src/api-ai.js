@@ -14,6 +14,10 @@ module.exports = (app) => {
       await db.saveSetting('ai', { ...(db.settings.ai || {}), budget: Math.round(n * 100) / 100 });
       usage.recheck(); usage.checkBudget().catch(() => {});
     }
+    if (b.dailyCap !== undefined) {
+      const n = +b.dailyCap; if (!(n >= 0 && n < 10000)) return res.status(400).json({ error: 'A daily cap in dollars, 0 for none' });
+      await db.saveSetting('ai', { ...(db.settings.ai || {}), dailyCap: Math.round(n * 100) / 100 });
+    }
     if (b.prices && typeof b.prices === 'object') {
       const cur = { ...(db.settings.aiPrices || {}) };
       for (const [m, p] of Object.entries(b.prices)) {
