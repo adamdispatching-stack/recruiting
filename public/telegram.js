@@ -261,7 +261,7 @@
           ${S.me.role === 'dispatcher' ? `<p>${c.mode === 'watch' ? '👀 Silent: reads only' : '🛠 Runs the setup and checks'}</p>` : `<div class="seg" role="group" aria-label="How the bot works here">${[['watch', '👀 Silent, reads only'], ['updater', c.kind === 'eld' ? '🛠 Run the ELD setup and checks' : '💬 Answer pay questions']].map(([k, l]) => `<button type="button" class="${c.mode === k ? 'on' : ''}" data-act="tgChatMode" data-m="${k}" data-chat="${c.chatId}" aria-pressed="${c.mode === k}">${l}</button>`).join('')}</div>`}
           <p class="small mut">${c.mode === 'watch' ? 'Writes nothing in the group: it reads along, keeps notes and alerts on the website and learns. Groups of drivers who are already working start like this.' : c.kind === 'eld' ? 'Posts the ELD setup steps for a new driver, then the daily log checks.' : 'Answers the driver\'s pay questions and passes the rest to accounting.'}</p></section>` : ''}
         <section class="card tglogc"><h3>Bot history in this group</h3><ul class="list tgloglist" id="tgLogBox"><li class="hint">Loading…</li></ul></section>
-        ${admin && c.kind ? `<p><button type="button" class="btn plain sm" data-act="tgUnlink" data-chat="${c.chatId}">Unlink this group</button></p>` : ''}
+        ${admin ? `<p class="inrow"><button type="button" class="btn plain sm" data-act="tgRelink" data-chat="${c.chatId}" data-kind="${c.kind || ''}" data-driver="${c.driverId || ''}">${c.kind ? 'Wrong type or driver? Change it' : 'Connect this group'}</button>${c.kind ? ` <button type="button" class="btn plain sm" data-act="tgUnlink" data-chat="${c.chatId}">Unlink this group</button>` : ''}</p>` : ''}
       </div></div></main>`;
     api('/api/tg/log?chat=' + encodeURIComponent(c.chatId)).then((lg) => { const bx = $('#tgLogBox'); if (!bx) return;
       bx.innerHTML = lg.log.map((x) => logLi(x, false)).join('') || '<li class="hint">Nothing yet.</li>';
@@ -376,6 +376,21 @@
   on('tgTab', (b) => { tab = b.dataset.tab; App.render(); });
   on('tgPeople', () => { tab = 'people'; App.go('#/telegram'); });
   on('tgSum', async (b) => { b.disabled = true; try { await api(`/api/tg/chats/${b.dataset.chat}/summary`, { method: 'POST', body: {} }); toast('Summary written'); App.render(); } catch (e) { fail(e); b.disabled = false; } });
+  // a group linked as the wrong type (an ELD group set as Dispatch...) or to the wrong driver
+  on('tgRelink', async (b) => {
+    let ds; try { ds = (await api('/api/tg/driver-options')).drivers; } catch (e) { return fail(e); }
+    const st = (s) => (s === 'Hired' ? 'active' : String(s || '').toLowerCase());
+    dialog(`<form id="relink" class="dform"><h2>${b.dataset.kind ? 'Change this group' : 'Connect this group'}</h2>
+      <label class="fld">This group is the<select name="kind">${[['dispatch', 'Dispatch group (the driver and his dispatchers)'], ['eld', 'ELD group'], ['accounting', 'Accounting group']].map(([k, l]) => `<option value="${k}" ${b.dataset.kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="fld">of the driver<select name="driverId" required><option value="">Pick the driver…</option>${ds.map((d) => `<option value="${d.id}" ${+b.dataset.driver === d.id ? 'selected' : ''}>${esc(d.name)} (${esc(st(d.status))})</option>`).join('')}</select></label>
+      <p class="hint">What the wrong type started here is undone (replies waiting, road cases, the onboarding conversation). If this mistake pushed another group out (a driver has one group of each type), that group gets its place back. The last 14 days are read again as the right type, quietly. Nothing is written in the groups.</p>
+      <p class="err" id="rlErr" role="alert"></p><div class="drow"><button class="btn primary">Save</button><button type="button" class="btn plain" data-act="closeDialog">Cancel</button></div></form>`, (d) => {
+      $('#relink', d).onsubmit = async (e) => { e.preventDefault(); const f = new FormData(e.target);
+        try { const r = await api(`/api/tg/chats/${b.dataset.chat}/link`, { method: 'PATCH', body: { kind: f.get('kind'), driverId: +f.get('driverId') } }); d.close();
+          toast(r.restored && r.restored.length ? `Saved. "${r.restored[0].title || 'The other group'}" is back as the ${KIND[r.restored[0].kind]} group.` : 'Saved'); App.render(); }
+        catch (er) { $('#rlErr').textContent = er.message; } };
+    });
+  });
   on('tgUnlink', async (b) => { if (!confirm('Unlink this group from the driver? The bot stops its ELD work there.')) return; try { await api(`/api/tg/chats/${b.dataset.chat}/link`, { method: 'DELETE' }); toast('Unlinked'); App.render(); } catch (e) { fail(e); } });
   document.addEventListener('change', async (e) => {
     const s = e.target.closest('select[data-ch="tgRole"]'); if (!s) return;

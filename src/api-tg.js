@@ -99,6 +99,36 @@ module.exports = (app) => {
     res.json({ ok: true });
   }));
   // let a group go (it stays in Telegram; the bot just stops treating it as the driver's group)
+  // a group linked as the wrong type or to the wrong driver: changed here. What the wrong type started is undone
+  // (onboarding conversation, replies waiting, road cases), the group pushed out by the mistake gets its place back,
+  // and the last 14 days are read again as the right type (quietly: nobody is told about old messages)
+  app.get('/api/tg/driver-options', needUser, wrap(async (req, res) => res.json({ drivers: (await q(`SELECT id, name, status FROM drivers WHERE status IN ('Hired', 'Onboarding') OR updated_at > now() - interval '60 days' ORDER BY (status = 'Hired') DESC, (status = 'Onboarding') DESC, name LIMIT 600`)).rows })));
+  app.patch('/api/tg/chats/:id/link', needUser, needAdmin, wrap(async (req, res) => {
+    const c = await loadChat(req, res); if (!c) return;
+    const kind = String((req.body || {}).kind || ''); const driverId = +(req.body || {}).driverId || c.driver_id;
+    if (!['dispatch', 'eld', 'accounting'].includes(kind)) return res.status(400).json({ error: 'Pick Dispatch, ELD or Accounting' });
+    const d = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0]; if (!d) return res.status(400).json({ error: 'Pick the driver' });
+    if (c.kind === kind && c.driver_id === d.id) return res.json({ ok: true, same: true });
+    const bot = require('./tg/bot'); const old = { kind: c.kind, driver: c.driver_id };
+    // undo what the wrong type started in this group
+    await q(`UPDATE tg_drafts SET state = 'replaced', decided_at = now() WHERE chat_id = $1 AND state = 'open'`, [c.chat_id]);
+    await q(`UPDATE tg_cases SET status = 'dismissed', closed_at = now(), closed_by = $2 WHERE chat_id = $1 AND status = 'open'`, [c.chat_id, `${req.user.name} (group type changed)`]);
+    await q(`UPDATE eld_cases SET stopped_at = now() WHERE chat_id = $1 AND stopped_at IS NULL`, [c.chat_id]).catch(() => {});
+    if (old.kind === 'dispatch') await q(`UPDATE onb_cases SET chat_id = NULL WHERE chat_id = $1`, [c.chat_id]);
+    await q(`UPDATE tg_chats SET kind = NULL, driver_id = NULL WHERE chat_id = $1`, [c.chat_id]);
+    // the group the mistake pushed out gets its place back
+    const back = old.kind ? (await q(`UPDATE tg_chats SET kind = prev_kind, driver_id = prev_driver_id, prev_kind = NULL, prev_driver_id = NULL, displaced_by = NULL
+      WHERE displaced_by = $1 AND prev_kind = $2 AND prev_driver_id = $3 AND kind IS NULL AND NOT (prev_kind = $4 AND prev_driver_id = $5) RETURNING chat_id, title, kind, driver_id`, [c.chat_id, old.kind, old.driver, kind, d.id])).rows : [];
+    for (const b of back) {
+      if (b.kind === 'dispatch') await q(`UPDATE onb_cases SET chat_id = $2 WHERE driver_id = $1 AND chat_id IS NULL`, [b.driver_id, b.chat_id]);
+      await bot.log('connect', `Back as the ${bot.KINDS[b.kind]} group (it was pushed out by mistake)`, { chatId: b.chat_id, driverId: b.driver_id, who: req.user.name });
+    }
+    await bot.linkChat(c.chat_id, kind, d.id, req.user.id, null, { by: req.user.name });
+    await q(`UPDATE tg_messages SET digested = false WHERE chat_id = $1 AND at > now() - interval '14 days'`, [c.chat_id]);
+    await bot.log('connect', `${req.user.name} changed this group${old.kind ? ` from ${bot.KINDS[old.kind]}` : ''} to the ${bot.KINDS[kind]} group of ${d.name}; the last 14 days are read again as ${bot.KINDS[kind]}`, { chatId: c.chat_id, driverId: d.id, who: req.user.name });
+    for (const id of new Set([old.driver, d.id].filter(Boolean))) await db.syncAuto(db.pool, id, req.user.id).catch(() => {});
+    res.json({ ok: true, restored: back.map((b) => ({ chatId: String(b.chat_id), title: b.title, kind: b.kind })) });
+  }));
   app.delete('/api/tg/chats/:id/link', needUser, needAdmin, wrap(async (req, res) => {
     const c = await loadChat(req, res); if (!c) return;
     await q(`UPDATE tg_chats SET kind = NULL, driver_id = NULL WHERE chat_id = $1`, [c.chat_id]);

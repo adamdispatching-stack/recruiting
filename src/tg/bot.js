@@ -125,7 +125,9 @@ const PREFIX = { dispatch: 'onb', eld: 'eld', accounting: 'acc' }; // button dat
 // Make a group the driver's dispatch, ELD or accounting group
 async function linkChat(chatId, kind, driverId, userId, who, opts = {}) {
   const d = (await q(`SELECT id, name FROM drivers WHERE id = $1`, [driverId])).rows[0];
-  await q(`UPDATE tg_chats SET kind = NULL, driver_id = NULL WHERE driver_id = $1 AND kind = $2 AND chat_id <> $3`, [driverId, kind, chatId]); // one group per driver and kind
+  // one group per driver and kind: the one there before is unlinked, and remembered (Change on the group page puts it back)
+  const out = (await q(`UPDATE tg_chats SET prev_kind = kind, prev_driver_id = driver_id, displaced_by = $3, kind = NULL, driver_id = NULL WHERE driver_id = $1 AND kind = $2 AND chat_id <> $3 RETURNING chat_id, title`, [driverId, kind, chatId])).rows;
+  for (const o of out) await log('connect', `"${o.title || 'A group'}" was ${d.name}'s ${KINDS[kind]} group: it is unlinked now, because this group took its place. If that was a mistake, change this group's type on its page.`, { chatId: o.chat_id, driverId });
   await q(`UPDATE tg_chats SET kind = $2, driver_id = $3, linked_by = $4, linked_at = now(), active = true WHERE chat_id = $1`, [chatId, kind, driverId, userId || null]);
   if (who) await q(`UPDATE tg_people SET role = coalesce(role, 'staff'), user_id = coalesce(user_id, $2) WHERE tg_id = $1`, [who.tg_id, userId || null]);
   // keep an invite link when the bot may make one

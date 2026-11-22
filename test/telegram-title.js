@@ -535,6 +535,20 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   push({ message: { message_id: mid++, from: RITA, chat: { ...YCHAT, title: 'Yonis Santa ELD' }, date: Math.floor(Date.now() / 1000), new_chat_title: 'Yonis Santa ELD' } });
   ok(await until(async () => ((await pg.query(`SELECT kind, driver_id FROM tg_chats WHERE chat_id = $1`, [YCHAT.id])).rows[0] || {}).kind === 'eld'), 'renamed "Yonis Santa ELD": now his ELD group');
 
+  // ---------- a group linked as the wrong type, and fixed ----------
+  const zed = (await web('/api/drivers', { method: 'POST', body: { name: 'Zed Zulu', source: 'Indeed', phone: '6105550999', ownerId: rita } })).id;
+  await web('/api/drivers/' + zed, { method: 'PATCH', body: { status: 'Onboarding' } });
+  const ZD = { id: -100801, type: 'supergroup', title: 'Zed Zulu 610 555 0999' }, ZE = { id: -100802, type: 'supergroup', title: 'Zed Zulu ELD 610 555 0999' };
+  added(ZD, RITA); added(ZE, RITA);
+  await until(async () => (await pg.query(`SELECT count(*)::int n FROM tg_chats WHERE chat_id IN ($1, $2) AND driver_id = $3`, [ZD.id, ZE.id, zed])).rows[0].n === 2, 15000);
+  ok((await web(`/api/tg/chats/${ZE.id}/link`, { method: 'PATCH', body: { kind: 'dispatch', driverId: zed } })).ok, 'the mistake: the ELD group is set as Dispatch');
+  const zm = Object.fromEntries((await pg.query(`SELECT chat_id::text id, kind FROM tg_chats WHERE chat_id IN ($1, $2)`, [ZD.id, ZE.id])).rows.map((x) => [x.id, x.kind]));
+  ok(zm[ZE.id] === 'dispatch' && zm[ZD.id] === null && (await pg.query(`SELECT 1 FROM tg_log WHERE chat_id = $1 AND text LIKE '%was Zed Zulu''s Dispatch group: it is unlinked now%'`, [ZD.id])).rows.length === 1, 'the real Dispatch group is pushed out, and the bot history says so');
+  const fx = await web(`/api/tg/chats/${ZE.id}/link`, { method: 'PATCH', body: { kind: 'eld', driverId: zed } });
+  const zm2 = Object.fromEntries((await pg.query(`SELECT chat_id::text id, kind, driver_id FROM tg_chats WHERE chat_id IN ($1, $2)`, [ZD.id, ZE.id])).rows.map((x) => [x.id, x]));
+  ok(fx.ok && fx.restored.length === 1 && zm2[ZE.id].kind === 'eld' && zm2[ZD.id].kind === 'dispatch' && zm2[ZD.id].driver_id === zed, 'fixed on the group page: ELD again, and the real Dispatch group is back');
+  ok(+((await pg.query(`SELECT chat_id FROM onb_cases WHERE driver_id = $1`, [zed])).rows[0] || {}).chat_id === ZD.id, 'the onboarding conversation is in the right group');
+
   // ---------- dropping out ----------
   const dora = (await web('/api/drivers', { method: 'POST', body: { name: 'Dora Drop', source: 'Indeed', phone: '6105550777', ownerId: rita } })).id;
   await web('/api/drivers/' + dora, { method: 'PATCH', body: { status: 'Onboarding' } });

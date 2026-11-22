@@ -457,6 +457,10 @@ async function migrate() {
     ALTER TABLE onboarding ADD COLUMN IF NOT EXISTS arrival_by TEXT;
     -- a working driver's group: how many people are in it, and how the bot works there (watch = learn quietly; updater = also writes)
     ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS member_count INTEGER;
+    -- a group pushed out when another group was linked as the same kind for the same driver (so a mistake can be undone)
+    ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS prev_kind TEXT;
+    ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS prev_driver_id INTEGER;
+    ALTER TABLE tg_chats ADD COLUMN IF NOT EXISTS displaced_by BIGINT;
     -- what the AI costs: one row per call from the website / bot, daily totals from each Chrome profile
     CREATE TABLE IF NOT EXISTS ai_usage (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), day DATE NOT NULL, source TEXT NOT NULL, feature TEXT NOT NULL, model TEXT NOT NULL, account TEXT,
       calls INTEGER NOT NULL DEFAULT 1, failed INTEGER NOT NULL DEFAULT 0, input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0, cache_read BIGINT NOT NULL DEFAULT 0, cache_write BIGINT NOT NULL DEFAULT 0);
