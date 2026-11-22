@@ -68,7 +68,7 @@ const personName = async (id) => { const r = await q(`SELECT name FROM users WHE
 module.exports = (app) => {
   // ---------- list ----------
   app.get('/api/drivers', needUser, wrap(async (req, res) => {
-    const { q: text = '', status = '', account = '', mode = '', due = '', today: dueToday = '', overdue = '', cold = '', working = '', owner = '', source = '', company = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
+    const { q: text = '', status = '', account = '', mode = '', due = '', today: dueToday = '', overdue = '', exclude = '', cold = '', working = '', owner = '', source = '', company = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
     const where = []; const params = [];
     const P = (v) => { params.push(v); return '$' + params.length; };
     const vis = visSql(req.user, params); if (vis) where.push(vis);
@@ -104,6 +104,8 @@ module.exports = (app) => {
     if (cold === '1') w.push(coldSql);
     if (working === '1') w.push(workSql);
     if (status) { p2.push(status); w.push(`d.status = $${p2.length}`); }
+    const ex = String(exclude).split(',').map((x) => x.trim()).filter(Boolean); // stages left out (the default: Onboarding and Hired)
+    if (ex.length && !status) { p2.push(ex); w.push(`d.status <> ALL($${p2.length}::text[])`); }
     const sortSql = { due: `${overdueSql} DESC, ${todaySql} DESC, coalesce(LEAST(d.follow_up::timestamptz, CASE WHEN ${cbOpen} THEN d.callback_at END), 'infinity') ASC, d.updated_at DESC`, updated: 'd.updated_at DESC', name: 'lower(d.name) ASC', followup: 'd.follow_up ASC NULLS LAST, d.updated_at DESC', created: 'd.created_at DESC' }[sort] || 'd.updated_at DESC';
     const rows = await q(`SELECT d.*, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, ${todaySql} is_today, ${overdueSql} is_overdue, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count, (SELECT count(*)::int FROM activity a WHERE a.driver_id = d.id AND a.type = 'open') opens,
         (SELECT ${lib.NOTE_TEXT} FROM notes n WHERE n.driver_id = d.id ORDER BY n.updated_at DESC LIMIT 1) last_note

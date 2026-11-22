@@ -14,23 +14,30 @@
   // (one stage, or "every lead in progress"). Old links still work: ?due=1 = due today and overdue, ?working=1 = in progress.
   const FILTERS = ['q', 'status', 'account', 'mode', 'view', 'owner', 'source', 'company'];
   const ACTIVE_STAGE = '__active';
+  // the default stage: every lead still being recruited (not in onboarding, not hired: the Onboarding page has those)
+  const OPEN_STAGE = '__open'; const NOT_OPEN = ['Onboarding', 'Hired'];
   const list = { q: '', status: '', account: '', mode: '', view: '', owner: '', source: '', company: '', sort: 'updated', rows: [], total: 0, counts: [], accounts: [], sel: new Set() };
 
   async function load(more) {
     const v = list.view, st = list.status;
-    const p = new URLSearchParams({ q: list.q, status: st === ACTIVE_STAGE ? '' : st, working: st === ACTIVE_STAGE ? 1 : '', account: list.account, mode: list.mode,
+    const p = new URLSearchParams({ q: list.q, status: st === ACTIVE_STAGE || st === OPEN_STAGE ? '' : st, working: st === ACTIVE_STAGE ? 1 : '', exclude: st === OPEN_STAGE ? NOT_OPEN.join(',') : '', account: list.account, mode: list.mode,
       today: v === 'today' ? 1 : '', overdue: v === 'overdue' ? 1 : '', due: v === 'due' ? 1 : '', cold: v === 'cold' ? 1 : '',
       owner: list.owner, source: list.source, company: list.company, sort: list.sort, limit: 100, offset: more ? list.rows.length : 0 });
     const r = await api('/api/drivers?' + p);
     list.rows = more ? list.rows.concat(r.drivers) : r.drivers; list.total = r.total; list.counts = r.counts; list.accounts = r.accounts;
     if (!more) list.sel.clear();
   }
-  // a recruiter starts on their own leads; the default is set once per sign-in, so a filter they pick sticks
+  // everyone starts on their own leads still being recruited (not onboarding, not hired); set once per sign-in, so a
+  // filter they pick sticks until they reset it
   let ownerDefaultFor = null;
-  const myDefault = () => (S.me.role === 'admin' ? '' : 'me');
+  const myDefault = () => 'me';
+  const setDefaults = () => { FILTERS.forEach((k) => { list[k] = ''; }); list.owner = 'me'; list.status = OPEN_STAGE; if (list.sort === 'due') list.sort = 'updated'; };
+  const MORE = ['source', 'mode', 'company', 'account'];
+  const isDefault = () => list.owner === 'me' && list.status === OPEN_STAGE && !list.q && !list.view && MORE.every((k) => !list[k]);
+  let moreOpen = false;
   async function viewLeads(params) {
     document.title = 'Leads · FleetHire';
-    if (ownerDefaultFor !== S.me.id) { ownerDefaultFor = S.me.id; FILTERS.forEach((k) => { list[k] = ''; }); list.owner = myDefault(); }
+    if (ownerDefaultFor !== S.me.id) { ownerDefaultFor = S.me.id; setDefaults(); }
     if ([...params.keys()].length) { // a link from the dashboard, like "follow-ups due"
       FILTERS.forEach((k) => { list[k] = ''; });
       for (const [k, v] of params) if (FILTERS.includes(k)) list[k] = v;
@@ -44,12 +51,15 @@
       <section class="fcard" aria-label="Filters"><div class="tools">
         <label class="search">${ICON_SEARCH}<input id="q" type="search" placeholder="Search name, phone, email, city, notes" aria-label="Search leads"></label>
         <select id="fStage" class="pick" aria-label="Stage"></select>
-        <select id="fOwner" class="pick" aria-label="Recruiter">${S.me.role === 'admin' ? '<option value="">All recruiters</option><option value="me">My leads</option>' : '<option value="me">My leads</option><option value="">All recruiters</option>'}<option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id).map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
+        <select id="fOwner" class="pick" aria-label="Recruiter"><option value="me">My leads</option><option value="">All recruiters</option><option value="none">No recruiter</option>${S.me.people.filter((p) => p.id !== S.me.id).map((p) => `<option value="${p.id}">${esc(p.name)}${p.active ? '' : ' (no access)'}</option>`).join('')}</select>
+        <button type="button" class="pick morebtn" id="moreBtn" data-act="leadMore" aria-expanded="false">More filters</button>
+        <button type="button" class="linkbtn" id="resetF" data-act="clearFilters" hidden>Reset to my leads</button>
+        <div class="morefil" id="moreFil" hidden>
         <select id="fSource" class="pick" aria-label="Source"><option value="">All sources</option>${S.me.sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
         <select id="fAcct" class="pick" aria-label="Indeed account" hidden></select>
         <select id="fMode" class="pick" aria-label="Driver type"><option value="">All types</option><option value="Company drivers">Company drivers</option><option value="Owner-operators">Owner operators</option></select>
         ${(S.me.companies || []).length ? `<select id="fCo" class="pick" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="none">No company</option></select>` : ''}
-
+        </div>
         </div>
       <div class="wvrow"><nav id="views" class="wviews" aria-label="Work views"></nav><label class="wvsort">Sort <select id="fSort" class="pick" aria-label="Sort"><option value="due">What's due first</option><option value="updated">Newest activity</option><option value="followup">Follow-up date</option><option value="name">Name A to Z</option><option value="created">Newest added</option></select></label></div></section><div id="bulk" class="bulk" hidden></div><div id="lst"></div></main>`;
     $('#q').value = list.q; $('#fMode').value = list.mode; $('#fSort').value = list.sort; $('#fOwner').value = list.owner; $('#fSource').value = list.source;
@@ -90,7 +100,7 @@
     if (!live() || !$('#lst')) return;
     const admin = S.me.role === 'admin';
     // counts follow the search and the dropdowns; the views count within the stage picked, the stages within the view
-    const stageRows = list.status === ACTIVE_STAGE ? list.counts.filter((x) => S.me.active.includes(x.status)) : list.status ? list.counts.filter((x) => x.status === list.status) : list.counts;
+    const stageRows = list.status === ACTIVE_STAGE ? list.counts.filter((x) => S.me.active.includes(x.status)) : list.status === OPEN_STAGE ? list.counts.filter((x) => !NOT_OPEN.includes(x.status)) : list.status ? list.counts.filter((x) => x.status === list.status) : list.counts;
     const sum = (k, rows = list.counts) => rows.reduce((a, x) => a + (x[k] || 0), 0);
     const vkey = { today: 'today', overdue: 'overdue', cold: 'cold', due: 'due' }[list.view] || 'n';
     const per = Object.fromEntries(list.counts.map((x) => [x.status, x[vkey] || 0]));
@@ -101,9 +111,9 @@
     const onV = (k) => list.view === k || (list.view === 'due' && (k === 'today' || k === 'overdue'));
     $('#views').innerHTML = V.map(([k, l, n, tone, tip]) => `<button type="button" class="wv${onV(k) ? ' on' : ''}${tone ? ' ' + tone : ''}${n ? '' : ' zero'}" data-act="leadView" data-v="${k}" title="${esc(tip)}" aria-pressed="${onV(k)}"><span>${esc(l)}</span><b>${n}</b></button>`).join('');
     const opt = (v, l, n) => `<option value="${esc(v)}" ${list.status === v ? 'selected' : ''}>${esc(l)}${n !== undefined ? ` (${n})` : ''}</option>`;
-    $('#fStage').innerHTML = opt('', 'All stages') + opt(ACTIVE_STAGE, 'In progress (all)', S.me.active.reduce((a, st) => a + (per[st] || 0), 0))
+    $('#fStage').innerHTML = opt(OPEN_STAGE, 'Still recruiting', Object.entries(per).filter(([st]) => !NOT_OPEN.includes(st)).reduce((a, [, n]) => a + n, 0)) + opt('', 'All stages', Object.values(per).reduce((a, n) => a + n, 0)) + opt(ACTIVE_STAGE, 'In progress (all)', S.me.active.reduce((a, st) => a + (per[st] || 0), 0))
       + `<optgroup label="Pipeline">${S.me.route.map((st) => opt(st, SHORT[st] || st, per[st] || 0)).join('')}</optgroup><optgroup label="Other">${S.me.other.map((st) => opt(st, SHORT[st] || st, per[st] || 0)).join('')}</optgroup>`;
-    $('#fStage').classList.toggle('set', !!list.status);
+    $('#fStage').classList.toggle('set', list.status !== OPEN_STAGE); showMore();
     const acc = $('#fAcct'); acc.hidden = list.accounts.length < 2 && !list.account;
     acc.innerHTML = '<option value="">All Indeed accounts</option>' + list.accounts.map((a) => `<option ${a === list.account ? 'selected' : ''}>${esc(a)}</option>`).join('');
     const t = today();
@@ -127,8 +137,8 @@
         <thead><tr class="grp"><th colspan="${admin ? 5 : 4}" class="gw">Next up</th><th colspan="3" class="gd">Details</th></tr>
           <tr>${admin ? '<th class="cb w"><input type="checkbox" id="selAll" aria-label="Select all shown"></th>' : ''}<th class="w">Driver</th><th class="w">Next action</th><th class="w">Due</th><th class="w wlast">Owner</th><th>Stage</th><th>Notes</th><th>Source, company</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${list.rows.length < list.total ? `<button class="btn plain more" data-act="moreLeads">Show more (${list.total - list.rows.length} left)</button>` : ''}
-        ${any < 5 && !list.q ? addMoreArt() : ''}`
-      : S.me.role !== 'admin' && list.owner === 'me' && !(any || list.q || list.source || list.mode || list.account || list.company) ? '<div class="empty"><p>No leads are assigned to you yet. New leads are shared between recruiters as they come in.</p><button class="btn plain" data-act="allLeads">See all leads</button></div>'
+        ${any < 5 && isDefault() ? addMoreArt() : ''}`
+      : isDefault() ? `<div class="empty"><p>${any ? 'None of your leads are still being recruited.' : 'No leads are assigned to you yet. New leads are shared between recruiters as they come in.'}</p>${any ? '<button class="btn plain" data-act="leadAllStages">Show onboarding and hired too</button> ' : ''}<button class="btn plain" data-act="allLeads">See all recruiters' leads</button></div>`
       : (any || list.q || list.owner || list.source || list.mode || list.account || list.company ? '<div class="empty"><p>No leads match these filters.</p><button class="btn plain" data-act="clearFilters">Clear filters</button></div>' : addMoreArt());
     drawBulk();
   }
@@ -164,8 +174,16 @@
     else if (e.target.dataset && e.target.dataset.sel) { const id = +e.target.dataset.sel; e.target.checked ? list.sel.add(id) : list.sel.delete(id); drawBulk(); }
   });
   on('moreLeads', () => refresh(true));
-  on('allLeads', () => { list.owner = ''; go('#/leads'); });
-  on('clearFilters', () => { FILTERS.forEach((k) => { list[k] = ''; }); list.owner = myDefault(); go('#/leads'); });
+  on('allLeads', () => { list.owner = ''; refresh(); const o = $('#fOwner'); if (o) o.value = ''; });
+  on('leadAllStages', () => { list.status = ''; refresh(); });
+  on('clearFilters', () => { setDefaults(); moreOpen = false; if (location.hash === '#/leads') viewLeads(new URLSearchParams()); else go('#/leads'); });
+  on('leadMore', () => { moreOpen = !moreOpen; showMore(); });
+  // the extra filters (source, driver type, company, Indeed account) open on a button that says how many are on
+  function showMore() {
+    const n = MORE.filter((k) => list[k]).length; const b = $('#moreBtn'), box = $('#moreFil'); if (!b || !box) return;
+    box.hidden = !(moreOpen || n); b.textContent = n ? `More filters · ${n}` : 'More filters'; b.classList.toggle('set', !!n); b.setAttribute('aria-expanded', String(!box.hidden));
+    const r = $('#resetF'); if (r) r.hidden = isDefault();
+  }
   on('bulkClear', () => { list.sel.clear(); $$('[data-sel]').forEach((c) => { c.checked = false; }); drawBulk(); });
   on('bulkAssign', async () => {
     const to = $('#bulkTo').value; if (!to) { toast('Choose who gets these leads', true); return; }

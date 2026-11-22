@@ -1957,3 +1957,9 @@ table.leads.wk td.w .assign select{max-width:150px}
 .wvrow{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
 .wvrow .wviews{margin-top:0}
 .wvsort{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:13px;font-weight:600}
+/* Leads: the extra filters open under "More filters" */
+.fcard .morebtn{width:auto;padding:0 16px;cursor:pointer;font:inherit;font-size:15px;text-align:left;background-image:none}
+.fcard .morebtn.set{border:1.5px solid var(--green);color:var(--green-d);font-weight:600}
+.morefil{display:flex;flex-wrap:wrap;gap:12px;flex-basis:100%}
+.morefil[hidden]{display:none}
+#resetF{white-space:nowrap}

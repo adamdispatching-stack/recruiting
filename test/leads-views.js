@@ -28,5 +28,9 @@ const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) process
   ok(r.drivers.length === 1 && r.drivers[0].id === today && c.Replied.overdue === 2 && c.Interested.today === 1, 'the stage filter works with a view; the counts per stage carry today and overdue');
   const row = (await A('/api/drivers?overdue=1')).drivers.find((d) => d.id === late);
   ok(row.overdue === true && row.dueToday === false, 'each row says if it is overdue or due today');
+  const onb = await mk('In Onboarding', 'Onboarding'), hired = await mk('Already Hired', 'Hired');
+  const open = await ids('exclude=Onboarding,Hired&limit=500');
+  ok(!open.includes(onb) && !open.includes(hired) && open.includes(late) && open.includes(cold), 'the default stage (still recruiting) leaves out onboarding and hired leads');
+  ok((await ids('exclude=Onboarding,Hired&status=Onboarding')).includes(onb), 'picking a stage overrides it');
   await pg.end();
 })();
