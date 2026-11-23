@@ -23,6 +23,8 @@ for t in "${suites[@]}"; do
   okn=$(echo "$out" | grep -c '^ok'); failn=$(echo "$out" | grep -c '^FAIL')
   total=$((total + okn))
   if [ "$failn" -gt 0 ] || [ "$code" -ne 0 ] || [ "$okn" -eq 0 ]; then bad=1; echo "FAILED  $t: $okn ok, $failn failed (exit $code)"; echo "$out" | grep -v '^ok' | tail -15 | sed 's/^/    /'
+    # on GitHub: the failure as a note anyone can read (the full log needs a sign-in)
+    [ -n "$GITHUB_ACTIONS" ] && echo "::error title=$t failed::$(echo "$out" | grep -v '^ok' | tail -8 | cut -c1-300 | tr '\n' '|' | sed 's/%/%25/g')"
   else echo "passed  $t: $okn checks"; fi
 done
 pkill -f "node src/serve[r].js" 2>/dev/null
