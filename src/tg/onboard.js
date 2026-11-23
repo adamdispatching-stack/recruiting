@@ -154,10 +154,24 @@ function companyFacts(c) {
     'Amazon Relay steps: invite by email, create the Amazon account, finish the Relay profile, the Accurate background check, then Amazon verifies (usually 2 to 7 days).',
     'Never send SSN, license numbers or bank details in Telegram; enter them only on Amazon\'s or Accurate\'s own website.'];
 }
+// The bot grades itself. Its draft against what our team really wrote: same, partly, wrong, or unrelated (not an
+// answer to that message). Only replies to the driver are graded (not reminders); the numbers are on Telegram → Knowledge.
+const GRADED = ['reply', 'answer', 'upset'];
+async function grade(dr, teamText) {
+  if (!GRADED.includes(dr.kind) || !String(teamText || '').trim()) return null;
+  if (String(teamText).trim() === String(dr.draft).trim()) return (await q(`UPDATE tg_drafts SET grade = 'same', grade_note = 'Sent as written', graded_at = now() WHERE id = $1 RETURNING grade`, [dr.id])).rows[0];
+  if (!ai.on()) return null;
+  const g = await ai.gradeDraft({ driverText: dr.driver_text, draft: dr.draft, teamText: String(teamText).slice(0, 1500) });
+  if (!g || !['same', 'partly', 'wrong', 'unrelated'].includes(g.verdict)) return null;
+  await q(`UPDATE tg_drafts SET grade = $2, grade_note = $3, graded_at = now() WHERE id = $1`, [dr.id, g.verdict, String(g.note || '').slice(0, 300)]);
+  if (g.verdict === 'wrong') await bot.log('learn', `The bot's draft was wrong: ${String(g.note || '').slice(0, 160)}`, { chatId: dr.chat_id, driverId: dr.driver_id }).catch(() => {});
+  return g;
+}
 // Our team (or, in the accounting group, accounting): an answer to a question the bot could not answer is learned
 async function learnFrom(chat, m, who, text) {
   if (!text || text.startsWith('/')) return;
-  await q(`UPDATE tg_drafts SET state = 'answered', decided_at = now(), sent_by = $2 WHERE chat_id = $1 AND state = 'open'`, [chat.chat_id, who.name]);
+  const open = (await q(`UPDATE tg_drafts SET state = 'answered', decided_at = now(), sent_by = $2, team_text = $3 WHERE chat_id = $1 AND state = 'open' RETURNING *`, [chat.chat_id, who.name, bot.redact(text).slice(0, 1500)])).rows;
+  for (const dr of open) await grade(dr, bot.redact(text)).catch((e) => console.error('self-grade', e.message)); // the bot checks its own draft against the real answer
   const qn = (await q(`SELECT * FROM tg_questions WHERE chat_id = $1 AND answer IS NULL AND asked_at > now() - interval '24 hours'
     AND ($2::bigint IN (msg_id, bot_msg_id) OR ($2::bigint IS NULL AND asked_at > now() - interval '3 hours')) ORDER BY asked_at DESC LIMIT 1`, [chat.chat_id, m.reply_to_message ? m.reply_to_message.message_id : null])).rows[0];
   if (qn) await learn(qn, bot.redact(text), who.name, chat.kind === 'accounting' ? 'accounting' : 'general');
@@ -185,11 +199,16 @@ async function onMessage(chat, m, who) {
 // Answer a driver's message from the facts and knowledge; if unsure, ask a person and remember their answer.
 // c: { name, driver_id, chat_id, owner_id, mode }; opts: { context, escalate() -> tag, kinds, onProgress(key), who: 'recruiter' }
 // the reply waits on the website (Send / Not needed); a newer one replaces it
-async function draft(c, chat, m, text, kind, reply) {
+async function draft(c, chat, m, text, kind, reply, topic) {
   if (!String(reply || '').trim()) return;
   await q(`UPDATE tg_drafts SET state = 'replaced', decided_at = now() WHERE chat_id = $1 AND state = 'open'`, [chat.chat_id]);
-  await q(`INSERT INTO tg_drafts (chat_id, driver_id, msg_id, driver_text, draft, kind) VALUES ($1, $2, $3, $4, $5, $6)`, [chat.chat_id, c.driver_id, m.message_id, bot.redact(text).slice(0, 1000), String(reply).slice(0, 1500), kind]);
+  await q(`INSERT INTO tg_drafts (chat_id, driver_id, msg_id, driver_text, draft, kind, topic) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [chat.chat_id, c.driver_id, m.message_id, bot.redact(text).slice(0, 1000), String(reply).slice(0, 1500), kind, topic || null]);
   await bot.log('draft', `Reply ready on the website for ${c.name}: "${String(reply).slice(0, 120)}"`, { chatId: chat.chat_id, driverId: c.driver_id });
+}
+// A proven topic, the setting on, and nobody from our team talking with the driver right now
+async function answersAlone(chat, topic) {
+  if (!await require('./learn').mayAnswerAlone(topic)) return false;
+  return !(await q(`SELECT 1 FROM tg_messages x JOIN tg_people p ON p.tg_id = x.from_id WHERE x.chat_id = $1 AND x.at > now() - interval '10 minutes' AND (p.role IN ('staff', 'accounting') OR p.user_id IS NOT NULL) LIMIT 1`, [chat.chat_id])).rows[0];
 }
 // Answer a driver's message. watch: every reply waits on the website. assist: questions it is sure about are answered, the rest waits.
 // run: it answers what it is sure about (questions and other messages); a question it cannot answer goes to a person.
@@ -206,10 +225,19 @@ async function qa(c, chat, m, who, text, opts) {
   const upset = plan.mood === 'angry' || plan.mood === 'unhappy';
   const sure = plan.is_question ? plan.confident && plan.answer : plan.confident && plan.reply;
   const words = plan.is_question && plan.confident && plan.answer ? plan.answer : plan.reply;
-  if (mode === 'watch' || busy) { if (upset || plan.is_question || plan.needs_reply) await draft(c, chat, m, text, upset ? 'upset' : plan.is_question && plan.confident ? 'answer' : 'reply', words); return; }
+  // a topic the bot has proven (its drafts matched the team often enough): it answers alone, even in Watch
+  if (mode === 'watch' && !upset && plan.is_question && plan.confident && plan.answer && await answersAlone(chat, plan.topic)) {
+    await bot.send(chat.chat_id, esc(plan.answer), { replyTo: m.message_id });
+    await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, text, answer, answered_by, answered_at) VALUES ($1, $2, $3, $4, $5, 'Bot', now())`, [chat.chat_id, c.driver_id, m.message_id, bot.redact(text).slice(0, 1000), String(plan.answer).slice(0, 1500)]);
+    await q(`INSERT INTO tg_drafts (chat_id, driver_id, msg_id, driver_text, draft, kind, topic, state, sent_text, sent_by, decided_at, auto) VALUES ($1, $2, $3, $4, $5, 'answer', $6, 'sent', $5, 'Bot', now(), true)`, [chat.chat_id, c.driver_id, m.message_id, bot.redact(text).slice(0, 1000), String(plan.answer).slice(0, 1500), plan.topic]);
+    await require('./learn').record({ driverId: c.driver_id, kind: 'reply:' + plan.topic }).catch(() => {});
+    await bot.log('reply', `Answered ${c.name} alone (a proven topic): "${String(plan.answer).slice(0, 120)}"`, { chatId: chat.chat_id, driverId: c.driver_id });
+    return;
+  }
+  if (mode === 'watch' || busy) { if (upset || plan.is_question || plan.needs_reply) await draft(c, chat, m, text, upset ? 'upset' : plan.is_question && plan.confident ? 'answer' : 'reply', words, plan.topic); return; }
   if (upset) { // a person, not the bot: tag someone, nothing to learn
     await send(chat.chat_id, `${await opts.escalate()}, ${esc(c.name.split(/\s+/)[0])} needs you here.`, { replyTo: m.message_id });
-    await draft(c, chat, m, text, 'upset', plan.reply);
+    await draft(c, chat, m, text, 'upset', plan.reply, plan.topic);
     return tell(c, `${c.name} seems ${plan.mood} in the ${bot.KINDS[chat.kind] || ''} group: "${bot.redact(text).slice(0, 140)}"`);
   }
   if (plan.is_question) {
@@ -221,13 +249,13 @@ async function qa(c, chat, m, who, text, opts) {
     else {
       const b = await send(chat.chat_id, `Good question. Let me check with ${await opts.escalate()}.`, { replyTo: m.message_id });
       await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, bot_msg_id, text) VALUES ($1, $2, $3, $4, $5)`, [chat.chat_id, c.driver_id, m.message_id, b.message_id, bot.redact(text).slice(0, 1000)]);
-      await draft(c, chat, m, text, 'reply', plan.reply);
+      await draft(c, chat, m, text, 'reply', plan.reply, plan.topic);
     }
     return;
   }
   if (plan.needs_reply && plan.reply) {
     if (mode === 'run' && sure) { await send(chat.chat_id, esc(plan.reply), { replyTo: m.message_id }); await bot.log('reply', `Answered ${c.name}: "${String(plan.reply).slice(0, 120)}"`, { chatId: chat.chat_id, driverId: c.driver_id }); }
-    else await draft(c, chat, m, text, 'reply', plan.reply);
+    else await draft(c, chat, m, text, 'reply', plan.reply, plan.topic);
   }
 }
 async function learn(qn, answer, by, kind = 'general') {
@@ -323,6 +351,10 @@ async function sendDraft(dr, text, user) {
   const sent = await send(dr.chat_id, esc(text), { replyTo: dr.msg_id || undefined });
   const edited = text.trim() !== String(dr.draft).trim();
   await q(`UPDATE tg_drafts SET state = 'sent', sent_text = $2, sent_by = $3, decided_at = now() WHERE id = $1`, [dr.id, text.slice(0, 1500), user.name]);
+  grade(dr, text).catch((e) => console.error('self-grade', e.message)); // sent as written = right; changed = the AI compares
+  // followed up: does the driver write back within a day? (which wording works, tg/learn.js)
+  const fu = /^Follow-up: (\w+)/.exec(dr.driver_text || '');
+  await require('./learn').record({ driverId: dr.driver_id, kind: fu ? 'followup:d_' + fu[1] : 'reply:' + (dr.topic || 'other'), variant: dr.variant || 0 }).catch(() => {});
   await bot.log('reply', `${user.name} sent the bot's reply${edited ? ' (changed)' : ''}: "${text.slice(0, 120)}"`, { chatId: dr.chat_id, driverId: dr.driver_id, who: user.name });
   if (edited && dr.driver_text && ['reply', 'answer', 'upset'].includes(dr.kind)) {
     const qn = (await q(`INSERT INTO tg_questions (chat_id, driver_id, msg_id, text) VALUES ($1, $2, $3, $4) RETURNING *`, [dr.chat_id, dr.driver_id, dr.msg_id, dr.driver_text])).rows[0];
@@ -340,4 +372,4 @@ async function answerFromWebsite(qid, answer, user) {
 }
 function start() { setInterval(() => tick().catch((e) => console.error('onb tick', e.message)), +process.env.TG_TICK_MS || 60000); }
 bot.handlers.dispatch = { begin, onButton, onMessage, status, setMode };
-module.exports = { sendDraft, draft, start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };
+module.exports = { grade, sendDraft, draft, start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };

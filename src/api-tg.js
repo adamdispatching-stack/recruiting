@@ -602,10 +602,33 @@ module.exports = (app) => {
     const qa = (await q(`SELECT count(*) FILTER (WHERE answered_by = 'Bot')::int bot, count(*)::int total FROM tg_questions WHERE asked_at > now() - interval '30 days'`)).rows[0];
     const modes = (await q(`SELECT o.mode, count(*)::int n FROM onb_cases o JOIN drivers d ON d.id = o.driver_id WHERE d.status <> 'Hired' AND d.left_on IS NULL GROUP BY 1`)).rows;
     const stepAcc = judged ? right / judged : null; const botShare = qa.total ? qa.bot / qa.total : null;
+    // the bot's own grades of its drafts against what the team really wrote (30 days); "unrelated" is not counted
+    const sg = (await q(`SELECT coalesce(sum(CASE WHEN grade = 'same' THEN 1 ELSE 0 END), 0)::int same, coalesce(sum(CASE WHEN grade = 'partly' THEN 1 ELSE 0 END), 0)::int partly, coalesce(sum(CASE WHEN grade = 'wrong' THEN 1 ELSE 0 END), 0)::int wrong FROM tg_drafts WHERE graded_at > now() - interval '30 days'`)).rows[0];
+    const sgTotal = sg.same + sg.partly + sg.wrong; const sgAcc = sgTotal ? (sg.same + sg.partly * 0.5) / sgTotal : null;
+    const misses = req.user.role === 'admin' ? (await q(`SELECT x.id, x.driver_id, d.name, x.driver_text, x.draft, coalesce(x.team_text, x.sent_text) team_text, x.grade, x.grade_note, x.graded_at FROM tg_drafts x LEFT JOIN drivers d ON d.id = x.driver_id
+      WHERE x.grade IN ('wrong', 'partly') AND x.graded_at > now() - interval '30 days' ORDER BY x.graded_at DESC LIMIT 12`)).rows : [];
     const ready = judged >= 15 && stepAcc >= 0.9 && qa.total >= 20 && botShare >= 0.7;
     res.json({ steps: { confirmed: right, rejected: c('rejected') + c('undone'), auto: c('auto'), waiting: c('suggested'), accuracy: stepAcc }, knowledge: kn, questions: { byBot: qa.bot, total: qa.total, share: botShare },
+      self: { ...sg, total: sgTotal, accuracy: sgAcc, canTry: sgTotal >= 20 && sgAcc >= 0.8, misses: misses.map((m) => ({ id: m.id, driverId: m.driver_id, name: m.name, asked: m.driver_text, draft: m.draft, team: m.team_text, grade: m.grade, note: m.grade_note, at: m.graded_at })) },
       modes: Object.fromEntries(modes.map((m) => [m.mode, m.n])), ready, settings: { onbMode: (db.settings.tg || {}).onbMode || 'watch', autoTick: !!(db.settings.tg || {}).autoTick } });
   }));
+  // ---------- how the bot teaches itself (tg/learn.js) ----------
+  app.get('/api/tg/learning', needUser, wrap(async (req, res) => {
+    const learn = require('./tg/learn'); const admin = req.user.role === 'admin';
+    const AMZ = Object.fromEntries(db.AMAZON.map((a) => [a.key, a.label]));
+    const typ = await learn.typical();
+    res.json({ skillAuto: !!(db.settings.tg || {}).skillAuto, bar: learn.BAR, sample: learn.SAMPLE, skills: await learn.skills(), outcomes: await learn.outcomeStats(),
+      typical: Object.entries(typ).map(([k, v]) => ({ step: AMZ[k] || k, n: v.n, medianH: Math.round(v.median), slowH: Math.round(v.slow) })),
+      team: admin ? await learn.teamStats() : null,
+      proposals: admin ? (await q(`SELECT id, kind, title, detail, status, note, created_at, decided_by FROM bot_proposals WHERE status = 'open' OR decided_at > now() - interval '30 days' ORDER BY (status = 'open') DESC, created_at DESC LIMIT 40`)).rows : [] });
+  }));
+  app.post('/api/tg/proposals/:id', needUser, needAdmin, wrap(async (req, res) => {
+    const d = (req.body || {}).decision; if (!['approve', 'reject'].includes(d)) return res.status(400).json({ error: 'Approve or reject' });
+    const r = await require('./tg/learn').decide(+req.params.id || 0, d, req.user);
+    if (!r) return res.status(404).json({ error: 'Already decided' });
+    res.json({ ok: true, ...r });
+  }));
+  app.post('/api/tg/learning/review', needUser, needAdmin, wrap(async (req, res) => { res.json(await require('./tg/learn').review({ force: true })); }));
   app.put('/api/tg/autopilot', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const v = { ...(db.settings.tg || {}) };
     if (b.teamReportAt !== undefined) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.teamReportAt))) return res.status(400).json({ error: 'A time like 09:00' }); v.teamReportAt = b.teamReportAt; }
@@ -616,6 +639,7 @@ module.exports = (app) => {
     if (b.workMode !== undefined) { if (!['watch', 'updater'].includes(b.workMode)) return res.status(400).json({ error: 'Pick watch or updater' }); v.workMode = b.workMode; }
     if (b.onbMode !== undefined) { if (!['watch', 'assist', 'run'].includes(b.onbMode)) return res.status(400).json({ error: 'Pick watch, assist or run' }); v.onbMode = b.onbMode; }
     if (b.autoTick !== undefined) v.autoTick = !!b.autoTick;
+    if (b.skillAuto !== undefined) v.skillAuto = !!b.skillAuto; // the bot answers the topics it has proven by itself
     await db.saveSetting('tg', v);
     await lib.act(req.user, 'admin', null, `${b.workMode !== undefined ? `Working drivers' groups start in "${v.workMode}". ` : ''}Onboarding bot: new groups start in "${v.onbMode}"${v.autoTick ? ', the AI ticks steps itself' : ''}`);
     res.json({ ok: true, ...v });

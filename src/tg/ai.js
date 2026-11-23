@@ -61,9 +61,10 @@ const REPLY_TOOL = { name: 'reply_plan', description: 'How to handle the driver\
   answer: { type: 'string', description: 'The answer to send, 1 to 3 short friendly sentences, plain English. Empty when not confident.' },
   progress: { type: 'string', enum: ['none', 'account_created', 'profile_done', 'background_submitted'], description: 'If the driver says they did an Amazon Relay step.' },
   mood: { type: 'string', enum: ['good', 'neutral', 'unhappy', 'angry'] },
+  topic: KB_TOPIC,
   needs_reply: { type: 'boolean', description: 'Someone from the company should answer this message: a question, a worry, news (a date, a problem, "I cannot come"), something left open. False for "ok", "thanks", a plain yes.' },
   reply: { type: 'string', description: 'When needs_reply: the message a good recruiter would send now, 1 to 3 short friendly sentences. Use only the facts; when a person must decide, say who will come back and when (for example "Let me check with the team and get back to you today."). Never promise pay, dates or exceptions. Empty when no reply is needed.' } },
-  required: ['is_question', 'confident', 'answer', 'progress', 'mood', 'needs_reply', 'reply'] } };
+  required: ['is_question', 'confident', 'answer', 'progress', 'mood', 'topic', 'needs_reply', 'reply'] } };
 async function driverReply({ facts, knowledge, context, recent, text, role }) {
   const system = `${role || 'You are the onboarding assistant of a US trucking company, in a Telegram group with a new driver and the recruiters.'}
 Answer the driver only from the facts and knowledge below. If they do not fully answer the question, or it needs a person's decision (exceptions, pay advances, dates, personal matters, complaints), set confident=false and leave answer empty: a recruiter will answer.
@@ -249,4 +250,24 @@ TOPICS: ${Object.entries(T).map(([k, v]) => `${k} = ${v}`).join('; ')}`;
   return ask({ model: MODEL(), system, content: [{ type: 'text', text }], tool: KB_TOOL, maxTokens: 6000 });
 }
 const jobs = () => [[KB_TOOL, MODEL()], [DOC_TOOL, MODEL()], [SUM_TOOL, DAY_MODEL()], [ONB_TOOL, MODEL()], [REPLY_TOOL, MODEL()], [DIGEST_TOOL, DIGEST_MODEL()], [PROFILE_TOOL, SUMMARY_MODEL()], [DISP_TOOL, SUMMARY_MODEL()]];
-module.exports = { AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile, kbTidy };
+// The bot grades itself: the reply it drafted for a driver against what our team really wrote
+const GRADE_TOOL = { name: 'grade_draft', description: 'Compare the assistant\'s drafted reply with what the team member really wrote to the driver.', input_schema: { type: 'object', properties: {
+  verdict: { type: 'string', enum: ['same', 'partly', 'wrong', 'unrelated'], description: 'same: the draft says the same thing in substance (wording may differ) and would have been fine to send. partly: right direction but it misses or adds something that matters. wrong: it says something different, incorrect, or promises what the team did not. unrelated: the team message is not an answer to this driver message (another topic, a greeting, a note to a colleague), so they cannot be compared.' },
+  note: { type: 'string', description: 'One short sentence: what the draft missed or got wrong, or why it matches. No personal details.' } }, required: ['verdict', 'note'] } };
+async function gradeDraft({ driverText, draft, teamText }) {
+  const system = 'You check an onboarding assistant of a US trucking company. It drafted a reply to a driver; a recruiter then answered the driver themselves. Judge only the substance: facts, the decision, the next step. Ignore tone, length and greetings. Be strict about facts, numbers, dates and promises.';
+  return ask({ model: MODEL(), system, content: [{ type: 'text', text: `The driver wrote:\n${driverText || '(not saved)'}\n\nThe assistant drafted:\n${draft}\n\nThe recruiter really wrote:\n${teamText}` }], tool: GRADE_TOOL, maxTokens: 200 });
+}
+// Once a week: the bot reads its own mistakes and proposes fixes for an admin to approve
+const REVIEW_TOOL = { name: 'weekly_review', description: 'Fixes the assistant proposes after reading its week.', input_schema: { type: 'object', properties: {
+  proposals: { type: 'array', maxItems: 8, items: { type: 'object', properties: {
+    kind: { type: 'string', enum: ['knowledge', 'wording', 'rule', 'site'], description: 'knowledge: an answer the assistant should know (give question and answer, taken from what the team really wrote). wording: a message of the assistant that should be worded differently. rule: a follow-up or timing rule to add or change. site: a change to the website that would have prevented the problem or saved the team work.' },
+    title: { type: 'string', description: 'One short line a manager understands.' },
+    detail: { type: 'string', description: 'What to change and why, 1 to 4 sentences, with the evidence from this week (how often, which case). For site: precise enough for a developer to build.' },
+    question: { type: 'string', description: 'knowledge only: the driver question, in general words.' },
+    answer: { type: 'string', description: 'knowledge only: the answer to give, as the team gave it. Never anything about pay amounts, contracts or legal matters unless the team wrote exactly that.' } }, required: ['kind', 'title', 'detail'] } } }, required: ['proposals'] } };
+async function weeklyReview(text) {
+  const system = 'You are the onboarding assistant of a US trucking company, reviewing your own last week to get better. Below: your drafts that did not match what the team wrote, steps you wrongly thought were done, follow-ups nobody answered, your score by topic and which wordings drivers answered. Propose only fixes the evidence supports, the most useful first, at most 8. No personal details, no driver names. If the week gives nothing worth changing, return an empty list.';
+  return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text }], tool: REVIEW_TOOL, maxTokens: 2500 });
+}
+module.exports = { weeklyReview, gradeDraft, AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile, kbTidy };

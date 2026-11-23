@@ -185,7 +185,7 @@
         <section class="card"><ul class="list tgloglist">${lg.log.map((x) => logLi(x)).join('') || '<li class="hint">Nothing yet. Everything the bot does, and every button, emoji and reply to it, shows up here.</li>'}</ul>
         ${lg.more ? `<p><button type="button" class="btn plain sm" data-act="tgLogMore" data-before="${lg.log[lg.log.length - 1].id}">Show older</button></p>` : ''}</section>`;
     } else if (tab === 'knowledge') {
-      const [kAll, rd, dr] = await Promise.all([api('/api/tg/knowledge').then((x) => x.knowledge), api('/api/tg/readiness'), admin ? api('/api/tg/dispatch-readiness') : Promise.resolve(null)]); if (!live()) return;
+      const [kAll, rd, dr, ln] = await Promise.all([api('/api/tg/knowledge').then((x) => x.knowledge), api('/api/tg/readiness'), admin ? api('/api/tg/dispatch-readiness') : Promise.resolve(null), api('/api/tg/learning').catch(() => null)]); if (!live()) return;
       const disp = kAll.filter((x) => x.kind === 'dispatch'); const kN = kAll.filter((x) => x.kind !== 'dispatch');
       const review = kN.filter((x) => x.review && !x.active);
       const pct = (v) => (v === null ? 'not measured yet' : Math.round(v * 100) + '%');
@@ -193,10 +193,19 @@
         <p class="hint">The bot learns from every onboarding group: the answers your team gives, and whether the steps it sees done are right. When it is right often enough, new onboarding groups can start in "Run the onboarding", with no recruiter needed.</p>
         <dl class="figs"><div><dd>${pct(rd.steps.accuracy)}</dd><dt>steps it saw done that were right (${rd.steps.confirmed} of ${rd.steps.confirmed + rd.steps.rejected})</dt></div>
           <div><dd>${pct(rd.questions.share)}</dd><dt>driver questions it answered itself, last 30 days (${rd.questions.byBot} of ${rd.questions.total})</dt></div>
-          <div><dd>${rd.knowledge.approved}</dd><dt>answers it knows${rd.knowledge.waiting ? `, ${rd.knowledge.waiting} to approve below` : ''}</dt></div></dl>
+          <div><dd>${rd.knowledge.approved}</dd><dt>answers it knows${rd.knowledge.waiting ? `, ${rd.knowledge.waiting} to approve below` : ''}</dt></div>
+          <div><dd>${pct(rd.self.accuracy)}</dd><dt>of its own drafts matched what your team really wrote, last 30 days (${rd.self.same} same, ${rd.self.partly} partly, ${rd.self.wrong} wrong)</dt></div></dl>
         <p class="small mut">Ready when it was right on at least 90% of 15 or more steps, and answers 70% of 20 or more questions itself.</p>
+        <p class="small ${rd.self.canTry ? 'okt' : 'mut'}">${rd.self.canTry ? 'Its drafts match your team often enough to try "Answer questions" on a few drivers.' : 'The bot grades itself: each time a recruiter answers a driver, it compares its own draft with what they wrote. Worth trying "Answer questions" at 80% over 20 or more drafts.'}</p>
+        ${(rd.self.misses || []).length ? `<details class="selfmiss"><summary>Where its drafts were off (${rd.self.misses.length})</summary><ul class="list">${rd.self.misses.map((m) => `<li><span class="grow"><b>${esc(m.name || 'Driver')}</b> <span class="${m.grade === 'wrong' ? 'cbad' : 'cwarn'}">${m.grade === 'wrong' ? 'Wrong' : 'Partly right'}</span> <span class="small mut">${esc(when(m.at))}</span>
+          <span class="small" style="display:block">${esc(m.note || '')}</span>
+          <span class="small mut" style="display:block">Driver: “${esc((m.asked || '').slice(0, 200))}”</span>
+          <span class="small mut" style="display:block">Bot drafted: “${esc((m.draft || '').slice(0, 240))}”</span>
+          <span class="small mut" style="display:block">Your team wrote: “${esc((m.team || '').slice(0, 240))}”</span></span></li>`).join('')}</ul>
+          <p class="small mut">Add or fix the answer in the knowledge below and the bot gets it right next time.</p></details>` : ''}
         ${admin ? `<form id="autoForm" class="autof"><label class="fld">New onboarding groups start in<select name="onbMode">${[['watch', '👀 Watch and learn'], ['assist', '💬 Answer questions'], ['run', '🚀 Run the onboarding']].map(([m, l]) => `<option value="${m}" ${rd.settings.onbMode === m ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="chk"><input type="checkbox" name="autoTick" ${rd.settings.autoTick ? 'checked' : ''}> The AI ticks onboarding steps by itself (you can still undo)</label><button class="btn primary sm">Save</button></form>` : ''}</section>
+        ${ln ? learnCard(ln, admin) : ''}
         ${dr ? `        <section class="card autop dautop"><h3>Dispatch autopilot<span class="grow"></span>${dr.ready ? '<span class="onl">Ready to run updates</span>' : '<span class="small mut">Still learning</span>'}</h3>
         <p class="hint">The bot learns from every working driver's dispatch group: how each dispatcher writes and runs updates, the load updates, and each driver (mood, whether he keeps his word). When it is right often enough, the groups can switch to 🚚 Updater.</p>
         <dl class="figs"><div><dd>${dr.groups.groups}</dd><dt>working groups (${dr.groups.watched} watched 14+ days${dr.groups.updater ? `, ${dr.groups.updater} on Updater` : ''})</dt></div>
@@ -482,6 +491,31 @@
   });
   on('tgCopyCode', async (b) => { try { await navigator.clipboard.writeText(b.dataset.code); toast('Copied'); } catch (e) { toast('Select the code and copy it', true); } });
   on('tgTab', (b) => { tab = b.dataset.tab; App.render(); });
+  // ---------- how the bot teaches itself: skills, what works, what it expects, the team, its weekly ideas ----------
+  const PKIND = { knowledge: 'New answer', wording: 'Wording', rule: 'Follow-up rule', site: 'Website change' };
+  const hoursText = (h) => (h < 36 ? `${Math.max(1, h)} h` : `${Math.round(h / 24)} days`);
+  const OUT_LBL = { 'followup:d_invite': 'Relay invite follow-up', 'followup:d_checkin': 'Check-in when quiet', 'followup:d_facts': 'CDL state and ZIP' };
+  function learnCard(ln, admin) {
+    const open = ln.proposals.filter((p) => p.status === 'open'), past = ln.proposals.filter((p) => p.status !== 'open');
+    const skill = (s) => `<tr><th scope="row">${esc(s.label)}</th><td>${Math.round(s.accuracy * 100)}% <span class="small mut">of ${s.total}</span></td><td class="small mut">${s.same} same, ${s.partly} partly, ${s.wrong} wrong</td>
+      <td>${s.humanOnly ? '<span class="small mut">Always a person</span>' : s.proven ? '<span class="okt">Proven</span>' : s.slipping ? '<span class="cbad">Slipped: a recent miss</span>' : `<span class="small mut">Learning (${Math.max(0, ln.bar.min - s.total)} more to go${s.total >= ln.bar.min ? ', below ' + Math.round(ln.bar.acc * 100) + '%' : ''})</span>`}${s.alone ? ` <span class="small mut">· answered ${s.alone} alone</span>` : ''}</td></tr>`;
+    return `<section class="card autop learnc"><h3>How the bot teaches itself<span class="grow"></span>${admin ? '<button type="button" class="btn plain sm" data-act="tgReviewNow">Review its week now</button>' : ''}</h3>
+      <p class="hint">Nobody has to press anything: the bot grades its own drafts against what your team writes, follows which messages drivers answer, learns how long each step takes, and once a week reads its own mistakes and proposes fixes.</p>
+      ${open.length ? `<h4>Its ideas, for you to approve (${open.length})</h4><ul class="list props">${open.map((p) => `<li data-prop="${p.id}"><span class="grow"><span class="tgk">${PKIND[p.kind] || p.kind}</span> <b>${esc(p.title)}</b><span class="small" style="display:block">${esc(p.detail || '')}</span></span>
+        ${admin ? '<button type="button" class="btn primary sm" data-act="tgProp" data-d="approve">Approve</button><button type="button" class="btn plain sm" data-act="tgProp" data-d="reject">No</button>' : ''}</li>`).join('')}</ul>
+        <p class="small mut">An approved answer goes straight into the knowledge base. An approved website change becomes a task to build; wording and rules are noted for the next update.</p>` : '<p class="small mut">No ideas waiting. The bot reviews its week every week, or now with the button.</p>'}
+      <h4>Topics it has learned</h4>
+      ${ln.skills.length ? `<div class="scroll"><table class="mini"><thead><tr><th>Topic</th><th>Drafts that matched</th><th></th><th>Status</th></tr></thead><tbody>${ln.skills.map(skill).join('')}</tbody></table></div>` : '<p class="small mut">Nothing graded yet. It starts as soon as recruiters answer drivers in the groups.</p>'}
+      <p class="small mut">Proven: ${Math.round(ln.bar.acc * 100)}% over ${ln.bar.min} or more graded drafts, with no miss among the last ${ln.bar.recent}. Pay and safety always go to a person.</p>
+      ${admin ? `<label class="chk"><input type="checkbox" data-ch="tgSkillAuto" ${ln.skillAuto ? 'checked' : ''}> The bot answers proven topics by itself, also in "Watch and learn" groups (one in ${ln.sample} still goes to the team, so it keeps being checked; a topic that slips goes back to drafts)</label>` : ''}
+      ${ln.outcomes.length ? `<h4>Which messages drivers answer</h4><div class="scroll"><table class="mini"><thead><tr><th>Message</th><th>Wording</th><th>Answered within a day</th></tr></thead><tbody>${ln.outcomes.map((o) => `<tr><th scope="row">${esc(OUT_LBL[o.kind] || o.kind.replace(/^reply:/, 'Answer: ').replace(/^followup:/, 'Follow-up: '))}</th><td>${o.variant + 1}</td><td>${Math.round(o.rate * 100)}% <span class="small mut">(${o.replied} of ${o.sent})</span></td></tr>`).join('')}</tbody></table></div><p class="small mut">With 8 or more results for each wording, the bot uses the better one four times in five.</p>` : ''}
+      ${ln.typical.length ? `<h4>How long drivers who made it took</h4><p class="small">${ln.typical.map((t) => `<b>${esc(t.step)}</b>: usually ${hoursText(t.medianH)}, slow after ${hoursText(t.slowH)} <span class="mut">(${t.n} drivers)</span>`).join(' · ')}</p><p class="small mut">A driver slower than three in four of them is flagged to the team as slipping, before the fixed deadlines.</p>` : ''}
+      ${ln.team && ln.team.asked ? `<h4>How the team answers the bot</h4><p class="small">${ln.team.people.map((p) => `<b>${esc(p.who)}</b>: ${p.answered} answered, usually in ${p.medianMin < 90 ? p.medianMin + ' min' : Math.round(p.medianMin / 60) + ' h'}`).join(' · ') || 'Nobody answered yet'} · ${ln.team.waiting} of ${ln.team.asked} follow-ups not answered (30 days)</p>` : ''}
+      ${past.length ? `<details><summary class="small">Decided ideas (${past.length})</summary><ul class="list">${past.map((p) => `<li><span class="grow"><span class="tgk">${PKIND[p.kind] || p.kind}</span> ${esc(p.title)} <span class="small mut">${p.status === 'rejected' ? 'Rejected' : p.status === 'done' ? 'Done' : 'Approved'}${p.decided_by ? ' by ' + esc(p.decided_by) : ''}${p.note ? '. ' + esc(p.note) : ''}</span></span></li>`).join('')}</ul></details>` : ''}</section>`;
+  }
+  on('tgProp', async (b) => { try { const r = await api('/api/tg/proposals/' + b.closest('[data-prop]').dataset.prop, { method: 'POST', body: { decision: b.dataset.d } }); toast(r.note || (b.dataset.d === 'approve' ? 'Approved' : 'Rejected')); App.render(); } catch (e) { fail(e); } });
+  on('tgReviewNow', async (b) => { b.disabled = true; b.textContent = 'Reading its week…'; try { const r = await api('/api/tg/learning/review', { method: 'POST' }); toast(r.skipped || (r.saved ? `${r.saved} new idea${r.saved === 1 ? '' : 's'}` : 'Nothing new to propose')); App.render(); } catch (e) { fail(e); b.disabled = false; } });
+  onChange('tgSkillAuto', async (el) => { try { await api('/api/tg/autopilot', { method: 'PUT', body: { skillAuto: el.checked } }); toast(el.checked ? 'On: the bot answers proven topics by itself' : 'Off: every answer waits for a person'); } catch (e) { fail(e); el.checked = !el.checked; } });
   on('tgPeople', () => { tab = 'people'; App.go('#/telegram'); });
   on('tgSum', async (b) => { b.disabled = true; try { await api(`/api/tg/chats/${b.dataset.chat}/summary`, { method: 'POST', body: {} }); toast('Summary written'); App.render(); } catch (e) { fail(e); b.disabled = false; } });
   on('deskAddGroup', (b) => b.insertAdjacentHTML('beforebegin', App._sgRow({ chatId: '', companies: [] })));

@@ -11,6 +11,7 @@
 // After the last try the admins get a website notice. Switched off with the team follow-ups (Telegram → Team).
 const db = require('../db');
 const bot = require('./bot');
+const learn = require('./learn');
 const { q } = db; const { esc } = bot;
 
 const H = 36e5;
@@ -39,7 +40,8 @@ async function load() {
     WHERE c.driver_id = ANY($1::int[]) GROUP BY c.driver_id`, [ids])).rows;
   const who = await require('./whois').candidates(ids);
   const day = (v) => (!v ? null : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10)); // dates are plain text (db.js)
-  return ds.map((d) => ({ ...d, lead: d.status !== 'Onboarding', arrive: day(d.arrive), arrived: day(d.arrived), group: groups.find((g) => g.driver_id === d.id) || null, unit: (units.find((u) => u.driver_id === d.id) || {}).unit || null,
+  const typ = await require('./learn').typical().catch(() => ({}));
+  return ds.map((d) => ({ ...d, typ, lead: d.status !== 'Onboarding', arrive: day(d.arrive), arrived: day(d.arrived), group: groups.find((g) => g.driver_id === d.id) || null, unit: (units.find((u) => u.driver_id === d.id) || {}).unit || null,
     teamOpen: open.filter((x) => x.driver_id === d.id).map((x) => x.key).sort((a, b) => Object.keys(TEAM_TODO).indexOf(a) - Object.keys(TEAM_TODO).indexOf(b)), // checklist order orient: orient.find((x) => x.driver_id === d.id) || null,
     spoke: (spoke.find((x) => x.driver_id === d.id) || {}).at || null, who: who[d.id] }));
 }
@@ -61,6 +63,11 @@ function owed(d) {
     text: (n) => pick(n, [`Is ${N}'s Amazon Relay account verified yet? Last step: ${esc(AMZ[d.amazon_step].long.toLowerCase())}${stepAt ? `, ${ago(stepAt)}` : ''}.`,
       `Checking in on ${N}: has Amazon verified him yet?`]),
     buttons: [[['✅ Verified', `jr:${d.id}:ver`], ['⏳ Not yet', `jr:${d.id}:later:verified`]]] });
+  // slipping: longer on this step than three in four of the drivers who got verified (learned from our own history)
+  const t = d.typ && d.typ[d.amazon_step]; const onStep = hrs(stepAt);
+  const span = (h) => (h < 36 ? `${Math.max(1, Math.round(h))} hours` : `${Math.round(h / 24)} days`);
+  if (t && stepAt && ['invite', 'account', 'profile', 'accurate'].includes(d.amazon_step) && onStep > Math.max(12, t.slow)) out.push({ key: 'at_risk', side: 'team', every: 48, max: 2,
+    text: () => `${N} has been on "${esc(AMZ[d.amazon_step].label)}" for ${span(onStep)}. Drivers who made it took about ${span(t.median)} here, so he may be slipping. Worth a call today.` });
   if (d.lead) return out; // a lead: nothing else is expected yet (no group, no checklist)
   // ---- our team: the group and the bot ----
   if (!g && hrs(since) >= 2) out.push({ key: 'no_group', side: 'team', every: 24, max: 3, text: (n) => pick(n, [
@@ -84,24 +91,28 @@ function owed(d) {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: db.settings.tz || 'America/Chicago' });
   if (d.arrive && d.arrive < today && !d.arrived) out.push({ key: 'arrived', side: 'team', every: 24, max: 3, yes: 'arr',
     text: () => `${N} was due to start ${esc(nice(d.arrive))}. Did he arrive?`, buttons: [[['✅ He arrived', `jr:${d.id}:arr`], ['Not yet', `jr:${d.id}:later:arrived`]]] });
-  if (d.amazon_step === 'verified' && missing.length && !d.arrived) out.push({ key: 'missing', side: 'team', every: 24, max: 3,
+  const soon = d.arrive && !d.arrived && d.arrive >= today && (new Date(d.arrive) - new Date(today)) / 864e5 <= 3;
+  const need = [!d.company_id && 'company', !d.unit && 'truck'].filter(Boolean);
+  if (soon && need.length) out.push({ key: 'start_soon', side: 'team', every: 24, max: 3,
+    text: () => `${N} starts ${esc(nice(d.arrive))} and still has no ${need.join(' or ')}. Can you sort it before he travels?` });
+  if (d.amazon_step === 'verified' && missing.length && !d.arrived && !(soon && need.length)) out.push({ key: 'missing', side: 'team', every: 24, max: 3,
     text: () => `${N} is verified on Amazon 🎉 We still need his ${missing.join(', ')}. Can you set ${missing.length > 1 ? 'them' : 'it'} on the website?` });
   if (d.arrived && d.orient && d.orient.total && !d.orient.open) out.push({ key: 'hire', side: 'team', every: 24, max: 2,
     text: () => `${N} finished orientation day ✓ Ready to mark him Hired on the website?` });
   // ---- the driver (not in Run mode: the onboarding bot already guides him there) ----
   if (live && mode !== 'run') {
-    if (d.amazon_step === 'invite' && hrs(stepAt) >= 24) out.push({ key: 'd_invite', side: 'driver', every: 48, max: 2, text: (n, f) => pick(n, [
+    if (d.amazon_step === 'invite' && hrs(stepAt) >= 24) out.push({ key: 'd_invite', side: 'driver', every: 48, max: 2, nv: 2, text: (n, f) => pick(n, [
       `Hi ${f}! Just checking: did you get the Amazon Relay invite email? Let me know here once you've created your account 👍`,
       `${f}, any luck with the Amazon Relay invite? If you can't find the email, check spam, or tell me and we'll send it again.`]) });
     const facts = [!d.license_state && 'which state your CDL is from', !d.zip && 'your ZIP code'].filter(Boolean);
     if (facts.length && hrs(g.linked_at || since) >= 24) out.push({ key: 'd_facts', side: 'driver', every: 72, max: 2,
       text: (n, f) => `Hi ${f}! Quick one so we can order your MVR and book your drug test near you: ${facts.join(' and ')}?` });
-    if (d.amazon_step !== 'verified' && hrs(d.spoke || g.linked_at || since) >= 72) out.push({ key: 'd_checkin', side: 'driver', every: 72, max: 2, text: (n, f) => pick(n, [
+    if (d.amazon_step !== 'verified' && hrs(d.spoke || g.linked_at || since) >= 72) out.push({ key: 'd_checkin', side: 'driver', every: 72, max: 2, nv: 2, text: (n, f) => pick(n, [
       `Hey ${f}, how is it going? Anything holding you up? I'm here if you need help with any step.`,
       `${f}, just checking in. Are you still with us? Tell me where you are with the Amazon steps and I'll help with the next one.`]) });
   }
   // what matters most first: without his group and the bot in it nothing else works
-  const ORDER = ['no_group', 'bot_removed', 'bot_admin', 'not_joined', 'arrived', 'invite', 'signed', 'verified', 'who_driver', 'missing', 'team_todo', 'hire'];
+  const ORDER = ['no_group', 'bot_removed', 'bot_admin', 'not_joined', 'arrived', 'start_soon', 'at_risk', 'invite', 'signed', 'verified', 'who_driver', 'missing', 'team_todo', 'hire'];
   return out.sort((a, b) => (ORDER.indexOf(a.key) + 1 || 99) - (ORDER.indexOf(b.key) + 1 || 99));
 }
 
@@ -138,14 +149,16 @@ async function tick() {
     const lastOn = (side) => Math.max(0, ...Object.values(st).filter((s) => (sideOf[s.key] || (s.key.startsWith('d_') ? 'driver' : 'team')) === side && s.last_at).map((s) => +new Date(s.last_at)));
     for (const side of ['team', 'driver']) {
       if (side === 'driver' && !daytime) continue;
+      if (side === 'driver' && !process.env.TG_NO_QUIET && !(await learn.goodTime(d.id, h))) continue; // when he is usually around
       if (lastOn(side) && hrs(lastOn(side)) < (side === 'team' ? 6 : 24)) continue;
       const it = items.find((x) => x.side === side && due(x, st[x.key])); if (!it) continue;
       if (side === 'team' && teamSent >= 4) continue;
       if (side === 'driver' && driverSent >= 8) continue;
-      const n = st[it.key] ? st[it.key].count : 0; let msgId = null;
+      // the wording: for the driver, the one that got more replies so far (tg/learn.js); for the team, the next one each time
+      const n = side === 'driver' && it.nv ? await learn.choose('followup:' + it.key, it.nv) : st[it.key] ? st[it.key].count : 0; let msgId = null;
       if (side === 'team') {
         const tag = await require('./team').who(d.owner_id, d.owner);
-        if (teamChat) { await typing(teamChat); const m = await bot.send(teamChat, `${tag}, ${it.text(n, first(d.name))}`, it.buttons ? { buttons: it.buttons } : {}); msgId = m && m.message_id; }
+        if (teamChat) { await typing(teamChat); const m = await bot.send(teamChat, `${tag}, ${it.text(n, first(d.name))}`, it.buttons ? { buttons: it.buttons } : {}); msgId = m && m.message_id; await learn.record({ driverId: d.id, kind: 'team:' + it.key }).catch(() => {}); }
         else if (d.owner_id) await db.notify(db.pool, d.owner_id, 'telegram', bot.stripHtml(it.text(n, first(d.name))), `#/driver/${d.id}`, { driverId: d.id });
         else continue; // nobody to tell
         teamSent++;
@@ -154,8 +167,8 @@ async function tick() {
         const mode = d.bot_mode || t.onbMode || 'watch';
         if (mode === 'watch') {
           await q(`UPDATE tg_drafts SET state = 'replaced', decided_at = now() WHERE chat_id = $1 AND state = 'open' AND kind = 'remind' AND driver_text LIKE 'Follow-up:%'`, [d.group.chat_id]);
-          await q(`INSERT INTO tg_drafts (chat_id, driver_id, driver_text, draft, kind) VALUES ($1, $2, $3, $4, 'remind')`, [d.group.chat_id, d.id, `Follow-up: ${it.key.slice(2)}`, bot.stripHtml(text)]);
-        } else { await typing(d.group.chat_id); await bot.send(d.group.chat_id, text); }
+          await q(`INSERT INTO tg_drafts (chat_id, driver_id, driver_text, draft, kind, variant) VALUES ($1, $2, $3, $4, 'remind', $5)`, [d.group.chat_id, d.id, `Follow-up: ${it.key.slice(2)}`, bot.stripHtml(text), n]);
+        } else { await typing(d.group.chat_id); await bot.send(d.group.chat_id, text); await learn.record({ driverId: d.id, kind: 'followup:' + it.key, variant: n }).catch(() => {}); }
         driverSent++;
       }
       await q(`INSERT INTO journey_asks (driver_id, key, count, last_at, msg_id) VALUES ($1, $2, 1, now(), $3) ON CONFLICT (driver_id, key) DO UPDATE SET count = journey_asks.count + 1, last_at = now(), snooze_until = NULL, msg_id = coalesce($3, journey_asks.msg_id)`, [d.id, it.key, msgId]);
@@ -211,6 +224,7 @@ async function onButton(cq, who) {
   const [, did, what, arg] = cq.data.split(':');
   const chat = cq.message.chat.id; const mid = cq.message.message_id;
   const r = await act(+did, what, arg, who);
+  await learn.teamAnswered(+did, what === 'later' ? arg : { inv: 'invite', ver: 'verified', sign: 'signed', arr: 'arrived', who: 'who_driver', whonone: 'who_driver' }[what], who.name).catch(() => {});
   await bot.dropButtons(chat, mid);
   if (!r) return 'This driver is gone.';
   if (r === 'Already settled.') return r;
@@ -231,6 +245,7 @@ async function fromReply(chat, m, who) {
     if (it && it.yes) out = await act(a.driver_id, it.yes, null, who);
     else { await q(`UPDATE journey_asks SET snooze_until = now() + interval '12 hours' WHERE driver_id = $1 AND key = $2`, [a.driver_id, a.key]); out = `Thanks ${esc(first(who.name))}! 👍`; }
   } else return false; // not an answer: leave it to the rest of the bot
+  await learn.teamAnswered(a.driver_id, a.key, who.name).catch(() => {});
   if (it && it.buttons) await bot.dropButtons(chat.chat_id, r.message_id);
   if (out) await bot.send(chat.chat_id, out, { replyTo: m.message_id });
   return true;

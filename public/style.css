@@ -2066,3 +2066,4 @@ td.lmsg .lmtext{font-size:13px;line-height:1.35}
 .djai q{display:block;quotes:none;font-size:13.5px;color:var(--mut);margin-top:3px;white-space:pre-line}
 .djdone{grid-column:1/-1;display:flex;gap:10px;align-items:baseline;font-size:14px;border-top:1px dashed var(--line);padding-top:10px}
 .djdone b{color:var(--green-d);white-space:nowrap}
+.learnc h4{margin:16px 0 6px;font-size:14px}.learnc .props li{align-items:flex-start;gap:8px}.learnc label.chk{display:block;margin:8px 0}

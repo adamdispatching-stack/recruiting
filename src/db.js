@@ -410,6 +410,22 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS tg_drafts (id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE, msg_id BIGINT, driver_text TEXT, draft TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'reply', state TEXT NOT NULL DEFAULT 'open', sent_text TEXT, sent_by TEXT, decided_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
     CREATE INDEX IF NOT EXISTS tg_drafts_driver ON tg_drafts(driver_id, state);
+    -- the bot grades itself: its draft against what our team really wrote (same | partly | wrong | unrelated)
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS team_text TEXT;
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS grade TEXT;
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS grade_note TEXT;
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS graded_at TIMESTAMPTZ;
+    -- how the bot teaches itself (tg/learn.js): the topic of each draft, which wording, and answers it sent alone
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS topic TEXT;
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS variant INT;
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false;
+    -- what happened after a message of the bot: a driver wrote back within a day; someone on the team answered a follow-up
+    CREATE TABLE IF NOT EXISTS bot_outcomes (id SERIAL PRIMARY KEY, driver_id INT REFERENCES drivers(id) ON DELETE CASCADE, kind TEXT NOT NULL, variant INT NOT NULL DEFAULT 0, who TEXT,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT now(), replied_at TIMESTAMPTZ);
+    CREATE INDEX IF NOT EXISTS bot_outcomes_kind ON bot_outcomes(kind, sent_at);
+    -- the bot's weekly review: fixes it proposes (knowledge | wording | rule | site), for an admin to approve
+    CREATE TABLE IF NOT EXISTS bot_proposals (id SERIAL PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, detail TEXT, data JSONB, status TEXT NOT NULL DEFAULT 'open', note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), decided_by TEXT, decided_at TIMESTAMPTZ);
     CREATE TABLE IF NOT EXISTS tg_disp_reviews (id SERIAL PRIMARY KEY, tg_id BIGINT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now(), profile JSONB NOT NULL, stats JSONB);
     CREATE INDEX IF NOT EXISTS tg_disp_reviews_tg ON tg_disp_reviews(tg_id, at DESC);
     -- Indeed messages the website asks the Chrome extension to send (after a call with no answer).
