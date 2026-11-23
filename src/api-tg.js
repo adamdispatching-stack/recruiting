@@ -513,7 +513,8 @@ module.exports = (app) => {
     const oc = (await q(`SELECT mode, ai_status, ai_status_at FROM onb_cases WHERE driver_id = $1`, [d.id])).rows[0];
     const sugg = (await q(`SELECT s.id, s.label, s.evidence, s.state, s.at, s.decided_by FROM onb_ai_steps s JOIN checklist c ON c.id = s.checklist_id WHERE s.driver_id = $1 AND (s.state = 'suggested' AND NOT c.done OR (s.state = 'auto' AND s.at > now() - interval '7 days')) ORDER BY s.at DESC`, [d.id])).rows;
     const onb = oc ? { mode: oc.mode, status: oc.ai_status, statusAt: oc.ai_status_at, steps: sugg } : null;
-    res.json({ onb, botOn: bot.on(), bot: bot.state.me ? bot.state.me.username : null, openQuestions: open, groups: chats.map((c) => ({ chatId: c.chat_id, title: c.title, kind: c.kind, botAdmin: c.bot_admin, lastAt: c.last_at, eld: c.kind === 'eld' && c.steps ? eldView(c) : null })) });
+    const removed = (await q(`SELECT chat_id::text chat_id, title, kind FROM tg_chats WHERE driver_id = $1 AND NOT active AND kind IS NOT NULL`, [d.id])).rows;
+    res.json({ onb, removed, botOn: bot.on(), bot: bot.state.me ? bot.state.me.username : null, openQuestions: open, groups: chats.map((c) => ({ chatId: c.chat_id, title: c.title, kind: c.kind, botAdmin: c.bot_admin, lastAt: c.last_at, eld: c.kind === 'eld' && c.steps ? eldView(c) : null })) });
   }));
   // ---------- which Telegram account is the driver's: the people in the driver's groups who are not our team ----------
   const pick = (p) => ({ tgId: p.tgId, name: p.name, username: p.username, linked: p.linked, otherDriver: p.otherDriver, notDriver: p.notDriver, groups: p.groups, likelyTeam: p.likelyTeam, messages: p.messages, last: p.last });

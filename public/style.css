@@ -2029,3 +2029,9 @@ td.lmsg .lmtext{font-size:13px;line-height:1.35}
 .chatlog li.drv{background:#E7F0FB;align-self:flex-start}
 .chatlog li:not(.drv){align-self:flex-end}
 .chatlog li.hl{outline:2px solid #E0A100;background:#FFF4D6}
+/* is the bot in the driver's group */
+.botst{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;line-height:18px;white-space:nowrap;text-decoration:none;vertical-align:middle}
+.botst i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.botst.on{background:var(--green-t);color:var(--green-d)}.botst.warn{background:var(--yellow-t);color:var(--yellow-ink)}
+.botst.bad{background:var(--red-t);color:var(--red)}.botst.none{background:#EDF0EE;color:var(--mut)}
+.botst:hover{text-decoration:underline}

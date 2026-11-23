@@ -79,6 +79,18 @@ async function session(email, password) {
   const row = (r.drivers || []).find((d) => d.id === tom), annRow = (r.drivers || []).find((d) => d.id === ann);
   ok(row && row.whoDriver.map((p) => p.name).join() === 'Tommy W,Mary W' && /CDL/.test(row.whoDriver[0].last.text), 'the onboarding board asks "Who is the driver?" with their last words');
   ok(annRow && annRow.whoDriver.length === 0, 'not for a driver already linked');
+  // is the bot in his group
+  await q('UPDATE tg_chats SET bot_admin = true WHERE chat_id = $1', [TOM_CHAT]);
+  await q('UPDATE tg_chats SET bot_admin = false WHERE chat_id = $1', [ANN_CHAT]);
+  const carl = await driver('Carl Whotest'); await q('INSERT INTO onboarding (driver_id) VALUES ($1)', [carl]);
+  r = await R('/api/onboarding'); const st = (id) => ((r.drivers.find((d) => d.id === id) || {}).botGroup || {}).state;
+  ok(st(tom) === 'on' && st(ann) === 'noadmin' && !r.drivers.find((d) => d.id === carl).botGroup && typeof r.botOn === 'boolean', 'the board shows the bot connected, not admin, or no group: ' + [st(tom), st(ann)]);
+  await q('UPDATE tg_chats SET active = false WHERE chat_id = $1', [ANN_CHAT]);
+  r = await R('/api/onboarding');
+  ok(st(ann) === 'removed', 'and when the bot was removed from the group');
+  const lg = await R('/api/drivers/' + ann + '/tg');
+  ok(lg.groups.length === 0 && lg.removed.length === 1 && lg.removed[0].kind === 'dispatch', 'the lead page knows the bot was removed');
+  await q('UPDATE tg_chats SET active = true WHERE chat_id = $1', [ANN_CHAT]);
 
   // likely team on the People tab
   r = await admin('/api/tg/people');

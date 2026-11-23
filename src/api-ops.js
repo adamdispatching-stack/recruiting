@@ -52,6 +52,9 @@ module.exports = (app) => {
     const lastMsg = ids.length ? Object.fromEntries((await q(`SELECT DISTINCT ON (c.driver_id) c.driver_id, m.text, m.media, m.is_bot, m.at, coalesce(p.name, m.from_name) who, (p.driver_id = c.driver_id) by_driver
       FROM tg_chats c JOIN tg_messages m ON m.chat_id = c.chat_id LEFT JOIN tg_people p ON p.tg_id = m.from_id
       WHERE c.driver_id = ANY($1::int[]) ORDER BY c.driver_id, m.at DESC`, [ids])).rows.map((x) => [x.driver_id, x])) : {};
+    // is the bot in his dispatch group: in it and admin, in it but not admin, or removed from it
+    const botGrp = ids.length ? Object.fromEntries((await q(`SELECT DISTINCT ON (driver_id) driver_id, chat_id::text chat_id, title, active, bot_admin, last_at FROM tg_chats
+      WHERE driver_id = ANY($1::int[]) AND kind = 'dispatch' ORDER BY driver_id, active DESC, linked_at DESC NULLS LAST`, [ids])).rows.map((x) => [x.driver_id, x])) : {};
     const needed = await require('./needed').neededFor(ids);
     const whois = require('./tg/whois'); const who = await whois.candidates(ids); // "Who is the driver?" when no account is linked
     const reach = await require('./reach').scoreMany(ids);
@@ -62,12 +65,13 @@ module.exports = (app) => {
     const hired = await q(`SELECT d.id, d.name, d.owner_id, d.company_id, o.completed_at, o.started_at, t.unit truck_unit FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
       WHERE d.status = 'Hired' AND o.completed_at > now() - interval '30 days' ${v2 ? 'AND ' + v2 : ''} ORDER BY o.completed_at DESC LIMIT 30`, p2);
     const empty = await q(`SELECT count(*)::int n FROM trucks WHERE driver_id IS NULL AND driver_name IS NULL AND NOT out_of_service`);
-    res.json({ today: await lib.today(), template: db.settings.checklist, emptyTrucks: empty.rows[0].n,
+    res.json({ botOn: require('./tg/bot').on(), today: await lib.today(), template: db.settings.checklist, emptyTrucks: empty.rows[0].n,
       drivers: rows.rows.map((r) => ({ orientation: orient[r.id] || null, drafts: bots[r.id] ? bots[r.id].drafts || 0 : 0, drop: bots[r.id] ? bots[r.id].drop_flag || null : null, reach: reach[r.id] || null, bot: bots[r.id] ? { mode: bots[r.id].mode, waitingOn: (bots[r.id].ai_status || {}).waitingOn || null, nextStep: (bots[r.id].ai_status || {}).nextStep || null, suggested: bots[r.id].sugg } : null, id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, emails: r.emails || [], mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
         arrivedOn: r.arrived_on, telegramLink: r.telegram_link, progressAt: r.progress_at, companyId: r.company_id, truck: r.truck_unit ? { unit: r.truck_unit, details: r.truck_details } : null,
         amazonStep: r.amazon_step, relayBefore: r.relay_before, ownTruck: [r.truck_year, r.truck_model].filter(Boolean).join(' ') || null, expYears: r.exp_years === null ? null : +r.exp_years, weeksOut: r.weeks_out === null ? null : +r.weeks_out, daysHome: r.days_home,
         lastMsg: lastMsg[r.id] ? { text: lastMsg[r.id].text || (lastMsg[r.id].media ? '[' + lastMsg[r.id].media + ']' : ''), at: lastMsg[r.id].at, who: lastMsg[r.id].is_bot ? 'Bot' : lastMsg[r.id].by_driver ? 'Driver' : lastMsg[r.id].who || 'Someone' }
           : r.last_message ? { text: r.last_message, indeed: true } : null,
+        botGroup: botGrp[r.id] ? { chatId: botGrp[r.id].chat_id, title: botGrp[r.id].title, state: !botGrp[r.id].active ? 'removed' : botGrp[r.id].bot_admin ? 'on' : 'noadmin', lastAt: botGrp[r.id].last_at } : null,
         whoDriver: whois.toAsk(who[r.id]).map((p) => ({ tgId: p.tgId, name: p.name, last: p.last })),
         needed: needed[r.id] || [], items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),
       hired: hired.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, companyId: r.company_id, hiredAt: r.completed_at, startedAt: r.started_at, truck: r.truck_unit })) });

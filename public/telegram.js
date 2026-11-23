@@ -347,13 +347,26 @@
   }
 
   // ---------- on a lead's page ----------
+  // Is the bot in the driver's group: green when it is in and an admin, yellow when not an admin, red when removed
+  function botPill(g, botOn, driverId) {
+    const name = g && g.title ? '"' + g.title + '"' : 'the group';
+    const [cls, label, tip] = !g ? ['none', 'No bot group', 'No Telegram group with the bot is linked to this driver yet. Add the bot to his group, then link the group on his page.']
+      : g.state === 'removed' ? ['bad', 'Bot removed', 'The bot was removed from ' + name + '. Add it back to the group.']
+      : botOn === false ? ['none', 'Bot is off', 'The bot is linked to ' + name + ', but the Telegram bot is turned off (see Telegram manager).']
+      : g.state === 'noadmin' ? ['warn', 'Bot not admin', 'The bot is in ' + name + ' but not an admin, so it may miss messages. In Telegram: Group settings, Administrators, Add admin.']
+      : ['on', 'Bot connected', 'The bot is in ' + name + ' and connected' + (g.lastAt ? '. Last message ' + App.teamWhen(g.lastAt) : '') + '.'];
+    const href = g && g.state !== 'removed' ? '#/telegram/' + g.chatId : '#/driver/' + driverId;
+    return `<a class="botst ${cls}" href="${href}" title="${esc(tip)}"><i aria-hidden="true"></i>${label}</a>`;
+  }
+  App.botPill = botPill;
   async function leadGroups(driverId, host) {
     let r, w; try { [r, w] = await Promise.all([api(`/api/drivers/${driverId}/tg`), api(`/api/drivers/${driverId}/tg-people`).catch(() => null)]); } catch (e) { return; }
     if (!host.isConnected) return;
     const has = Object.fromEntries(r.groups.map((g) => [g.kind, g]));
     host.innerHTML = `<h4>Telegram groups${r.openQuestions ? ` <span class="latetag">${r.openQuestions} question${r.openQuestions > 1 ? 's' : ''} waiting</span>` : ''}</h4><ul class="tglead">${['dispatch', 'eld', 'accounting'].map((k) => {
       const g = has[k];
-      return `<li><span class="tgk k-${k}">${KIND[k]}</span>${g ? `<a href="#/telegram/${g.chatId}">${esc(g.title || 'Group')}</a> ${g.eld ? eldLine(g.eld) : ''}` : `<span class="none">Not linked</span> <button type="button" class="linkbtn" data-act="tgLink" data-kind="${k}" data-driver="${driverId}">Link a group</button>`}</li>`;
+      const gone = !g && (r.removed || []).find((x) => x.kind === k);
+      return `<li><span class="tgk k-${k}">${KIND[k]}</span>${g ? `<a href="#/telegram/${g.chatId}">${esc(g.title || 'Group')}</a> ${botPill({ ...g, state: g.botAdmin ? 'on' : 'noadmin' }, r.botOn, driverId)} ${g.eld ? eldLine(g.eld) : ''}` : `${gone ? botPill({ ...gone, state: 'removed' }, r.botOn, driverId) + ' ' : ''}<span class="none">Not linked</span> <button type="button" class="linkbtn" data-act="tgLink" data-kind="${k}" data-driver="${driverId}">Link a group</button>`}</li>`;
     }).join('')}</ul>${whoBox(driverId, w, r.groups.length)}${r.botOn ? '' : '<p class="hint">The Telegram bot is not turned on yet (see Telegram manager).</p>'}${has.dispatch ? onbPanel(driverId, r.onb, has.dispatch) : ''}`;
   }
   // ---------- which Telegram account is the driver's: picked from the people in the driver's groups, our team left out ----------
