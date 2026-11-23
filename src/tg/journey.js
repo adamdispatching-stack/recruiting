@@ -3,7 +3,7 @@
 // by first name, never twice too soon, and it stops by itself once the thing is done.
 // - our team (in the management group, tagging the recruiter, around the clock; a website notice when there is no
 //   management group): Relay invite sent? signed up? verified yet? no Telegram group, the bot removed or not an admin,
-//   which account is the driver, what is still open on our side (insurance, MVR, contract, Clearinghouse, ELD,
+//   the driver has not joined his group, which account is the driver, what is still open on our side (insurance, MVR, contract, Clearinghouse, ELD,
 //   accounting, bank), missing start date/company/truck, did he arrive, ready to hire. Answered with the buttons or
 //   by replying to the bot's message in words ("yes", "not yet", "done").
 // - the driver (in his group, 9:00 to 20:00): the Relay invite, his CDL state and ZIP, a check-in when he goes quiet.
@@ -31,7 +31,7 @@ async function load() {
     WHERE (d.status = 'Onboarding' AND o.driver_id IS NOT NULL OR d.status IN ('Relay invite sent', 'Signed up on Relay')) AND d.left_on IS NULL ORDER BY d.id`)).rows; // = LEADS
   if (!ds.length) return [];
   const ids = ds.map((d) => d.id);
-  const groups = (await q(`SELECT driver_id, chat_id::text chat_id, active, bot_admin, linked_at FROM tg_chats WHERE kind = 'dispatch' AND driver_id = ANY($1::int[]) ORDER BY active DESC, linked_at DESC NULLS LAST`, [ids])).rows;
+  const groups = (await q(`SELECT driver_id, chat_id::text chat_id, active, bot_admin, linked_at, invite_link FROM tg_chats WHERE kind = 'dispatch' AND driver_id = ANY($1::int[]) ORDER BY active DESC, linked_at DESC NULLS LAST`, [ids])).rows;
   const units = (await q(`SELECT driver_id, unit FROM trucks WHERE driver_id = ANY($1::int[])`, [ids])).rows;
   const open = (await q(`SELECT driver_id, key FROM checklist WHERE driver_id = ANY($1::int[]) AND NOT done AND key = ANY($2::text[])`, [ids, Object.keys(TEAM_TODO)])).rows;
   const orient = (await q(`SELECT driver_id, count(*)::int total, count(*) FILTER (WHERE NOT done)::int open FROM orientation WHERE driver_id = ANY($1::int[]) GROUP BY driver_id`, [ids])).rows;
@@ -69,6 +69,10 @@ function owed(d) {
   if (g && !g.active) out.push({ key: 'bot_removed', side: 'team', every: 24, max: 3, text: () => `I'm not in ${N}'s group any more (someone removed me). Could you add me back?` });
   if (live && g.bot_admin === false && hrs(g.linked_at || since) >= 1) out.push({ key: 'bot_admin', side: 'team', every: 48, max: 2,
     text: () => `I'm in ${N}'s group but not an admin, so I can miss his messages. Can you make me an admin? (Group settings → Administrators → Add admin)` });
+  // the group is there but nobody from his side is in it: he has not joined (maybe Telegram is not installed)
+  if (live && d.who && !d.who.people.length && hrs(g.linked_at || since) >= 6) out.push({ key: 'not_joined', side: 'team', every: 24, max: 3, text: (n) => pick(n, [
+    `I don't see ${N} in his Telegram group yet: nobody from his side has joined or written. Has he installed Telegram? ${g.invite_link ? `Here is the invite link to send him: ${esc(g.invite_link)}` : 'Please send him the invite link to the group.'}`,
+    `Still nobody from ${N}'s side in his Telegram group. Can you check he has Telegram (same number he gave us) and send him the link${g.invite_link ? `: ${esc(g.invite_link)}` : ''}?`]) });
   const ask = live ? require('./whois').toAsk(d.who) : [];
   if (live && ask.length && !(d.who && d.who.linked.length) && hrs(g.linked_at || since) >= 6) out.push({ key: 'who_driver', side: 'team', every: 24, max: 3,
     text: () => `Which one is ${N} in his group? I want to make sure I talk to the right person.`,
@@ -97,7 +101,7 @@ function owed(d) {
       `${f}, just checking in. Are you still with us? Tell me where you are with the Amazon steps and I'll help with the next one.`]) });
   }
   // what matters most first: without his group and the bot in it nothing else works
-  const ORDER = ['no_group', 'bot_removed', 'bot_admin', 'arrived', 'invite', 'signed', 'verified', 'who_driver', 'missing', 'team_todo', 'hire'];
+  const ORDER = ['no_group', 'bot_removed', 'bot_admin', 'not_joined', 'arrived', 'invite', 'signed', 'verified', 'who_driver', 'missing', 'team_todo', 'hire'];
   return out.sort((a, b) => (ORDER.indexOf(a.key) + 1 || 99) - (ORDER.indexOf(b.key) + 1 || 99));
 }
 

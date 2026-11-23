@@ -97,6 +97,15 @@ const q = db.q;
   const nora = J.owed((await J.load()).find((d) => d.id === noGroup)).find((x) => x.key === 'team_todo');
   ok(nora && /the ELD group, his bank details/.test(nora.text(0, 'Nora')), 'open ELD and bank steps are followed up: ' + (nora ? nora.text(0, 'Nora') : ''));
 
+  // the group is there but the driver never joined it
+  const empty = await driver('Evan Emptygroup', { step: 'verified' }); await group(-990009, empty);
+  await q(`UPDATE tg_chats SET invite_link = 'https://t.me/+abc123' WHERE chat_id = -990009`);
+  const ev = J.owed((await J.load()).find((d) => d.id === empty));
+  const evText = ev[0] ? ev[0].text(0, 'Evan') : '';
+  ok(ev[0] && ev[0].key === 'not_joined' && evText.includes("I don't see Evan Emptygroup in his Telegram group yet") && evText.includes('Has he installed Telegram? Here is the invite link to send him: https://t.me/+abc123'), 'not joined his group: the team is asked, with the invite link');
+  await q(`INSERT INTO tg_members (chat_id, tg_id) VALUES (-990009, 990900)`); await q(`INSERT INTO tg_people (tg_id, name) VALUES (990900, 'Evan E')`);
+  ok(!J.owed((await J.load()).find((d) => d.id === empty)).some((x) => x.key === 'not_joined'), 'once someone from his side is in the group, it stops');
+
   // answers typed as a reply to the bot's message
   await q(`INSERT INTO journey_asks (driver_id, key, count, last_at, msg_id) VALUES ($1, 'arrived', 1, now(), 555) ON CONFLICT (driver_id, key) DO UPDATE SET msg_id = 555`, [late]);
   await q(`UPDATE onboarding SET arrived_on = NULL WHERE driver_id = $1`, [late]);
