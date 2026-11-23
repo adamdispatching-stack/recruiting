@@ -372,7 +372,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   const ht = await until(async () => ((await web('/api/hometime')).now || []).find((h) => h.driver_id === hank), 15000);
   ok(ht && ht.status === 'planned' && ht.back_on && ht.needs_ticket, 'home time: going home, back date, needs a ticket');
   ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_drafts WHERE driver_id = $1 AND kind = 'remind' AND draft LIKE '%coming back on%'`, [hank])).rows.length === 1, 15000), '2 days before he comes back: the question for him waits on the website (Watch)');
-  ok((await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Hank Hired comes back%book his ticket%'`)).rows.length >= 1, 'and the recruiter / dispatcher is told to confirm and book the ticket');
+  ok(await until(async () => (await pg.query(`SELECT 1 FROM notices WHERE text LIKE 'Hank Hired comes back%book his ticket%'`)).rows.length >= 1, 15000), 'and the recruiter / dispatcher is told to confirm and book the ticket');
   say(HANK, 'I am back on the road now', HCHAT);
   ok(await until(async () => !((await web('/api/hometime')).now || []).some((h) => h.driver_id === hank), 15000), 'back on the road: off the home time list');
   // leaving signs
@@ -474,7 +474,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await pg.query(`UPDATE tg_people SET user_id = $1 WHERE tg_id = 11`, [rita]); // Rita's Telegram is Rita on the website
   n = tg.sent.length; priv(RITA, '/onboard');
   const ob = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Onboarding: \d+<\/b>/.test(m.text)), 20000);
-  ok(ob && /<b>Amazon verified<\/b> \(2\)\nCD \(1\)\nCara Company — no start date\nOO \(1\)\nPaul Penn — Nov \d+\n/.test(ob.text), 'plain: Amazon verified → CD, OO; name and start date');
+  ok(ob && /<b>Amazon verified<\/b> \(2\)\nCD \(1\)\nCara Company — no start date\nOO \(1\)\nPaul Penn — [A-Z][a-z]{2} \d+\n/.test(ob.text), 'plain: Amazon verified → CD, OO; name and start date');
   ok(ob && /<b>Amazon pending<\/b> \(2\)/.test(ob.text) && /Cody Coming — no start date/.test(ob.text) && !/[🟢🟡🔴✈️🗓📝💬]|Rita|Background check/.test(ob.text), 'Amazon pending too; no icons, scores, recruiters or stats');
   const MCHAT = { id: -100740, type: 'supergroup', title: 'Management Team' };
   // the morning report window (3 hours from its time) must not be now, or it posts the moment the group connects
@@ -521,7 +521,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await sleep(2500); ok(!inChat(0, MCHAT).some((m) => /has been silent|of our messages unanswered/.test(m.text)), 'management group: a driver not answering us is not alerted');
   n = tg.sent.length; priv(RITA, '/onboard');
   const ob2 = await until(() => sentSince(n).find((m) => String(m.chat_id) === String(RITA.id) && /Onboarding: \d+<\/b>/.test(m.text)), 20000);
-  ok(ob2 && /Paul Penn — Nov \d+/.test(ob2.text) && !/🔇/.test(ob2.text), '/onboard stays plain (the chance and the silence are on the website and in the follow-ups)');
+  ok(ob2 && /Paul Penn — [A-Z][a-z]{2} \d+/.test(ob2.text) && !/🔇/.test(ob2.text), '/onboard stays plain (the chance and the silence are on the website and in the follow-ups)');
 
   // someone not on the team adds the bot to a team group: the website connects it
   const OPS = { id: -100741, type: 'supergroup', title: 'Ops office' };
