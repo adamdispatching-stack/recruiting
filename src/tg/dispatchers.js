@@ -25,23 +25,31 @@ async function stats(tgId, { from = null, to = null } = {}) {
 const statsText = (s) => `Last 30 days: ${s.msgs} messages in ${s.groups} driver groups, about ${s.avg_len || 0} characters each, ${s.night} sent between 10 PM and 6 AM.
 Driver messages in his groups: ${s.driver_msgs}. He answered first ${s.his} of them${s.his ? `, half within ${s.med} min, ${s.fast} within 15 min` : ''}. ${s.slow} driver messages waited over 2 hours or got no answer from anyone on our side.`;
 
+// the numbers the review cites, with where each message is (only those, so the review stays small)
+function refsOf(prof, at) {
+  const used = [...(prof.issues || []).map((x) => x.ref), ...(prof.scores || []).map((x) => x.ref), (prof.feedback || {}).show_example_ref, ...(prof.red_flag_refs || [])];
+  const out = {}; for (const r of used) if (Number.isInteger(r) && at[r]) out[r] = at[r];
+  return out;
+}
 async function build(tgId, { force = false } = {}) {
   if (!ai.on()) return null;
   const p = (await q(`SELECT * FROM tg_people WHERE tg_id = $1`, [tgId])).rows[0]; if (!p) return null;
-  const rows = (await q(`SELECT m.text, m.at, m.chat_id, to_char(m.at AT TIME ZONE $2, 'Dy HH24:MI') hm,
-      (SELECT json_build_object('text', b.text, 'at', b.at) FROM tg_messages b JOIN tg_people bp ON bp.tg_id = b.from_id WHERE b.chat_id = m.chat_id AND bp.role = 'driver' AND b.at < m.at AND b.at > m.at - interval '12 hours' ORDER BY b.at DESC LIMIT 1) before
+  const rows = (await q(`SELECT m.text, m.at, m.chat_id::text chat_id, m.msg_id, to_char(m.at AT TIME ZONE $2, 'Dy HH24:MI') hm,
+      (SELECT json_build_object('text', b.text, 'at', b.at, 'msg_id', b.msg_id) FROM tg_messages b JOIN tg_people bp ON bp.tg_id = b.from_id WHERE b.chat_id = m.chat_id AND bp.role = 'driver' AND b.at < m.at AND b.at > m.at - interval '12 hours' ORDER BY b.at DESC LIMIT 1) before
     FROM tg_messages m WHERE m.from_id = $1 AND m.text IS NOT NULL AND m.at > now() - interval '30 days' ORDER BY m.at DESC LIMIT 400`, [tgId, db.settings.tz])).rows.reverse();
   if (rows.length < (force ? 3 : Math.min(5, MIN_MSGS))) return null;
   const st = await stats(tgId);
   // groups by number, not their title (titles hold the driver's name and phone)
-  const gn = {}; let n = 0;
-  const lines = rows.map((r) => { gn[r.chat_id] = gn[r.chat_id] || ++n; const b = r.before;
+  // each line is numbered [#n], the AI names the numbers it talks about, and the review keeps where they are in Telegram
+  const gn = {}; let n = 0; const at = {};
+  const lines = rows.map((r, k) => { gn[r.chat_id] = gn[r.chat_id] || ++n; const b = r.before; at[k + 1] = { chat: r.chat_id, msg: +r.msg_id, driverMsg: b && b.msg_id ? +b.msg_id : null, at: r.at };
     const gap = b ? Math.round((new Date(r.at) - new Date(b.at)) / 60000) : null;
-    return `${b ? `  driver: ${bot.redact(b.text || '').slice(0, 200)}\n` : ''}[group ${gn[r.chat_id]} ${r.hm}${gap !== null ? `, ${gap} min after the driver` : ''}] ${bot.redact(r.text).slice(0, 400)}`; });
+    return `${b ? `  driver: ${bot.redact(b.text || '').slice(0, 200)}\n` : ''}[#${k + 1} group ${gn[r.chat_id]} ${r.hm}${gap !== null ? `, ${gap} min after the driver` : ''}] ${bot.redact(r.text).slice(0, 400)}`; });
   const last = (await q(`SELECT profile, at FROM tg_disp_reviews WHERE tg_id = $1 ORDER BY at DESC LIMIT 1`, [tgId])).rows[0];
   const previous = last ? { ...last.profile, at: new Date(last.at).toISOString().slice(0, 10) } : null;
   const prof = await ai.dispatcherProfile({ name: p.name, stats: statsText(st), lines, previous });
   if (!prof) return null;
+  prof.refs = refsOf(prof, at);
   await q(`UPDATE tg_people SET profile = $2, profile_at = now(), profile_msgs = $3 WHERE tg_id = $1`, [tgId, JSON.stringify(prof), st.msgs]);
   await q(`INSERT INTO tg_disp_reviews (tg_id, profile, stats) VALUES ($1, $2, $3)`, [tgId, JSON.stringify(prof), JSON.stringify(st)]);
   await bot.log('fact', `Dispatcher review updated: ${p.name}`, {});
@@ -61,4 +69,4 @@ async function tick() {
   for (const d of due) await build(d.tg_id).catch((e) => console.error('tg dispatcher', e.message));
 }
 function start() { setInterval(() => tick().catch((e) => console.error('dispatcher tick', e.message)), +process.env.TG_PROFILE_MS || 10 * 60000); }
-module.exports = { start, tick, build, stats, statsText };
+module.exports = { start, tick, build, stats, statsText, refsOf };

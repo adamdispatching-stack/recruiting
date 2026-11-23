@@ -365,6 +365,16 @@ module.exports = (app) => {
     const groups = (await q(`SELECT c.chat_id::text chat_id, c.title, count(*)::int n, max(m.at) last FROM tg_messages m JOIN tg_chats c ON c.chat_id = m.chat_id WHERE m.from_id = $1 AND m.at > now() - interval '30 days' GROUP BY 1, 2 ORDER BY n DESC LIMIT 30`, [p.tg_id])).rows;
     res.json({ person: { tg_id: String(p.tg_id), name: p.name, username: p.username, role: p.role }, user: user && { ...user, noLogin: require('./tg/accounts').noLogin(user.email) }, profile: p.profile, at: p.profile_at, stats: st, history, groups });
   }));
+  // one moment of a group's chat: the messages before and after one message (links from the dispatcher review)
+  app.get('/api/tg/chats/:id/around', needUser, needAdmin, wrap(async (req, res) => {
+    const chat = (await q(`SELECT chat_id::text chat_id, title FROM tg_chats WHERE chat_id = $1`, [String(req.params.id)])).rows[0];
+    if (!chat) return res.status(404).json({ error: 'Group not found' });
+    const msg = +req.query.msg || 0; if (!msg) return res.status(400).json({ error: 'Which message?' });
+    const cols = `SELECT m.msg_id, coalesce(p.name, m.from_name) who, p.role, m.is_bot, m.text, m.media, m.media_note, m.at FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = $1`;
+    const before = (await q(`${cols} AND m.msg_id <= $2 ORDER BY m.msg_id DESC LIMIT 12`, [chat.chat_id, msg])).rows.reverse();
+    const after = (await q(`${cols} AND m.msg_id > $2 ORDER BY m.msg_id LIMIT 8`, [chat.chat_id, msg])).rows;
+    res.json({ chatId: chat.chat_id, title: chat.title, msgs: [...before, ...after].map((m) => ({ msgId: +m.msg_id, who: m.is_bot ? 'Bot' : m.who || 'Someone', role: m.role, text: m.text, media: m.media, mediaNote: m.media_note, at: m.at })) });
+  }));
   app.post('/api/tg/dispatchers/:ref/review', needUser, needAdmin, wrap(async (req, res) => {
     const p = await dispRef(req.params.ref); if (!p) return res.status(404).json({ error: 'Not found' });
     if (!ai.on()) return res.status(400).json({ error: 'AI is off: add ANTHROPIC_API_KEY on Railway' });

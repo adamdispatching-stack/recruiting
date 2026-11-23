@@ -2023,3 +2023,9 @@ td.lmsg .lmtext{font-size:13px;line-height:1.35}
 .wholine{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;padding:6px 8px;border-radius:8px;background:#FFF4D6;font-size:13px;white-space:normal}
 .wholine .btn.sm{padding:3px 9px}
 .tgwho{margin-top:12px}.tgwho .fld{max-width:440px}.tgwho p.small{margin-top:4px}
+.seemsg{margin-top:4px}
+.chatlog{list-style:none;margin:10px 0;padding:0;max-height:60vh;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.chatlog li{padding:7px 10px;border-radius:10px;background:#F3F1EC;max-width:85%;white-space:pre-wrap;overflow-wrap:anywhere}
+.chatlog li.drv{background:#E7F0FB;align-self:flex-start}
+.chatlog li:not(.drv){align-self:flex-end}
+.chatlog li.hl{outline:2px solid #E0A100;background:#FFF4D6}

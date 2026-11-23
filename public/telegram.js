@@ -558,6 +558,20 @@
   const dots = (n) => `<span class="sdots" aria-label="${n} of 5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? 'on s' + n : ''}"></i>`).join('')}</span>`;
   const avg = (sc) => (sc && sc.length ? sc.reduce((a, x) => a + (+x.score || 0), 0) / sc.length : null);
   let dispRefNow = null;
+  // a message in Telegram: only supergroups (-100...) have links; the person must be in the group to open it
+  const tgMsgUrl = (chatId, msg) => (/^-100[0-9]+$/.test(String(chatId)) ? `https://t.me/c/${String(chatId).slice(4)}/${msg}` : null);
+  // "See the messages" for a review item that cites a message
+  const seeMsgs = (p, ref) => { const x = ref && p.refs && p.refs[ref]; if (!x) return '';
+    const url = tgMsgUrl(x.chat, x.msg);
+    return `<div class="seemsg"><button type="button" class="linkbtn small" data-act="tgAround" data-chat="${esc(x.chat)}" data-msg="${x.msg}" data-hl="${x.msg}${x.driverMsg ? ',' + x.driverMsg : ''}">See the messages</button>${url ? ` · <a class="small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open in Telegram</a>` : ''}</div>`; };
+  on('tgAround', async (b) => {
+    const r = await api(`/api/tg/chats/${encodeURIComponent(b.dataset.chat)}/around?msg=${b.dataset.msg}`);
+    const hl = new Set(String(b.dataset.hl || '').split(',').map(Number)); const url = tgMsgUrl(r.chatId, b.dataset.msg);
+    dialog(`<div class="dform"><h2>${esc(r.title || 'Group')}</h2><p class="hint">The messages around this moment. Highlighted: the driver's message and the reply the review is about.</p>
+      <ol class="chatlog">${r.msgs.map((m) => `<li class="${hl.has(m.msgId) ? 'hl' : ''} ${m.role === 'driver' ? 'drv' : ''}"><div class="small mut"><b>${esc(m.who)}</b>${m.role === 'driver' ? ' (driver)' : ''}, ${esc(when(m.at))}</div><div>${m.text ? esc(m.text) : `<span class="none">[${esc(m.media || 'message')}]${m.mediaNote ? ' ' + esc(m.mediaNote) : ''}</span>`}</div></li>`).join('') || '<li class="none">No messages saved here.</li>'}</ol>
+      <div class="dact">${url ? `<a class="btn plain" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open in Telegram</a>` : ''}<a class="btn plain" href="#/telegram/${esc(r.chatId)}">Open the group page</a><button type="button" class="btn primary" data-act="closeDialog">Close</button></div></div>`);
+    const h = document.querySelector('#dlg .chatlog li.hl'); if (h) h.scrollIntoView({ block: 'center' });
+  });
   async function viewDispatcher(ref) {
     if (S.me.role !== 'admin') { location.hash = '#/'; return; }
     dispRefNow = ref; const live = App.drawing(); let r;
@@ -573,15 +587,15 @@
         <div class="acts"><button class="btn plain" data-act="dispReview">Review again now</button>${r.user ? (r.user.noLogin ? ` <a class="btn plain" href="#/team/${r.user.id}">Give him a login</a>` : '') : ''}</div></div>
       <section class="card"><dl class="figs">${fig(st.msgs || 0, 'messages, 30 days')}${fig(st.groups || 0, 'driver groups')}${fig(fmtMin(st.med), 'half his answers within')}${fig(st.his ? Math.round((st.fast / st.his) * 100) + '%' : '—', 'answered within 15 min')}${fig(st.slow || 0, 'driver messages waited 2 h+ (his groups)')}${fig(st.night || 0, 'messages 10 PM–6 AM')}</dl></section>
       ${!r.profile ? '<section class="card"><p class="hint">No review yet. It is written once he has 20 messages in the groups (or press Review again now).</p></section>' : `
-      ${(p.red_flags || []).length ? `<section class="card flagcard"><h3>Act on this</h3><ul>${li(p.red_flags)}</ul></section>` : ''}
+      ${(p.red_flags || []).length ? `<section class="card flagcard"><h3>Act on this</h3><ul>${p.red_flags.map((x, i) => `<li>${esc(x)}${seeMsgs(p, (p.red_flag_refs || [])[i])}</li>`).join('')}</ul></section>` : ''}
       <section class="card"><div class="dchips">${p.trend ? `<span class="dchip">${esc(TREND[p.trend.direction] || '')}</span>` : ''}${p.confidence ? `<span class="dchip">${p.confidence === 'low' ? 'Few messages: a first impression' : p.confidence === 'medium' ? 'Fair picture' : 'Clear picture'}</span>` : ''}</div>
         <p class="lead">${esc(p.summary || '')}</p>${p.trend && p.trend.what_changed ? `<p class="small"><b>Since last time:</b> ${esc(p.trend.what_changed)}</p>` : ''}</section>
       ${p.feedback ? `<section class="card fbcard"><div class="row sb"><h3>Feedback to give him</h3><button class="btn sm plain" data-act="dispCopy">Copy</button></div>
         ${p.tip ? `<p class="tipline"><b>Tip this week:</b> ${esc(p.tip)}</p>` : ''}
-        <dl class="fb">${[['Start with', fb.praise_first], ['The main point', fb.main_point], ['Show him', fb.show_example], ['What to say', fb.how_to_say_it], ['Goal for the next 2 weeks', fb.goal], ['How to check', fb.check_how]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section>` : ''}
-      ${(p.scores || []).length ? `<section class="card"><h3>Area by area</h3><table class="mini scoretab"><tbody>${p.scores.map((x) => `<tr><td><b>${esc(AREA[x.area] || x.area)}</b><div>${dots(+x.score || 0)}</div></td><td>${esc(x.seen || '')}${x.example ? `<div class="quote">“${esc(x.example)}”</div>` : ''}</td></tr>`).join('')}</tbody></table></section>` : ''}
+        <dl class="fb">${[['Start with', fb.praise_first], ['The main point', fb.main_point], ['Show him', fb.show_example], ['What to say', fb.how_to_say_it], ['Goal for the next 2 weeks', fb.goal], ['How to check', fb.check_how]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}${k === 'Show him' ? seeMsgs(p, fb.show_example_ref) : ''}</dd>`).join('')}</dl></section>` : ''}
+      ${(p.scores || []).length ? `<section class="card"><h3>Area by area</h3><table class="mini scoretab"><tbody>${p.scores.map((x) => `<tr><td><b>${esc(AREA[x.area] || x.area)}</b><div>${dots(+x.score || 0)}</div></td><td>${esc(x.seen || '')}${x.example ? `<div class="quote">“${esc(x.example)}”</div>${seeMsgs(p, x.ref)}` : ''}</td></tr>`).join('')}</tbody></table></section>` : ''}
       ${(p.issues || []).length ? `<section class="card"><h3>Real situations from the groups</h3><table class="mini issuetab"><thead><tr><th>What happened</th><th>What he did</th><th></th><th>Better</th></tr></thead><tbody>${p.issues.map((x) => { const v = VERDICT[x.verdict] || ['', ''];
-          return `<tr><td>${esc(x.situation)}</td><td>${esc(x.what_he_did)}</td><td><span class="vbadge ${v[1]}">${v[0]}</span></td><td>${esc(x.better_way || '')}</td></tr>`; }).join('')}</tbody></table></section>` : ''}
+          return `<tr><td>${esc(x.situation)}${seeMsgs(p, x.ref)}</td><td>${esc(x.what_he_did)}</td><td><span class="vbadge ${v[1]}">${v[0]}</span></td><td>${esc(x.better_way || '')}</td></tr>`; }).join('')}</tbody></table></section>` : ''}
       <div class="twocol"><section class="card"><h3>How he thinks</h3><p>${esc(p.thinking || '—')}</p><h3>How drivers react to him</h3><p>${esc(p.drivers_view || '—')}</p></section>
         <section class="card">${[['Keep doing', p.strengths], ['To improve', p.improve], ['How he runs updates', p.update_habits], ['His typical messages', p.phrases]].filter(([, a]) => a && a.length).map(([t, a]) => `<h4>${t}</h4><ul>${li(a)}</ul>`).join('')}</section></div>`}
       ${r.history.length > 1 ? `<section class="card"><h3>Past reviews</h3><table class="mini"><thead><tr><th>Date</th><th class="n">Average</th><th>Goal given</th><th>Trend</th></tr></thead><tbody>${r.history.map((h) => `<tr><td>${when(h.at)}</td><td class="n">${avg(h.scores) === null ? '—' : avg(h.scores).toFixed(1) + ' / 5'}</td><td>${esc(h.goal || '')}</td><td>${esc((TREND[(h.trend || {}).direction] || ''))}</td></tr>`).join('')}</tbody></table></section>` : ''}
