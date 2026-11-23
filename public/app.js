@@ -334,15 +334,15 @@ window.App = (() => {
     // the menu in groups: what a person uses most first; the rarely used admin pages under More
     const groups = disp ? [
       ['Dispatch', [['#/trucks', 'Trucks', 'trucks'], ['#/active', 'Active drivers', 'active'], ['#/cases', 'Road cases', 'cases'], ['#/telegram', 'Telegram', 'telegram']]],
-      ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places']]],
+      ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places'], ['#/journey', 'Driver journey', 'journey', 'map']]],
     ] : [
       ['', [['#/', admin ? 'Dashboard' : 'My day', 'home']]],
       ['Recruiting', [['#/leads', 'Leads', 'leads'], ['#/onboarding', 'Onboarding', 'onboarding'], ...(admin ? [] : [['#/trucks', 'Trucks', 'trucks']]), ['#/facebook', 'Facebook', 'facebook'], ['#/badges', 'Badges', 'badges']]],
       // a recruiter: his onboarding groups in Telegram, the answers for drivers; the dispatching pages are not his
       ...(admin ? [['Dispatch', [['#/active', 'Active drivers', 'active'], ['#/trucks', 'Trucks', 'trucks'], ['#/cases', 'Road cases', 'cases'], ['#/shifts', 'Shift desk', 'shifts'], ['#/telegram', 'Telegram', 'telegram']]],
-        ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places']]],
+        ['Know-how', [['#/kb', 'Knowledge base', 'kb'], ['#/places', 'Shops & services', 'places'], ['#/journey', 'Driver journey', 'journey', 'map']]],
         ['Company', [['#/companies', 'Companies', 'companies'], ['#/team', 'Team', 'team']]]]
-        : [['Drivers', [['#/telegram', 'Telegram', 'telegram'], ['#/kb', 'Answers for drivers', 'kb'], ['#/companies', 'Companies', 'companies']]]]),
+        : [['Drivers', [['#/telegram', 'Telegram', 'telegram'], ['#/kb', 'Answers for drivers', 'kb'], ['#/journey', 'Driver journey', 'journey', 'map'], ['#/companies', 'Companies', 'companies']]]]),
     ];
     let shut = []; try { shut = JSON.parse(localStorage.getItem('railShut') || '[]'); } catch (e) { /* storage off */ }
     const section = ([label, list]) => { const here = list.some(([, , k]) => k === active); const closed = label && shut.includes(label) && !here;
