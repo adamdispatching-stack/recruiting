@@ -40,7 +40,7 @@ async function load() {
   const who = await require('./whois').candidates(ids);
   const day = (v) => (!v ? null : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10)); // dates are plain text (db.js)
   return ds.map((d) => ({ ...d, lead: d.status !== 'Onboarding', arrive: day(d.arrive), arrived: day(d.arrived), group: groups.find((g) => g.driver_id === d.id) || null, unit: (units.find((u) => u.driver_id === d.id) || {}).unit || null,
-    teamOpen: open.filter((x) => x.driver_id === d.id).map((x) => x.key), orient: orient.find((x) => x.driver_id === d.id) || null,
+    teamOpen: open.filter((x) => x.driver_id === d.id).map((x) => x.key).sort((a, b) => Object.keys(TEAM_TODO).indexOf(a) - Object.keys(TEAM_TODO).indexOf(b)), // checklist order orient: orient.find((x) => x.driver_id === d.id) || null,
     spoke: (spoke.find((x) => x.driver_id === d.id) || {}).at || null, who: who[d.id] }));
 }
 
