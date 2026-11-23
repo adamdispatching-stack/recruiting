@@ -69,7 +69,7 @@ module.exports = (app) => {
     if (req.params.act === 'send') {
       const text = String((req.body || {}).text || dr.draft).trim().slice(0, 1500); if (!text) return res.status(400).json({ error: 'Write the message first' });
       const bot = require('./tg/bot');
-      try { await bot.send(dr.chat_id, bot.esc(text)); } catch (e) { return res.status(502).json({ error: 'Telegram did not take it: ' + e.message }); }
+      try { await bot.send(dr.chat_id, bot.esc(text), { human: true }); } catch (e) { return res.status(502).json({ error: 'Telegram did not take it: ' + e.message }); }
       await q(`UPDATE tg_drafts SET state = 'sent', sent_text = $2, sent_by = $3, decided_at = now() WHERE id = $1`, [dr.id, text, req.user.name]);
       await bot.log('reply', `${req.user.name} sent the case message: "${text.slice(0, 120)}"`, { chatId: dr.chat_id, driverId: dr.driver_id, who: req.user.name });
     } else await q(`UPDATE tg_drafts SET state = 'dismissed', sent_by = $2, decided_at = now() WHERE id = $1`, [dr.id, req.user.name]);

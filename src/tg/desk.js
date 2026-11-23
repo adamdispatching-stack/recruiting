@@ -195,6 +195,7 @@ async function privateText(m, who) {
 // no answer in time: ask the others on shift, then the admins; the wake-up check at his time
 async function tick() {
   const c = cfg(); if (!c.on) return; const bot = require('./bot');
+  if (bot.paused()) return; // paused everywhere
   const late = (await q(`SELECT ch.*, d.name driver FROM tg_checks ch LEFT JOIN drivers d ON d.id = ch.driver_id WHERE ch.state = 'open' AND ch.asked_at < now() - ($1 || ' minutes')::interval AND ch.escalated < 2`, [String(c.answerMin)])).rows;
   for (const ch of late) {
     // no answer: the next level up (a level 3 question: the other seniors, then anyone on shift)

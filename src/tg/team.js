@@ -189,6 +189,7 @@ async function followups() {
 async function tick() {
   if (!bot.state.me) return;
   const groups = (await q(`SELECT chat_id FROM tg_chats WHERE kind = 'management' AND active`)).rows;
+  if (bot.paused()) return; // paused everywhere (Telegram → Autopilot)
   if (!groups.length) return;
   const t = db.settings.tg || {}; const L = local();
   const [h, mi] = String(t.teamReportAt || '09:00').split(':').map(Number);

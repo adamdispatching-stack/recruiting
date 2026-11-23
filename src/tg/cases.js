@@ -183,6 +183,7 @@ async function apply(chat, r, fresh, { quiet = false, mode = 'watch' } = {}) {
 
 // a step waiting longer than it should: the dispatcher (and the admins) are told once per step; a case open 24 hours: the admins
 async function tick() {
+  if (require('./bot').paused()) return; // paused everywhere
   const open = (await q(`SELECT c.*, p.title, p.steps, d.name driver FROM tg_cases c JOIN tg_playbooks p ON p.id = c.playbook_id LEFT JOIN drivers d ON d.id = c.driver_id WHERE c.status = 'open'`)).rows;
   for (const c of open) {
     const n = nextStep(c, c.steps || []);

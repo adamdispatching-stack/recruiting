@@ -2067,3 +2067,4 @@ td.lmsg .lmtext{font-size:13px;line-height:1.35}
 .djdone{grid-column:1/-1;display:flex;gap:10px;align-items:baseline;font-size:14px;border-top:1px dashed var(--line);padding-top:10px}
 .djdone b{color:var(--green-d);white-space:nowrap}
 .learnc h4{margin:16px 0 6px;font-size:14px}.learnc .props li{align-items:flex-start;gap:8px}.learnc label.chk{display:block;margin:8px 0}
+.learnc .audits li{align-items:flex-start;gap:8px;flex-wrap:wrap}.learnc h3 .btn{margin-left:8px}

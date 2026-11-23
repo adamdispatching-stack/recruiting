@@ -19,8 +19,29 @@ const SAMPLE = 5; // one in five answers on a proven topic still goes to the tea
 const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.floor((s.length - 1) / 2)]; };
 const pct = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
 
+// ---------- is the grader fair? a person checks a sample ----------
+// The bot grades itself, so a person confirms some of its grades. Under 80% agreement (over 10 or more checks) the
+// grades are not trusted: no topic counts as proven until the checks look better.
+async function graderTrust() {
+  const r = (await q(`SELECT audit FROM tg_drafts WHERE audit IS NOT NULL AND audit_at > now() - interval '60 days' LIMIT 2000`)).rows;
+  const fair = r.filter((x) => x.audit === 'fair').length, total = r.length; const agreement = total ? fair / total : null;
+  return { fair, unfair: total - fair, total, agreement, trusted: total < 10 || agreement >= 0.8 };
+}
+// up to 6 grades to check: the newest matches and the newest misses, so both kinds are looked at
+async function auditQueue() {
+  const pick = async (cond) => (await q(`SELECT x.id, d.name, x.topic, x.driver_text, x.draft, coalesce(x.team_text, x.sent_text) team, x.grade, x.grade_note, x.graded_at FROM tg_drafts x LEFT JOIN drivers d ON d.id = x.driver_id
+    WHERE x.audit IS NULL AND x.grade ${cond} AND coalesce(x.grade_note, '') <> 'Sent as written' AND x.graded_at > now() - interval '21 days' ORDER BY x.graded_at DESC LIMIT 3`)).rows;
+  return [...await pick("= 'same'"), ...await pick("IN ('partly', 'wrong')")].map((x) => ({ id: x.id, name: x.name, topic: x.topic, asked: x.driver_text, draft: x.draft, team: x.team, grade: x.grade, note: x.grade_note, at: x.graded_at }));
+}
+async function audit(id, fair, grade, user) {
+  if (!fair && !['same', 'partly', 'wrong', 'unrelated'].includes(grade)) return null;
+  const r = (await q(`UPDATE tg_drafts SET audit = $2, audit_by = $3, audit_at = now()${fair ? '' : ", grade = $4, grade_note = 'Corrected by ' || $3"} WHERE id = $1 AND grade IS NOT NULL RETURNING grade`, fair ? [id, 'fair', user.name] : [id, 'unfair', user.name, grade])).rows[0];
+  return r ? { grade: r.grade, trust: await graderTrust() } : null;
+}
+
 // ---------- 1. skills ----------
 async function skills() {
+  const trusted = (await graderTrust()).trusted;
   const TOPICS = require('../kb').TOPICS;
   const rows = (await q(`SELECT topic, grade, auto, graded_at FROM tg_drafts WHERE grade IS NOT NULL AND graded_at > now() - interval '60 days' ORDER BY graded_at DESC LIMIT 5000`)).rows;
   const alone = (await q(`SELECT topic FROM tg_drafts WHERE auto AND created_at > now() - interval '60 days' LIMIT 5000`)).rows;
@@ -34,12 +55,12 @@ async function skills() {
     const total = s.same + s.partly + s.wrong; const accuracy = (s.same + s.partly * 0.5) / total; const humanOnly = HUMAN_ONLY.includes(s.topic);
     const slipping = s.last.includes('wrong');
     return { topic: s.topic, label: s.label, same: s.same, partly: s.partly, wrong: s.wrong, total, accuracy, humanOnly, slipping,
-      proven: !humanOnly && total >= BAR.min && accuracy >= BAR.acc && !slipping, alone: alone.filter((a) => (a.topic || 'other') === s.topic).length };
+      proven: trusted && !humanOnly && total >= BAR.min && accuracy >= BAR.acc && !slipping, alone: alone.filter((a) => (a.topic || 'other') === s.topic).length };
   }).sort((a, b) => b.total - a.total);
 }
 // May the bot answer this topic by itself right now? (the setting is on, the topic is proven, and this is not the one in five)
 async function mayAnswerAlone(topic, roll = Math.random()) {
-  if (!(db.settings.tg || {}).skillAuto || !topic || HUMAN_ONLY.includes(topic)) return false;
+  if (!(db.settings.tg || {}).skillAuto || (db.settings.tg || {}).paused || !topic || HUMAN_ONLY.includes(topic)) return false;
   const s = (await skills()).find((x) => x.topic === topic);
   return !!(s && s.proven) && roll >= 1 / SAMPLE;
 }
@@ -88,6 +109,29 @@ async function typical(force) {
   return typ;
 }
 
+// did the warnings come true? each "he may be slipping" is kept, and later marked with what really happened
+async function flag(driverId) {
+  if ((await q(`SELECT 1 FROM bot_predictions WHERE driver_id = $1 AND at > now() - interval '45 days'`, [driverId])).rows[0]) return;
+  await q(`INSERT INTO bot_predictions (driver_id) VALUES ($1)`, [driverId]);
+}
+async function resolvePredictions() {
+  for (const p of (await q(`SELECT p.id, p.at, d.status, d.amazon_step, d.left_on FROM bot_predictions p JOIN drivers d ON d.id = p.driver_id WHERE p.outcome IS NULL`)).rows) {
+    const out = db.LOST.includes(p.status) || p.left_on ? 'dropped' : p.status === 'Hired' || p.amazon_step === 'verified' ? 'made_it' : Date.now() - new Date(p.at) > 45 * 864e5 ? 'unclear' : null;
+    if (out) await q(`UPDATE bot_predictions SET outcome = $2, decided_at = now() WHERE id = $1`, [p.id, out]);
+  }
+}
+// Of the drivers it warned about, how many dropped out, next to the drivers it did not warn about
+async function predictionStats() {
+  const f = (await q(`SELECT outcome FROM bot_predictions WHERE at > now() - interval '180 days'`)).rows;
+  const dropped = f.filter((x) => x.outcome === 'dropped').length, made = f.filter((x) => x.outcome === 'made_it').length, open = f.filter((x) => !x.outcome).length;
+  const warned = new Set((await q(`SELECT driver_id FROM bot_predictions`)).rows.map((x) => x.driver_id));
+  const others = (await q(`SELECT d.id, d.status, d.amazon_step FROM drivers d JOIN onboarding o ON o.driver_id = d.id WHERE o.started_at > now() - interval '180 days'`)).rows.filter((x) => !warned.has(x.id));
+  const oDrop = others.filter((x) => db.LOST.includes(x.status)).length, oMade = others.filter((x) => !db.LOST.includes(x.status) && (x.status === 'Hired' || x.amazon_step === 'verified')).length;
+  const rate = (a, b) => (a + b ? a / (a + b) : null);
+  const hit = rate(dropped, made), base = rate(oDrop, oMade);
+  return { flagged: f.length, open, dropped, madeIt: made, hitRate: hit, baseRate: base, useful: dropped + made >= 10 && base !== null ? hit > base : null };
+}
+
 // ---------- 4. people ----------
 // The hours (team time zone) this driver usually writes; null when we do not know him yet
 async function activeHours(driverId) {
@@ -121,7 +165,7 @@ async function material() {
   const steps = (await q(`SELECT label, evidence FROM onb_ai_steps WHERE state IN ('rejected', 'undone') AND decided_at > now() - interval '7 days' LIMIT 15`)).rows;
   const ignored = (await q(`SELECT key, count(*)::int n FROM journey_asks WHERE done_at > now() - interval '7 days' GROUP BY key`)).rows;
   const drafts = (await q(`SELECT state, count(*)::int n FROM tg_drafts WHERE created_at > now() - interval '7 days' GROUP BY state`)).rows;
-  return { misses, steps, ignored, drafts, skills: await skills(), outcomes: await outcomeStats(), team: await teamStats() };
+  return { misses, steps, ignored, drafts, predictions: await predictionStats(), grader: await graderTrust(), skills: await skills(), outcomes: await outcomeStats(), team: await teamStats() };
 }
 async function review({ force = false } = {}) {
   const ai = require('./ai'); if (!ai.on()) return { skipped: 'The AI is off' };
@@ -134,7 +178,9 @@ async function review({ force = false } = {}) {
     'DRAFTS THIS WEEK BY WHAT HAPPENED TO THEM:', ...m.drafts.map((x) => `- ${x.state}: ${x.n}`),
     'SCORE BY TOPIC:', ...m.skills.map((s) => `- ${s.label}: ${Math.round(s.accuracy * 100)}% of ${s.total}${s.proven ? ' (proven)' : ''}`),
     'REPLY RATE BY MESSAGE AND WORDING:', ...m.outcomes.map((o) => `- ${o.kind} #${o.variant}: ${o.replied} of ${o.sent}`),
-    `TEAM: ${m.team.asked} follow-ups asked, ${m.team.waiting} not answered.`];
+    `TEAM: ${m.team.asked} follow-ups asked, ${m.team.waiting} not answered.`,
+    `YOUR "SLIPPING" WARNINGS: ${m.predictions.flagged} drivers flagged, ${m.predictions.dropped} dropped out, ${m.predictions.madeIt} made it; of drivers you did not flag, ${m.predictions.baseRate === null ? 'unknown' : Math.round(m.predictions.baseRate * 100) + '%'} dropped out.`,
+    `A PERSON CHECKED ${m.grader.total} OF YOUR GRADES: ${m.grader.fair} fair, ${m.grader.unfair} unfair.`];
   const r = await ai.weeklyReview(lines.join('\n').slice(0, 30000));
   let saved = 0;
   for (const p of (r.proposals || []).slice(0, 10)) {
@@ -168,12 +214,28 @@ async function siteTask(p) {
   return 'Approved. GitHub issue: ' + j.html_url;
 }
 
+// A topic that was proven and slipped, or a new proven one: the admins hear (the bot already stepped back by itself)
+async function watchSkills() {
+  const now = (await skills()).filter((s) => s.proven).map((s) => s.topic).sort();
+  const st = (await q(`SELECT value FROM tg_state WHERE key = 'skills:proven'`)).rows[0];
+  const was = st && Array.isArray(st.value && st.value.topics) ? st.value.topics : null;
+  await q(`INSERT INTO tg_state (key, value) VALUES ('skills:proven', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify({ topics: now })]);
+  if (!was) return { slipped: [], gained: [] };
+  const TOPICS = require('../kb').TOPICS; const slipped = was.filter((t) => !now.includes(t)), gained = now.filter((t) => !was.includes(t));
+  const admins = (await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows; const alone = !!(db.settings.tg || {}).skillAuto;
+  const trusted = (await graderTrust()).trusted;
+  for (const t of slipped) for (const u of admins) await db.notify(db.pool, u.id, 'telegram', `The bot slipped on "${TOPICS[t] || t}": ${trusted ? 'a recent draft was wrong' : 'its grades were found unfair too often'}. ${alone ? 'It stopped answering that topic alone; answers wait for a person again.' : 'It is back to learning.'}`, '#/telegram');
+  for (const t of gained) for (const u of admins) await db.notify(db.pool, u.id, 'telegram', `The bot has proven "${TOPICS[t] || t}": its drafts match your team. ${alone ? 'It now answers that topic by itself.' : 'Turn on "answers proven topics by itself" (Telegram, Autopilot) to let it.'}`, '#/telegram');
+  return { slipped, gained };
+}
 async function tick() {
   await markReplies().catch((e) => console.error('learn replies', e.message));
+  await resolvePredictions().catch((e) => console.error('learn predictions', e.message));
+  await watchSkills().catch((e) => console.error('learn skills', e.message));
   // the review: once a week
   const week = Math.floor(Date.now() / (7 * 864e5));
   const first = (await q(`INSERT INTO tg_state (key, value) VALUES ($1, '{}'::jsonb) ON CONFLICT (key) DO NOTHING RETURNING key`, ['review:' + week])).rows[0];
   if (first) await review().catch((e) => console.error('learn review', e.message));
 }
 function start() { setInterval(() => tick().catch((e) => console.error('learn tick', e.message)), +process.env.TG_LEARN_MS || 10 * 60000); }
-module.exports = { start, tick, skills, mayAnswerAlone, record, markReplies, outcomeStats, choose, typical, activeHours, goodTime, teamStats, teamAnswered, material, review, decide, HUMAN_ONLY, BAR, SAMPLE };
+module.exports = { graderTrust, auditQueue, audit, flag, resolvePredictions, predictionStats, watchSkills, start, tick, skills, mayAnswerAlone, record, markReplies, outcomeStats, choose, typical, activeHours, goodTime, teamStats, teamAnswered, material, review, decide, HUMAN_ONLY, BAR, SAMPLE };

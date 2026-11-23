@@ -85,7 +85,7 @@ async function remind() {
   }
 }
 async function askMiles(t, o) {
-  const bot = require('./tg/bot'); if (!bot.on() || !bot.state.me) return;
+  const bot = require('./tg/bot'); if (!bot.on() || !bot.state.me || bot.paused()) return;
   const g = (await q(`SELECT chat_id, mode FROM tg_chats WHERE driver_id = $1 AND kind = 'dispatch' AND active ORDER BY last_at DESC NULLS LAST LIMIT 1`, [t.driver_id])).rows[0]; if (!g) return;
   const p = (await q(`SELECT * FROM tg_people WHERE role = 'driver' AND driver_id = $1 ORDER BY seen_at DESC LIMIT 1`, [t.driver_id])).rows[0];
   const who = p ? bot.tag(p) : `<b>${bot.esc(t.driver.split(/\s+/)[0])}</b>`;

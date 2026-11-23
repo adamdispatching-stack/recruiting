@@ -43,7 +43,11 @@ async function download(fileId, maxBytes = 10 * 1024 * 1024) {
 // ---------- sending ----------
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const tag = (p) => (p.username ? '@' + p.username : `<a href="tg://user?id=${p.tg_id}">${esc(p.name || 'there')}</a>`);
-async function send(chatId, html, { buttons, replyTo, forceReply } = {}) {
+// Paused (Telegram → Autopilot, or /pause): the bot writes nothing by itself in any group. What a person sends from the
+// website (human) still goes out, and so do private alerts to our team.
+const paused = () => !!(db.settings.tg || {}).paused;
+async function send(chatId, html, { buttons, replyTo, forceReply, human } = {}) {
+  if (+chatId < 0 && !human && paused()) { await log('paused', `Not sent, the bot is paused: ${clip(html, 140)}`, { chatId }).catch(() => {}); return { message_id: null, paused: true }; }
   const params = { chat_id: chatId, text: html, parse_mode: 'HTML', disable_web_page_preview: true };
   if (buttons) params.reply_markup = { inline_keyboard: buttons.map((row) => row.map(([text, data]) => (/^https?:/.test(data) ? { text, url: data } : { text, callback_data: data }))) };
   if (forceReply) params.reply_markup = { force_reply: true, selective: true };
@@ -489,6 +493,13 @@ async function handle(u) {
   if (reg && who) return register(m, reg[1], who);
   if (cmd && cmd[1] === 'help') return send(chat.chat_id, helpText(true), { replyTo: m.message_id });
   if (cmd && cmd[1] === 'info' && chat.kind === 'eld') return require('./eld').infoCmd(chat, who); // the driver's info and papers, on request
+  if (cmd && (cmd[1] === 'pause' || cmd[1] === 'resume')) { // an admin stops or restarts the bot everywhere
+    const adm = who && who.user_id && (await q(`SELECT 1 FROM users WHERE id = $1 AND active AND role = 'admin'`, [who.user_id])).rows[0];
+    if (!adm) return send(m.chat.id, 'Only an admin can pause the bot.', { replyTo: m.message_id, human: true });
+    await db.saveSetting('tg', { ...(db.settings.tg || {}), paused: cmd[1] === 'pause' });
+    await log('mode', cmd[1] === 'pause' ? `${who.name} paused the bot everywhere` : `${who.name} resumed the bot`, { chatId: chat.chat_id, who });
+    return send(m.chat.id, cmd[1] === 'pause' ? '⏸ Paused. I will not write in any group until /resume. I keep reading and learning.' : '▶️ Back on.', { replyTo: m.message_id, human: true });
+  }
   if (cmd && cmd[1] === 'mode') return modeCmd(m, chat, cmd[2], who);
   if (cmd && cmd[1] === 'sum') return sumCmd(m, chat, who);
   if (cmd && cmd[1] === 'status') {
@@ -606,4 +617,4 @@ async function start() {
   await retryWaiting().catch((e) => console.error('tg waiting', e.message));
   loop();
 }
-module.exports = { react, isStaff, trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+module.exports = { paused, react, isStaff, trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

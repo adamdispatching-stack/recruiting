@@ -124,6 +124,7 @@ async function typing(chatId) { try { await bot.call('sendChatAction', { chat_id
 async function tick() {
   if (!bot.state.me) return;
   const t = db.settings.tg || {}; if (t.teamFollowups === false) return;
+  if (bot.paused()) return; // paused everywhere (Telegram → Autopilot)
   // our team works around the clock; drivers hear from the bot only in the daytime
   const h = +new Date().toLocaleString('en-US', { timeZone: db.settings.tz || 'America/Chicago', hour: 'numeric', hourCycle: 'h23' });
   const daytime = !!process.env.TG_NO_QUIET || (h >= 9 && h < 20);
@@ -158,7 +159,7 @@ async function tick() {
       const n = side === 'driver' && it.nv ? await learn.choose('followup:' + it.key, it.nv) : st[it.key] ? st[it.key].count : 0; let msgId = null;
       if (side === 'team') {
         const tag = await require('./team').who(d.owner_id, d.owner);
-        if (teamChat) { await typing(teamChat); const m = await bot.send(teamChat, `${tag}, ${it.text(n, first(d.name))}`, it.buttons ? { buttons: it.buttons } : {}); msgId = m && m.message_id; await learn.record({ driverId: d.id, kind: 'team:' + it.key }).catch(() => {}); }
+        if (teamChat) { await typing(teamChat); const m = await bot.send(teamChat, `${tag}, ${it.text(n, first(d.name))}`, it.buttons ? { buttons: it.buttons } : {}); msgId = m && m.message_id; await learn.record({ driverId: d.id, kind: 'team:' + it.key }).catch(() => {}); if (it.key === 'at_risk') await learn.flag(d.id).catch(() => {}); }
         else if (d.owner_id) await db.notify(db.pool, d.owner_id, 'telegram', bot.stripHtml(it.text(n, first(d.name))), `#/driver/${d.id}`, { driverId: d.id });
         else continue; // nobody to tell
         teamSent++;

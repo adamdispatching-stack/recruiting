@@ -45,6 +45,7 @@ async function team(driverId) {
 }
 async function tick() {
   const tz = db.settings.tz; const bot = require('./tg/bot');
+  if (bot.paused()) return; // paused everywhere
   const L = (await q(`SELECT (now() AT TIME ZONE $1)::date::text d, extract(hour FROM now() AT TIME ZONE $1)::int h`, [tz])).rows[0];
   if (!process.env.TG_NO_QUIET && (L.h < 9 || L.h >= 20)) return; // daytime only
   // 2 days before he comes back: confirm, ticket?

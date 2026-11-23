@@ -419,6 +419,13 @@ async function migrate() {
     ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS topic TEXT;
     ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS variant INT;
     ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false;
+    -- a person checks a sample of the bot's own grades: fair | unfair (then the grade is corrected)
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS audit TEXT;
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS audit_by TEXT;
+    ALTER TABLE tg_drafts ADD COLUMN IF NOT EXISTS audit_at TIMESTAMPTZ;
+    -- the bot's warnings ("he may be slipping"), and what really happened: made_it | dropped | unclear
+    CREATE TABLE IF NOT EXISTS bot_predictions (id SERIAL PRIMARY KEY, driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, kind TEXT NOT NULL DEFAULT 'slipping',
+      at TIMESTAMPTZ NOT NULL DEFAULT now(), outcome TEXT, decided_at TIMESTAMPTZ);
     -- what happened after a message of the bot: a driver wrote back within a day; someone on the team answered a follow-up
     CREATE TABLE IF NOT EXISTS bot_outcomes (id SERIAL PRIMARY KEY, driver_id INT REFERENCES drivers(id) ON DELETE CASCADE, kind TEXT NOT NULL, variant INT NOT NULL DEFAULT 0, who TEXT,
       sent_at TIMESTAMPTZ NOT NULL DEFAULT now(), replied_at TIMESTAMPTZ);

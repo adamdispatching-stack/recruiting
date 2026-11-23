@@ -213,7 +213,7 @@ async function answersAlone(chat, topic) {
 // Answer a driver's message. watch: every reply waits on the website. assist: questions it is sure about are answered, the rest waits.
 // run: it answers what it is sure about (questions and other messages); a question it cannot answer goes to a person.
 async function qa(c, chat, m, who, text, opts) {
-  const mode = opts.mode || 'run';
+  const mode = bot.paused() ? 'watch' : opts.mode || 'run'; // paused: every reply waits on the website
   // someone from the team is talking with the driver right now: let them (a draft is still fine in watch)
   const busy = mode !== 'watch' && (await q(`SELECT 1 FROM tg_messages x JOIN tg_people p ON p.tg_id = x.from_id WHERE x.chat_id = $1 AND x.at > now() - interval '10 minutes' AND (p.role IN ('staff', 'accounting') OR p.user_id IS NOT NULL) AND x.text NOT LIKE '/%' AND x.text !~* '^register\\y' LIMIT 1`, [chat.chat_id])).rows[0];
   // only the entries that fit this message (plus places and roads), not the whole knowledge base
@@ -298,6 +298,7 @@ async function readFile(c, m, who, file) {
 async function tick() {
   if (!bot.state.me) return;
   const tz = db.settings.tz;
+  if (bot.paused()) return; // paused everywhere (Telegram → Autopilot)
   const L = (await q(`SELECT extract(hour FROM now() AT TIME ZONE $1)::int h, (now() AT TIME ZONE $1)::date::text d, ((now() AT TIME ZONE $1)::date + 1)::text tmr`, [tz])).rows[0];
   const day = !!process.env.TG_NO_QUIET || (L.h >= 9 && L.h < 20); // reminders in the daytime only (TG_NO_QUIET: tests only)
   const cases = (await q(`SELECT c.driver_id FROM onb_cases c JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active AND ch.kind = 'dispatch' AND ch.driver_id = c.driver_id
@@ -348,7 +349,7 @@ async function tick() {
 // An answer written on the website: the bot posts it in the group and learns it
 // a reply the bot wrote, sent from the website (as written or changed). A changed one is also learned (to approve in Knowledge)
 async function sendDraft(dr, text, user) {
-  const sent = await send(dr.chat_id, esc(text), { replyTo: dr.msg_id || undefined });
+  const sent = await send(dr.chat_id, esc(text), { replyTo: dr.msg_id || undefined, human: true });
   const edited = text.trim() !== String(dr.draft).trim();
   await q(`UPDATE tg_drafts SET state = 'sent', sent_text = $2, sent_by = $3, decided_at = now() WHERE id = $1`, [dr.id, text.slice(0, 1500), user.name]);
   grade(dr, text).catch((e) => console.error('self-grade', e.message)); // sent as written = right; changed = the AI compares
@@ -365,7 +366,7 @@ async function sendDraft(dr, text, user) {
 }
 async function answerFromWebsite(qid, answer, user) {
   const qn = (await q(`SELECT * FROM tg_questions WHERE id = $1`, [qid])).rows[0]; if (!qn) return null;
-  await send(qn.chat_id, `${esc(answer)}\n<i>(${esc(user.name)})</i>`, { replyTo: qn.msg_id });
+  await send(qn.chat_id, `${esc(answer)}\n<i>(${esc(user.name)})</i>`, { replyTo: qn.msg_id, human: true });
   const k = (await q(`SELECT kind FROM tg_chats WHERE chat_id = $1`, [qn.chat_id])).rows[0];
   await learn(qn, answer, user.name, k && k.kind === 'accounting' ? 'accounting' : 'general');
   return true;

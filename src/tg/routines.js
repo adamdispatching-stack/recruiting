@@ -137,7 +137,8 @@ async function once(s, w, kind) {
   return !!r.rows[0];
 }
 async function tick() {
-  const c = D().cfg(); if (!c.on) return; const bot = require('./bot'); const R = { boardMin: 45, notesMin: 45, ...(c.routines || {}) };
+  const c = D().cfg(); if (!c.on) return; const bot = require('./bot');
+  if (bot.paused()) return; // paused everywhere const R = { boardMin: 45, notesMin: 45, ...(c.routines || {}) };
   const site = process.env.PUBLIC_URL || '';
   for (const s of c.shifts) {
     if (!(s.people || []).length && !D().groupsOf(s).length) continue;

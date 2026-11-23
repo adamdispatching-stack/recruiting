@@ -157,7 +157,7 @@ module.exports = (app) => {
     const d = (await q(`SELECT d.id, d.name, c.chat_id FROM drivers d JOIN tg_chats c ON c.driver_id = d.id AND c.kind = 'dispatch' AND c.active WHERE d.id = $1 ORDER BY c.last_at DESC NULLS LAST LIMIT 1`, [+req.params.driverId || 0])).rows[0];
     if (!d) return res.status(404).json({ error: 'No dispatch group for this driver' });
     const text = String((req.body || {}).text || '').trim().slice(0, 1500); if (!text) return res.status(400).json({ error: 'Write the note first' });
-    try { await bot.send(d.chat_id, `${bot.esc(text)}\n<i>(${bot.esc(req.user.name)})</i>`); } catch (e) { return res.status(502).json({ error: 'Telegram did not take it: ' + e.message }); }
+    try { await bot.send(d.chat_id, `${bot.esc(text)}\n<i>(${bot.esc(req.user.name)})</i>`, { human: true }); } catch (e) { return res.status(502).json({ error: 'Telegram did not take it: ' + e.message }); }
     await require('./tg/routines').noteFromGroup({ chat_id: d.chat_id, driver_id: d.id }, req.user.name);
     await bot.log('reply', `${req.user.name} posted the shift update note`, { chatId: d.chat_id, driverId: d.id, who: req.user.name });
     res.json({ ok: true });
@@ -412,7 +412,7 @@ module.exports = (app) => {
     if (!c || c.kind !== 'management') return res.status(400).json({ error: 'Only for a management group' });
     if (!bot.on()) return res.status(409).json({ error: 'The Telegram bot is not running' });
     const team = require('./tg/team'); await team.refresh();
-    for (const t of await team.onboardText({ tagRecruiters: true })) await bot.send(req.params.id, t);
+    for (const t of await team.onboardText({ tagRecruiters: true })) await bot.send(req.params.id, t, { human: true });
     await bot.log('said', `Onboarding list sent from the website (${req.user.name})`, { chatId: req.params.id, driverId: null });
     res.json({ ok: true });
   }));
@@ -617,7 +617,8 @@ module.exports = (app) => {
     const learn = require('./tg/learn'); const admin = req.user.role === 'admin';
     const AMZ = Object.fromEntries(db.AMAZON.map((a) => [a.key, a.label]));
     const typ = await learn.typical();
-    res.json({ skillAuto: !!(db.settings.tg || {}).skillAuto, bar: learn.BAR, sample: learn.SAMPLE, skills: await learn.skills(), outcomes: await learn.outcomeStats(),
+    res.json({ paused: !!(db.settings.tg || {}).paused, grader: await learn.graderTrust(), audit: admin ? await learn.auditQueue() : [], predictions: await learn.predictionStats(),
+      skillAuto: !!(db.settings.tg || {}).skillAuto, bar: learn.BAR, sample: learn.SAMPLE, skills: await learn.skills(), outcomes: await learn.outcomeStats(),
       typical: Object.entries(typ).map(([k, v]) => ({ step: AMZ[k] || k, n: v.n, medianH: Math.round(v.median), slowH: Math.round(v.slow) })),
       team: admin ? await learn.teamStats() : null,
       proposals: admin ? (await q(`SELECT id, kind, title, detail, status, note, created_at, decided_by FROM bot_proposals WHERE status = 'open' OR decided_at > now() - interval '30 days' ORDER BY (status = 'open') DESC, created_at DESC LIMIT 40`)).rows : [] });
@@ -626,6 +627,12 @@ module.exports = (app) => {
     const d = (req.body || {}).decision; if (!['approve', 'reject'].includes(d)) return res.status(400).json({ error: 'Approve or reject' });
     const r = await require('./tg/learn').decide(+req.params.id || 0, d, req.user);
     if (!r) return res.status(404).json({ error: 'Already decided' });
+    res.json({ ok: true, ...r });
+  }));
+  // a person checks one of the bot's own grades
+  app.post('/api/tg/drafts/:id/audit', needUser, needAdmin, wrap(async (req, res) => {
+    const b = req.body || {}; const r = await require('./tg/learn').audit(+req.params.id || 0, b.fair === true, b.grade, req.user);
+    if (!r) return res.status(400).json({ error: 'Pick the right grade: same, partly or wrong' });
     res.json({ ok: true, ...r });
   }));
   app.post('/api/tg/learning/review', needUser, needAdmin, wrap(async (req, res) => { res.json(await require('./tg/learn').review({ force: true })); }));
@@ -639,6 +646,7 @@ module.exports = (app) => {
     if (b.workMode !== undefined) { if (!['watch', 'updater'].includes(b.workMode)) return res.status(400).json({ error: 'Pick watch or updater' }); v.workMode = b.workMode; }
     if (b.onbMode !== undefined) { if (!['watch', 'assist', 'run'].includes(b.onbMode)) return res.status(400).json({ error: 'Pick watch, assist or run' }); v.onbMode = b.onbMode; }
     if (b.autoTick !== undefined) v.autoTick = !!b.autoTick;
+    if (b.paused !== undefined) { v.paused = !!b.paused; await bot.log('mode', v.paused ? `${req.user.name} paused the bot everywhere` : `${req.user.name} resumed the bot`, { who: { name: req.user.name } }).catch(() => {}); }
     if (b.skillAuto !== undefined) v.skillAuto = !!b.skillAuto; // the bot answers the topics it has proven by itself
     await db.saveSetting('tg', v);
     await lib.act(req.user, 'admin', null, `${b.workMode !== undefined ? `Working drivers' groups start in "${v.workMode}". ` : ''}Onboarding bot: new groups start in "${v.onbMode}"${v.autoTick ? ', the AI ticks steps itself' : ''}`);
