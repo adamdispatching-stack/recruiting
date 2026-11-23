@@ -212,4 +212,4 @@ async function tick() {
   }
 }
 function start() { setInterval(() => tick().catch((e) => console.error('team tick', e.message)), +process.env.TG_TEAM_MS || 5 * 60000); }
-module.exports = { oilCmd, oilText, start, tick, onboardCmd, onboardText, followups, refresh };
+module.exports = { who, oilCmd, oilText, start, tick, onboardCmd, onboardText, followups, refresh };

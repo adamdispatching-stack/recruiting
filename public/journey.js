@@ -23,7 +23,9 @@ onb: [
    ai: [['on', 'Link the group to the right driver by the name or phone in the title. Ask the team on the website when unsure.'],
         ['on', 'Show on the board that the bot is in the group: Bot connected, not admin, or removed.'],
         ['on', 'Work out which Telegram account is the driver\'s, and ask "Who is the driver?" on the board when it cannot tell.'],
-        ['run', 'Welcome him, post his status card, and the button "🚚 I am the driver".', 'Hi Mike! Welcome to FleetHire…']],
+        ['run', 'Welcome him, post his status card, and the button "🚚 I am the driver".', 'Hi Mike! Welcome to FleetHire…'],
+        ['on', 'Follow up with the recruiter in the management group when he has no group yet, or the bot was removed or is not an admin.', '@rita, Mike Smith is in onboarding but has no Telegram group yet. Can you create one and add me to it?'],
+        ['on', 'Ask the team which account is the driver, with a button for each person who wrote.', 'Which one is Mike Smith in his group? [Mike S] [Mary] [None of them]']],
    done: 'The group is linked and the driver\'s account is known.' },
  { n: 'Signs up on Amazon Relay', feel: 'The longest step. He creates his Relay account, fills his profile, and waits for Amazon\'s background check.',
    driver: ['Accepts the Relay invite', 'Creates the account and fills the profile', 'Waits for Amazon to approve him', 'Sends screenshots when asked'],
@@ -32,7 +34,10 @@ onb: [
         ['run', 'Remind him when a step is stuck 24 hours (daytime, up to 3 times), then tell the recruiter.', '⏰ Reminder: …'],
         ['run', 'Read his Relay screenshots. When it looks approved, ask the recruiter to confirm in Relay.', 'This looks like Amazon approved Mike! @recruiter, please confirm in Relay'],
         ['on', 'Read the group 2 minutes after it goes quiet: what we are waiting on, the next step, what is holding it up, his mood. Shown on the board.'],
-        ['on', 'Tell the recruiter when he has waited for Amazon more than 7 days.']],
+        ['on', 'Tell the recruiter when he has waited for Amazon more than 7 days.'],
+        ['on', 'Ask the team if the Relay invite went out, a day into onboarding.', 'Has the Amazon Relay invite gone out to Mike Smith? [✅ Sent] [Not yet]'],
+        ['on', 'Once he signed up, ask the team every 2 days if Amazon verified him. "Verified" marks it on the website.', 'Is Mike Smith\'s Amazon Relay account verified yet? [✅ Verified] [⏳ Not yet]'],
+        ['draft', 'Follow up with him when the invite is a day old and he has not signed up.', 'Hi Mike! Just checking: did you get the Amazon Relay invite email?']],
    done: 'Amazon verified (confirmed by a person).' },
  { n: 'Asks questions', feel: 'All through onboarding he asks: pay, the truck, when he starts, what to bring.',
    driver: ['Writes his questions in the group'],
@@ -48,7 +53,9 @@ onb: [
    ai: [['run', 'Read the reports he posts and show the result with Approve / Needs a look for the team.'],
         ['run', 'Warn him and the recruiter when the CDL or medical card expires within 60 days.'],
         ['run', 'Ask him once for his CDL state and ZIP code, and send a private link for the SSN when needed.'],
-        ['on', 'Hide the last 4 of his SSN if he types it in the group, and save the CDL state and ZIP he mentions.']],
+        ['on', 'Hide the last 4 of his SSN if he types it in the group, and save the CDL state and ZIP he mentions.'],
+        ['draft', 'Ask him for his CDL state and ZIP code when they are missing.'],
+        ['on', 'Remind the team what is still open on our side: insurance, MVR, the contract, the Clearinghouse query.']],
    done: 'MVR approved and the checks are clear.' },
  { n: 'Paperwork', feel: 'He signs the contract and registers in the FMCSA Clearinghouse.',
    driver: ['Signs the contract from the safety team', 'Registers in the Clearinghouse and gives consent', 'Sends his bank details'],
@@ -67,21 +74,25 @@ onb: [
    driver: ['Agrees on a start date', 'Travels to the truck'],
    team: ['Assigns a truck and a company', 'Books his travel', 'Sets the expected arrival'],
    ai: [['on', 'Pick up the start date and travel plans from the chat. A date the team typed is never changed.'],
-        ['on', 'Tell the recruiter once a day when he is verified but has no arrival date, company or truck.'],
+        ['on', 'Ask the recruiter in the management group for the missing start date, company or truck once he is verified.'],
+        ['on', 'When the start date has passed, ask the team if he arrived. "He arrived" marks it on the website.', 'Mike Smith was due to start Mon, Nov 24. Did he arrive? [✅ He arrived] [Not yet]'],
         ['run', 'The day before: remind him with his travel and truck details.', '🗓 Mike, tomorrow is your start day!']],
    done: 'He arrives (marked Arrived on his page).' },
  { n: 'Orientation day', feel: 'His first day: the truck is handed over, ELD, fuel card, Relay app, tolls, the safety talk, his first load.',
    driver: ['Takes over the truck', 'Goes through each item with the dispatcher'],
    team: ['The dispatcher goes through the orientation steps and ticks them'],
    ai: [['on', 'Send him the plan for the day in his group (in Watch, it waits on his page to send).', 'Welcome, Mike! Today is your orientation day. The plan:\n• Truck handed over\n• ELD login works\n…'],
-        ['on', 'Tick the orientation steps the group shows done.']],
+        ['on', 'Tick the orientation steps the group shows done.'],
+        ['on', 'When every orientation step is done, ask the team to mark him Hired.']],
    done: 'Status set to Hired. His group becomes his dispatch group.' },
  { risk: true, n: 'May drop out (any step)', feel: 'Some drivers go quiet or say they are not coming.',
    driver: ['Goes silent, gets another offer, or says he is not coming'],
    team: ['Calls him', 'Marks him Dropped out, or Still with us'],
    ai: [['on', 'Keep a chance score for each driver (🟢 🟡 🔴) from silence, reply speed, Amazon progress and mood.'],
         ['on', 'Flag "Says he is not coming" with his words, and tell the recruiter. Never changes his status itself.'],
-        ['on', 'Morning report and follow-ups in the management group: no reply for 3 hours, a missed call-back, Amazon stuck 5 days.']],
+        ['on', 'Morning report and follow-ups in the management group: no reply for 3 hours, a missed call-back, Amazon stuck 5 days.'],
+        ['draft', 'Check in with him when he has been quiet for 3 days.', 'Hey Mike, how is it going? Anything holding you up?'],
+        ['on', 'Follow-ups stop by themselves once the thing is done. After the last try, the admins get a website notice.']],
    done: 'A person decides.' }
 ],
 disp: [
@@ -176,7 +187,7 @@ disp: [
         </div></details></div>`;
     }).join('');
     const pick = (k, l) => `<button type="button" data-act="djPick" data-j="${k}" class="${cur === k ? 'on' : ''}" aria-pressed="${cur === k}">${l}</button>`;
-    view.innerHTML = header('journey') + `<main class="djpage">${App.pageHead('Driver journey', 'Every step a driver goes through with us, from the first Indeed message to his last load: what he does, what our team does, and what the AI is there to do at that moment. The tag on each AI job says whether it works today.')}
+    view.innerHTML = header('journey') + `<main class="djpage">${App.pageHead('Driver journey', 'Every step a driver goes through with us, from the first Indeed message to his last load: what he does, what our team does, and what the AI is there to do at that moment. The tag on each AI job says whether it works today. The bot follows up with whoever owes the next move, like a person: our team in the management group, the driver in his group (a draft to send while the group is in Watch).')}
       <div class="pagebar"><div class="seg" role="group" aria-label="Journey">${pick('onb', 'Onboarding')}${pick('disp', 'Dispatching')}</div>
         <span class="grow"></span><button type="button" class="btn plain" data-act="djAll">Open all</button></div>
       <div class="djlegend"><span class="small mut">AI jobs:</span>${Object.entries(TAG).map(([k, l]) => `<span class="djst ${k}">${l}</span>`).join('')}</div>

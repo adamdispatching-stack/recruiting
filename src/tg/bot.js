@@ -407,6 +407,7 @@ async function handle(u) {
       else if (cq.data.startsWith('regm:')) answer = await modeButton(cq, who);
       else if (cq.data.startsWith('regc:')) { if (!isStaff(who)) answer = 'Only our team can choose this.'; else { const [, cid, md] = cq.data.split(':'); await dropButtons(cq.message.chat.id, cq.message.message_id); if (String(cid) === String(cq.message.chat.id) && await setChatMode(cq.message.chat.id, md, who.name, who)) answer = CMODES[md] + ' ✓'; } }
       else if (cq.data.startsWith('desk:')) answer = await require('./desk').onButton(cq, who);
+      else if (cq.data.startsWith('jr:')) answer = await require('./journey').onButton(cq, who);
       else if (cq.data.startsWith('regk:')) { if (!isStaff(who)) answer = 'Only our team can register a group.'; else { await dropButtons(cq.message.chat.id, cq.message.message_id); await register({ chat: cq.message.chat, message_id: cq.message.message_id }, cq.data.split(':')[1], who); answer = 'OK'; } }
       else { const job = chat && handlers[chat.kind]; if (job && cq.data.startsWith(PREFIX[chat.kind] + ':')) answer = (await job.onButton(chat, cq, who)) || ''; }
     }

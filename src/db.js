@@ -288,6 +288,7 @@ async function migrate() {
       user_id INT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), used_at TIMESTAMPTZ
     );
     -- set on the website: this Telegram account is not this driver's (the bot's guesses never link it to them again)
+    CREATE TABLE IF NOT EXISTS journey_asks (driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, key TEXT NOT NULL, count INT NOT NULL DEFAULT 0, last_at TIMESTAMPTZ, snooze_until TIMESTAMPTZ, done_at TIMESTAMPTZ, PRIMARY KEY (driver_id, key));
     CREATE TABLE IF NOT EXISTS tg_not_driver (driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, tg_id BIGINT NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (driver_id, tg_id));
     ALTER TABLE tg_people ADD COLUMN IF NOT EXISTS team_dismissed_at TIMESTAMPTZ;
     -- ELD setup for one driver, step by step, then daily checks by the ELD team
