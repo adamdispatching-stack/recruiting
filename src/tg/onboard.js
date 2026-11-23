@@ -306,6 +306,7 @@ async function tick() {
   }
   // the contract and the Clearinghouse: reminders for the driver (every mode; Watch: waiting on the website)
   await require('./paperwork').tick(day).catch((e) => console.error('paperwork', e.message));
+  await require('./paperwork').orientation(day, L.d).catch((e) => console.error('orientation day', e.message));
   // questions nobody answered for 2 hours (daytime): the recruiter hears again
   if (day) {
     const qs = (await q(`SELECT q.*, c.driver_id cd FROM tg_questions q JOIN onb_cases c ON c.chat_id = q.chat_id WHERE q.answer IS NULL AND q.asked_at < now() - interval '2 hours' AND q.asked_at > now() - interval '3 days' AND NOT coalesce((SELECT (sent ->> ('q' || q.id))::boolean FROM onb_cases WHERE driver_id = c.driver_id), false)`)).rows;

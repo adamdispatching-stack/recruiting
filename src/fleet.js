@@ -86,10 +86,14 @@ async function remind() {
 }
 async function askMiles(t, o) {
   const bot = require('./tg/bot'); if (!bot.on() || !bot.state.me) return;
-  const g = (await q(`SELECT chat_id FROM tg_chats WHERE driver_id = $1 AND kind = 'dispatch'`, [t.driver_id])).rows[0]; if (!g) return;
+  const g = (await q(`SELECT chat_id, mode FROM tg_chats WHERE driver_id = $1 AND kind = 'dispatch' AND active ORDER BY last_at DESC NULLS LAST LIMIT 1`, [t.driver_id])).rows[0]; if (!g) return;
   const p = (await q(`SELECT * FROM tg_people WHERE role = 'driver' AND driver_id = $1 ORDER BY seen_at DESC LIMIT 1`, [t.driver_id])).rows[0];
   const who = p ? bot.tag(p) : `<b>${bot.esc(t.driver.split(/\s+/)[0])}</b>`;
-  await bot.send(g.chat_id, `🛢 ${who}, truck ${bot.esc(t.unit)} is ${o.state === 'overdue' ? 'due' : 'almost due'} for an oil change (the last one was ${o.last.at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${o.last.odometer ? ` at ${o.last.odometer.toLocaleString('en-US')} mi` : ''}). What is the mileage now?`);
+  const ask = (w) => `🛢 ${w}, truck ${t.unit} is ${o.state === 'overdue' ? 'due' : 'almost due'} for an oil change (the last one was ${o.last.at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${o.last.odometer ? ` at ${o.last.odometer.toLocaleString('en-US')} mi` : ''}). What is the mileage now?`;
+  if (g.mode === 'updater') return bot.send(g.chat_id, ask(who).replace(` ${t.unit} `, ` ${bot.esc(t.unit)} `));
+  // Watch: the bot writes nothing in the group; the question waits on the website for a person to send
+  await q(`UPDATE tg_drafts SET state = 'replaced', decided_at = now() WHERE chat_id = $1 AND state = 'open' AND kind = 'remind' AND driver_text LIKE 'Oil change%'`, [g.chat_id]);
+  await q(`INSERT INTO tg_drafts (chat_id, driver_id, driver_text, draft, kind) VALUES ($1, $2, $3, $4, 'remind')`, [g.chat_id, t.driver_id, `Oil change: ask truck ${t.unit}'s mileage`, ask(t.driver.split(/\s+/)[0])]);
 }
 function start() {
   const run = () => remind().catch((e) => console.error('oil remind', e.message));
@@ -139,4 +143,4 @@ async function goal(month = monthOf()) {
     fills: fills.map((f) => ({ truckId: f.truck_id, unit: f.unit, driverId: f.driver_id, driver: f.driver_name, userId: f.user_id, owner: f.owner, at: f.at })), people };
 }
 
-module.exports = { emptyBoard, checkFill, goal, monthOf, perDay, monthly, DAY_SQL, fleet, setOdometer, lastOils, oilStatus, oilText, costs, remind, start };
+module.exports = { emptyBoard, checkFill, goal, monthOf, perDay, monthly, DAY_SQL, fleet, setOdometer, lastOils, oilStatus, oilText, costs, remind, askMiles, start };

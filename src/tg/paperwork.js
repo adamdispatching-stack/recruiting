@@ -13,13 +13,14 @@ const MSG = {
   contract: (f) => `${f}, did you get the contract from our safety team? Please check your email (also the spam folder), sign it, and tell us here.`
 };
 
-async function deliver(c, key, text) {
+async function deliver(c, key, text, what) {
+  what = what || (key.startsWith('ch') ? 'Clearinghouse' : 'contract');
   const bot = require('./bot');
   if (c.bot_mode === 'watch') {
     await q(`UPDATE tg_drafts SET state = 'replaced', decided_at = now() WHERE chat_id = $1 AND state = 'open' AND kind = 'remind'`, [c.chat_id]);
-    await q(`INSERT INTO tg_drafts (chat_id, driver_id, driver_text, draft, kind) VALUES ($1, $2, $3, $4, 'remind')`, [c.chat_id, c.driver_id, `Reminder: ${key.startsWith('ch') ? 'Clearinghouse' : 'contract'}`, text]);
+    await q(`INSERT INTO tg_drafts (chat_id, driver_id, driver_text, draft, kind) VALUES ($1, $2, $3, $4, 'remind')`, [c.chat_id, c.driver_id, `Reminder: ${what}`, text]);
   } else await bot.send(c.chat_id, bot.esc(text));
-  await bot.log('remind', `${c.bot_mode === 'watch' ? 'Reminder ready on the website' : 'Reminded the driver'}: ${key.startsWith('ch') ? 'Clearinghouse' : 'contract'}`, { chatId: c.chat_id, driverId: c.driver_id });
+  await bot.log('remind', `${c.bot_mode === 'watch' ? 'Reminder ready on the website' : 'Reminded the driver'}: ${what}`, { chatId: c.chat_id, driverId: c.driver_id });
   await q(`UPDATE onb_cases SET sent = coalesce(sent, '{}'::jsonb) || $2::jsonb WHERE driver_id = $1`, [c.driver_id, JSON.stringify({ [key]: new Date().toISOString() })]);
 }
 
@@ -38,4 +39,16 @@ async function tick(day) {
     if (st.contract_sent && st.contract_sent.done && st.contract_signed && !st.contract_signed.done && !sent.contract && hrs(st.contract_sent.done_at) >= 24) await deliver(c, 'contract', MSG.contract(f));
   }
 }
-module.exports = { tick, MSG };
+// Orientation day (the day he arrives): the plan for the day, so the driver knows what comes. Sent once.
+async function orientation(day, today) {
+  if (!day) return;
+  const cases = (await q(`SELECT c.driver_id, c.chat_id, c.mode bot_mode, c.sent, d.name FROM onb_cases c JOIN tg_chats ch ON ch.chat_id = c.chat_id AND ch.active AND ch.kind = 'dispatch' AND ch.driver_id = c.driver_id
+    JOIN drivers d ON d.id = c.driver_id JOIN onboarding o ON o.driver_id = c.driver_id WHERE o.arrived_on = $1::date AND d.left_on IS NULL AND NOT (d.status = ANY($2::text[]))`, [today, db.LOST])).rows;
+  for (const c of cases) {
+    if ((c.sent || {}).orient) continue;
+    const steps = await require('../orientation').openFor(c.driver_id); if (!steps.length) continue;
+    await deliver(c, 'orient', MSG.orient(c.name.split(/\s+/)[0], steps.map((s) => s.label)), 'orientation day');
+  }
+}
+MSG.orient = (f, steps) => [`Welcome, ${f}! Today is your orientation day. The plan:`, ...steps.map((s) => '• ' + s), 'Your dispatcher goes through each one with you. Ask here if anything is unclear.'].join('\n');
+module.exports = { tick, orientation, MSG };

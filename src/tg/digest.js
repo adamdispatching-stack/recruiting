@@ -242,6 +242,8 @@ async function tick() {
   // onboarding groups: read 2 minutes after the last message (the team reacts fast there).
   // working, ELD and accounting groups: read every 25 minutes in one go (cheaper), at once for something urgent or a long burst
   const every = process.env.TG_DIGEST_SETTLE_MIN ? SETTLE_MIN : +((db.settings.tg || {}).readEvery || 25);
+  // a driver who left or was lost: his groups are kept (and the messages saved) but the AI no longer reads them
+  await q(`UPDATE tg_messages SET digested = true WHERE NOT digested AND chat_id IN (SELECT c.chat_id FROM tg_chats c JOIN drivers d ON d.id = c.driver_id WHERE d.left_on IS NOT NULL OR d.status = ANY($1::text[]))`, [db.LOST]);
   const due = (await q(`SELECT m.chat_id FROM tg_messages m JOIN tg_chats c ON c.chat_id = m.chat_id LEFT JOIN drivers d ON d.id = c.driver_id WHERE NOT m.digested
     GROUP BY m.chat_id, c.kind, d.status, c.member_count
     HAVING count(*) >= 40

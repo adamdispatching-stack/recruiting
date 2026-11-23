@@ -31,8 +31,9 @@ async function tick() {
   const now = (await q(`SELECT to_char(now() AT TIME ZONE $1, 'HH24:MI') hm, (now() AT TIME ZONE $1)::date::text d`, [tz])).rows[0];
   if (now.hm < at) return;
   const due = (await q(`SELECT c.chat_id FROM tg_chats c WHERE c.active AND c.kind IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM drivers d WHERE d.id = c.driver_id AND (d.left_on IS NOT NULL OR d.status = ANY($4::text[])))
     AND EXISTS (SELECT 1 FROM tg_messages m WHERE m.chat_id = c.chat_id AND (m.at AT TIME ZONE $1)::date = $2::date)
-    AND NOT EXISTS (SELECT 1 FROM tg_summaries s WHERE s.chat_id = c.chat_id AND s.day = $2::date AND s.created_at AT TIME ZONE $1 >= ($2::date + $3::time))`, [tz, now.d, at])).rows;
+    AND NOT EXISTS (SELECT 1 FROM tg_summaries s WHERE s.chat_id = c.chat_id AND s.day = $2::date AND s.created_at AT TIME ZONE $1 >= ($2::date + $3::time))`, [tz, now.d, at, db.LOST])).rows;
   for (const c of due) await summarizeChat(c.chat_id, now.d).catch((e) => console.error('tg summary', e.message));
 }
 function start() { setInterval(() => tick().catch((e) => console.error('summary tick', e.message)), +process.env.TG_TICK_MS || 60000); }
