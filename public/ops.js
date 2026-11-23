@@ -224,18 +224,22 @@
         <td>${d.companyId ? App.coTag(d.companyId) : (d.needed || []).includes('company') ? '<span class="latetag">Not set</span>' : '<span class="none">Not set</span>'}</td>
         <td class="tk">${truck}</td>
         <td class="arr" title="${esc(d.arrivalNote || '')}">${whenText(d)}${d.arrivalNote ? `<div class="small mut clip1">${esc(d.arrivalNote)}</div>` : ''}</td>
+        <td class="lmsg">${lastMsgCell(d.lastMsg)}</td>
         <td class="azc"><label class="azchk" title="${azv ? 'Verified by Amazon' : `Amazon Relay: ${az ? az.label : 'not started'}. Tick when Amazon verifies him.`}"><input type="checkbox" data-ch="azVerified" data-id="${d.id}" ${azv ? 'checked' : ''} aria-label="${esc(d.name)} verified on Amazon"></label>${azv ? '' : `<div class="small mut clip1">${az ? esc(az.label) : 'Not started'}</div>`}</td>
         <td><div class="obprog"><span class="pbar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></span><span class="cpill${done === total && total ? ' full' : ''}">${done}/${total}</span></div>
           <div class="small mut clip1">${next ? `Next: ${esc(next.label)}` : 'All done, ready to mark hired'}</div></td>
         <td class="small">${d.ownerId ? esc(person(d.ownerId)) : '<span class="none">Nobody</span>'}<div class="obacts">${d.telegramLink ? `<a class="obic tg" href="${esc(d.telegramLink)}" target="_blank" rel="noopener noreferrer" title="Open his Telegram group" aria-label="Open ${esc(d.name)}'s Telegram group">${OB_ICON.tg}</a>` : ''}<button type="button" class="obic odrop" data-act="dropRow" data-id="${d.id}" data-name="${esc(d.name)}" title="Dropped out" aria-label="${esc(d.name)} dropped out">${OB_ICON.drop}</button></div></td>
         <td><button class="caret" data-act="boardOpen" aria-expanded="${isOpen}" aria-label="${isOpen ? 'Hide' : 'Show'} the checklist for ${esc(d.name)}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3.5 6 4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></td></tr>
-        ${isOpen ? `<tr class="ostep${alt}"><td colspan="10"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
+        ${isOpen ? `<tr class="ostep${alt}"><td colspan="11"><div class="ohead"><b>Onboarding checklist (${plural(total, 'step')})</b><span class="grow"></span><span class="small mut">Done ${done}, not done ${total - done}</span></div>
           <ol class="stepper">${d.items.map((i, k) => step(d, i, k)).join('')}</ol>
           <p class="note-i">Truck and arrival steps tick themselves when you fill them in on the driver's page. Click a circle to tick or untick a step.</p></td></tr>` : ''}`;
     };
+    // the newest message in his Telegram group (or the last Indeed message before there is a group)
+    const lastMsgCell = (m) => !m ? '<span class="none">No messages</span>'
+      : `<div class="small mut">${m.indeed ? 'Indeed' : `<b>${esc(m.who)}</b>, ${esc(App.teamWhen(m.at))}`}</div><div class="clamp lmtext" title="${esc(m.text)}">${esc(m.text) || '<span class="none">(empty)</span>'}</div>`;
     const table = (list, title, oo) => list.length ? `<h3 class="obsub">${title} <span class="cnt">${list.length}</span></h3>
-      <div class="sheet"><table class="board2 obt"><colgroup><col style="width:17%"><col style="width:146px"><col style="width:150px"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:92px"><col style="width:150px"><col style="width:9%"><col style="width:40px"></colgroup>
-        <thead><tr><th>Driver</th><th>Phone</th><th>Email</th><th>Company</th><th>${oo ? 'Their truck' : 'Truck'}</th><th>Arrival</th><th title="Verified by Amazon">Amazon ✓</th><th>Progress</th><th>Recruiter</th><th></th></tr></thead><tbody>${list.map((d, k) => row(d, k)).join('')}</tbody></table></div>` : '';
+      <div class="sheet"><table class="board2 obt"><colgroup><col style="width:17%"><col style="width:146px"><col style="width:150px"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:200px"><col style="width:92px"><col style="width:150px"><col style="width:9%"><col style="width:40px"></colgroup>
+        <thead><tr><th>Driver</th><th>Phone</th><th>Email</th><th>Company</th><th>${oo ? 'Their truck' : 'Truck'}</th><th>Arrival</th><th>Last message</th><th title="Verified by Amazon">Amazon ✓</th><th>Progress</th><th>Recruiter</th><th></th></tr></thead><tbody>${list.map((d, k) => row(d, k)).join('')}</tbody></table></div>` : '';
     const byType = (list) => {
       const co = list.filter((d) => d.mode !== 'Owner-operators'), oo = list.filter((d) => d.mode === 'Owner-operators');
       return table(co, 'Company drivers', false) + table(oo, 'Owner operators', true);

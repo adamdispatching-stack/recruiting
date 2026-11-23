@@ -43,11 +43,15 @@ module.exports = (app) => {
   }));
   app.get('/api/onboarding', needUser, wrap(async (req, res) => {
     const params = []; const vis = visSql(req.user, params);
-    const rows = await q(`SELECT d.id, d.name, d.owner_id, d.phones, d.emails, d.mode, d.location, d.company_id, d.amazon_step, d.relay_before, d.truck_year, d.truck_model, d.exp_years, d.weeks_out, d.days_home, o.started_at, o.expected_arrival, o.arrival_note, o.arrived_on, o.telegram_link, o.progress_at, t.unit truck_unit, t.details truck_details
+    const rows = await q(`SELECT d.id, d.name, d.owner_id, d.phones, d.emails, d.mode, d.location, d.company_id, d.amazon_step, d.relay_before, d.truck_year, d.truck_model, d.exp_years, d.weeks_out, d.days_home, d.last_message, o.started_at, o.expected_arrival, o.arrival_note, o.arrived_on, o.telegram_link, o.progress_at, t.unit truck_unit, t.details truck_details
       FROM drivers d JOIN onboarding o ON o.driver_id = d.id LEFT JOIN trucks t ON t.driver_id = d.id
       WHERE d.status = 'Onboarding' ${vis ? 'AND ' + vis : ''} ORDER BY (d.amazon_step = 'verified') DESC NULLS LAST, o.expected_arrival NULLS LAST, o.started_at`, params); // verified on Amazon first
     const ids = rows.rows.map((r) => r.id);
     const orient = ids.length ? Object.fromEntries((await q(`SELECT driver_id, count(*) FILTER (WHERE done)::int done, count(*)::int total FROM orientation WHERE driver_id = ANY($1::int[]) GROUP BY 1`, [ids])).rows.map((x) => [x.driver_id, x])) : {};
+    // the newest message in the driver's Telegram groups: who wrote it, when, what
+    const lastMsg = ids.length ? Object.fromEntries((await q(`SELECT DISTINCT ON (c.driver_id) c.driver_id, m.text, m.media, m.is_bot, m.at, coalesce(p.name, m.from_name) who, (p.driver_id = c.driver_id) by_driver
+      FROM tg_chats c JOIN tg_messages m ON m.chat_id = c.chat_id LEFT JOIN tg_people p ON p.tg_id = m.from_id
+      WHERE c.driver_id = ANY($1::int[]) ORDER BY c.driver_id, m.at DESC`, [ids])).rows.map((x) => [x.driver_id, x])) : {};
     const needed = await require('./needed').neededFor(ids);
     const reach = await require('./reach').scoreMany(ids);
     const items = ids.length ? (await q(`SELECT id, driver_id, key, label, auto, done, note FROM checklist WHERE driver_id = ANY($1::int[]) ORDER BY position, id`, [ids])).rows : [];
@@ -61,6 +65,8 @@ module.exports = (app) => {
       drivers: rows.rows.map((r) => ({ orientation: orient[r.id] || null, drafts: bots[r.id] ? bots[r.id].drafts || 0 : 0, drop: bots[r.id] ? bots[r.id].drop_flag || null : null, reach: reach[r.id] || null, bot: bots[r.id] ? { mode: bots[r.id].mode, waitingOn: (bots[r.id].ai_status || {}).waitingOn || null, nextStep: (bots[r.id].ai_status || {}).nextStep || null, suggested: bots[r.id].sugg } : null, id: r.id, name: r.name, ownerId: r.owner_id, phones: r.phones, emails: r.emails || [], mode: r.mode, location: r.location, startedAt: r.started_at, expectedArrival: r.expected_arrival, arrivalNote: r.arrival_note,
         arrivedOn: r.arrived_on, telegramLink: r.telegram_link, progressAt: r.progress_at, companyId: r.company_id, truck: r.truck_unit ? { unit: r.truck_unit, details: r.truck_details } : null,
         amazonStep: r.amazon_step, relayBefore: r.relay_before, ownTruck: [r.truck_year, r.truck_model].filter(Boolean).join(' ') || null, expYears: r.exp_years === null ? null : +r.exp_years, weeksOut: r.weeks_out === null ? null : +r.weeks_out, daysHome: r.days_home,
+        lastMsg: lastMsg[r.id] ? { text: lastMsg[r.id].text || (lastMsg[r.id].media ? '[' + lastMsg[r.id].media + ']' : ''), at: lastMsg[r.id].at, who: lastMsg[r.id].is_bot ? 'Bot' : lastMsg[r.id].by_driver ? 'Driver' : lastMsg[r.id].who || 'Someone' }
+          : r.last_message ? { text: r.last_message, indeed: true } : null,
         needed: needed[r.id] || [], items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),
       hired: hired.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, companyId: r.company_id, hiredAt: r.completed_at, startedAt: r.started_at, truck: r.truck_unit })) });
   }));
