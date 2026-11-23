@@ -487,15 +487,16 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   ok(await until(() => inChat(n, MCHAT).some((m) => /Onboarding: \d+<\/b>/.test(m.text))), '/onboard in the management group: posted there');
   // the morning report and follow-ups
   await pg.query(`UPDATE drivers SET callback_state = 'due', callback_at = now() - interval '1 hour', callback_said = '3 PM' WHERE id = $1`, [cody]);
-  await pg.query(`UPDATE drivers SET amazon_log = jsonb_build_object('accurate', (now() - interval '6 days')::text) WHERE id = $1`, [cody]);
+  const codyStep = (await pg.query(`SELECT amazon_step FROM drivers WHERE id = $1`, [cody])).rows[0].amazon_step;
+  await pg.query(`UPDATE drivers SET amazon_step = 'invite', amazon_log = jsonb_build_object('invite', (now() - interval '6 days')::text) WHERE id = $1`, [cody]);
   const nowT = new Date(Date.now() - 60000).toLocaleTimeString('en-GB', { timeZone: (await pg.query(`SELECT value FROM settings WHERE key = 'tz'`)).rows[0]?.value || 'America/New_York', hour: '2-digit', minute: '2-digit' });
   await pg.query(`DELETE FROM tg_state WHERE key LIKE 'mreport:%'`); // run between 9 and 12 ET, the default 9:00 report already went out earlier in this test
   n = tg.sent.length; ok((await web('/api/tg/autopilot', { method: 'PUT', body: { teamReportAt: nowT } })).ok, 'morning report time set');
   ok(await until(() => inChat(n, MCHAT).some((m) => /Good morning, team/.test(m.text)), 15000), 'the morning report is posted');
-  ok(await until(() => inChat(n, MCHAT).some((m) => /🔔 @rita_r: Cody Coming has been on "Background check" with Amazon for 6 days/.test(m.text)), 15000), 'follow-up: Amazon stuck, Rita tagged');
+  ok(await until(() => inChat(n, MCHAT).some((m) => /🔔 @rita_r: Cody Coming has been on "Invite sent" with Amazon for 6 days/.test(m.text)), 15000), 'follow-up: Amazon stuck, Rita tagged');
   ok(await until(() => inChat(n, MCHAT).some((m) => /🔔 @rita_r missed the call-back to Cody Coming/.test(m.text)), 15000), 'follow-up: a missed call-back');
-  await sleep(2500); ok(inChat(n, MCHAT).filter((m) => /Background check" with Amazon/.test(m.text)).length === 1, 'each follow-up once a day');
-  await pg.query(`UPDATE drivers SET callback_state = NULL WHERE id = $1`, [cody]);
+  await sleep(2500); ok(inChat(n, MCHAT).filter((m) => /Invite sent" with Amazon/.test(m.text)).length === 1, 'each follow-up once a day');
+  await pg.query(`UPDATE drivers SET callback_state = NULL, amazon_step = $2, amazon_log = jsonb_build_object($2::text, (now() - interval '6 days')::text) WHERE id = $1`, [cody, codyStep]);
   // ---------- /oil ----------
   await pg.query(`UPDATE trucks SET odometer = 412500 WHERE unit = '140'`);
   await pg.query(`INSERT INTO truck_events (truck_id, kind, title, status, odometer, at, fixed_at, done_on) SELECT id, 'oil_change', 'Oil change', 'fixed', 386000, now() - interval '40 days', now() - interval '40 days', (now() - interval '40 days')::date FROM trucks WHERE unit = '140'`);

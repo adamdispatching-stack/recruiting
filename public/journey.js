@@ -15,7 +15,8 @@ onb: [
  { n: 'First call with the recruiter', feel: 'He hears the offer: pay, home time, the truck, the Amazon Relay work.',
    driver: ['Talks to the recruiter', 'Says yes, or needs time to think'],
    team: ['Explains the job and pay', 'Sends the Amazon Relay invite', 'Sets the status to Onboarding'],
-   ai: [['on', 'Keep the status the recruiter set: the auto-reply never moves a lead the team has decided on.']],
+   ai: [['on', 'Keep the status the recruiter set: the auto-reply never moves a lead the team has decided on.'],
+        ['on', 'From the day after the Relay invite, ask the team if he signed up (even before onboarding). "Signed up" moves the lead to Signed up on Relay.', 'Mike Smith got the Amazon Relay invite 26 h ago. Has he signed up yet? [✅ Signed up] [Not yet]']],
    done: 'Status is Onboarding and the onboarding checklist is made.' },
  { n: 'Joins his Telegram group', feel: 'He is added to a group with his recruiter and our team. This is where onboarding happens.',
    driver: ['Joins the group from the invite link', 'Says hello'],
@@ -55,7 +56,7 @@ onb: [
         ['run', 'Ask him once for his CDL state and ZIP code, and send a private link for the SSN when needed.'],
         ['on', 'Hide the last 4 of his SSN if he types it in the group, and save the CDL state and ZIP he mentions.'],
         ['draft', 'Ask him for his CDL state and ZIP code when they are missing.'],
-        ['on', 'Remind the team what is still open on our side: insurance, MVR, the contract, the Clearinghouse query.']],
+        ['on', 'Remind the team what is still open on our side: insurance, MVR, the contract, the Clearinghouse query, the ELD and accounting groups, his bank details.']],
    done: 'MVR approved and the checks are clear.' },
  { n: 'Paperwork', feel: 'He signs the contract and registers in the FMCSA Clearinghouse.',
    driver: ['Signs the contract from the safety team', 'Registers in the Clearinghouse and gives consent', 'Sends his bank details'],
@@ -92,7 +93,8 @@ onb: [
         ['on', 'Flag "Says he is not coming" with his words, and tell the recruiter. Never changes his status itself.'],
         ['on', 'Morning report and follow-ups in the management group: no reply for 3 hours, a missed call-back, Amazon stuck 5 days.'],
         ['draft', 'Check in with him when he has been quiet for 3 days.', 'Hey Mike, how is it going? Anything holding you up?'],
-        ['on', 'Follow-ups stop by themselves once the thing is done. After the last try, the admins get a website notice.']],
+        ['on', 'Follow-ups stop by themselves once the thing is done. After the last try, the admins get a website notice.'],
+        ['on', 'The team answers with the buttons, or by replying to the bot in words ("yes", "not yet", "done"). The bot asks the team around the clock, one thing per driver at most every 6 hours; drivers hear from it in the daytime, at most once a day.']],
    done: 'A person decides.' }
 ],
 disp: [

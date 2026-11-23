@@ -180,7 +180,7 @@ async function followups() {
   for (const d of (await q(`SELECT d.id, d.name, d.owner_id, u.name owner, d.callback_at, d.callback_said FROM drivers d LEFT JOIN users u ON u.id = d.owner_id WHERE d.callback_state = 'due' AND d.callback_at < now() - interval '30 minutes'`)).rows)
     items.push({ key: `cb:${d.id}`, userId: d.owner_id, owner: d.owner, text: `missed the call-back to ${esc(d.name)} (asked for ${esc(d.callback_said || 'a call')}, ${ago(d.callback_at)} ago).`, driverId: d.id });
   // Amazon stuck on one step for 5+ days
-  for (const d of (await q(`SELECT d.id, d.name, d.owner_id, u.name owner, d.amazon_step, d.amazon_log FROM drivers d LEFT JOIN users u ON u.id = d.owner_id WHERE d.status = 'Onboarding' AND coalesce(d.amazon_step, '') <> 'verified'`)).rows) {
+  for (const d of (await q(`SELECT d.id, d.name, d.owner_id, u.name owner, d.amazon_step, d.amazon_log FROM drivers d LEFT JOIN users u ON u.id = d.owner_id WHERE d.status = 'Onboarding' AND d.amazon_step = 'invite'`)).rows) { // after the invite, the journey follow-ups ask the team (tg/journey.js)
     const at = d.amazon_step && d.amazon_log ? d.amazon_log[d.amazon_step] : null;
     if (at && Date.now() - new Date(at) > 5 * 864e5) items.push({ key: `amz:${d.id}:${d.amazon_step}`, userId: d.owner_id, owner: d.owner, text: `${esc(d.name)} has been on "${esc(AMZ[d.amazon_step])}" with Amazon for ${ago(at)}.`, driverId: d.id });
   }

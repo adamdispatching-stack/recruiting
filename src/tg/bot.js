@@ -459,6 +459,7 @@ async function handle(u) {
   if (who && m.reply_to_message && m.reply_to_message.from && state.me && m.reply_to_message.from.id === state.me.id && !u.edited_message)
     await log('reply', `Replied to the bot ("${clip(m.reply_to_message.text, 50)}"): ${clip(redact(m.text || m.caption || '[' + (m.photo ? 'photo' : 'file') + ']').replace(/\d{4,}/g, '••••'), 90)}`, { chatId: chat.chat_id, who });
   const cmd = /^\/(\w+)(?:@\w+)?\s*(.*)$/s.exec(m.text || '');
+  if (chat.kind === 'management' && who && isStaff(who) && !cmd && m.reply_to_message && await require('./journey').fromReply(chat, m, who)) return; // an answer to a follow-up, in words
   if ((chat.kind === 'shift' || chat.kind === 'management') && who && isStaff(who) && !cmd && await require('./routines').fromMessage(chat, m, who)) return; // a booking list
   if (chat.kind === 'shift' && who && isStaff(who) && !cmd) { await require('./desk').privateText(m, who); return; } // a shift group: only answers to the bot's questions
   if ((cmd && cmd[1] === 'oil') || (chat.kind === 'management' && /^\s*oil( change| changes)?\s*$/i.test(m.text || ''))) {

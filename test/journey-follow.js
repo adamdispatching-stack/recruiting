@@ -82,6 +82,35 @@ const q = db.q;
   const adm = (await q(`SELECT text FROM notices WHERE text LIKE 'Nora Nogroup: I followed up 3 times%'`)).rows;
   ok(adm.length >= 1, 'after the last try the admins get a website notice');
 
+  // a lead at the Relay invite (not in onboarding yet): the team is asked if he signed up, nothing else
+  const lead = (await q(`INSERT INTO drivers (name, name_key, status, owner_id, amazon_step, amazon_log, status_at) VALUES ('Lena Lead', 'lena lead', 'Relay invite sent', $1, 'invite', $2, $3) RETURNING id`,
+    [rita, JSON.stringify({ invite: hoursAgo(30) }), hoursAgo(30)])).rows[0].id;
+  const L = (await J.load()).find((d) => d.id === lead);
+  const lo = L ? J.owed(L) : [];
+  ok(lo.map((x) => x.key).join() === 'signed' && /Lena Lead got the Amazon Relay invite 30 h ago\. Has he signed up yet\?/.test(lo[0].text(0, 'Lena')), 'a lead at the Relay invite: "has he signed up yet?" and nothing else');
+  ok(lo[0].buttons[0][0][0] === '✅ Signed up', 'with a Signed up button');
+  await tap(null, `jr:${lead}:sign`);
+  ok((await q(`SELECT status FROM drivers WHERE id = $1`, [lead])).rows[0].status === 'Signed up on Relay', '"Signed up" moves the lead to Signed up on Relay');
+
+  // the ELD group, the accounting group and the bank details are chased too
+  for (const [k, l] of [['eld_group', 'ELD group set up'], ['bank', 'Bank details taken by accounting']]) await q(`INSERT INTO checklist (driver_id, key, label) VALUES ($1, $2, $3)`, [noGroup, k, l]);
+  const nora = J.owed((await J.load()).find((d) => d.id === noGroup)).find((x) => x.key === 'team_todo');
+  ok(nora && /the ELD group, his bank details/.test(nora.text(0, 'Nora')), 'open ELD and bank steps are followed up: ' + (nora ? nora.text(0, 'Nora') : ''));
+
+  // answers typed as a reply to the bot's message
+  await q(`INSERT INTO journey_asks (driver_id, key, count, last_at, msg_id) VALUES ($1, 'arrived', 1, now(), 555) ON CONFLICT (driver_id, key) DO UPDATE SET msg_id = 555`, [late]);
+  await q(`UPDATE onboarding SET arrived_on = NULL WHERE driver_id = $1`, [late]);
+  const reply = (text, to, id) => J.fromReply({ chat_id: MG }, { text, message_id: id, reply_to_message: { message_id: to } }, STAFF);
+  SENT.length = 0;
+  ok(await reply('not yet, his bus is late', 555, 601) && /check again tomorrow/.test((SENT[0] || {}).text), '"not yet" in words waits a day');
+  ok(!!(await q(`SELECT snooze_until FROM journey_asks WHERE driver_id = $1 AND key = 'arrived'`, [late])).rows[0].snooze_until, 'the question is put off');
+  ok(await reply('yes he is here', 555, 602) && !!(await q(`SELECT arrived_on FROM onboarding WHERE driver_id = $1`, [late])).rows[0].arrived_on, '"yes he is here" marks him arrived, like the button');
+  await q(`INSERT INTO journey_asks (driver_id, key, count, last_at, msg_id) VALUES ($1, 'bot_admin', 1, now(), 556) ON CONFLICT (driver_id, key) DO UPDATE SET msg_id = 556`, [notAdmin]);
+  SENT.length = 0;
+  ok(await reply('done ✅', 556, 603) && /Thanks Rita/.test((SENT[0] || {}).text), '"done" to a question without buttons: thanks');
+  ok(!(await reply('who is on shift tonight?', 556, 604)), 'a reply that is not an answer is left alone');
+  ok(!(await reply('yes', 999, 605)), 'a reply to another message is left alone');
+
   // switched off with the team follow-ups
   db.settings.tg = { ...(db.settings.tg || {}), teamFollowups: false }; await clear(); await J.tick();
   ok(!SENT.length, 'off when team follow-ups are off');
