@@ -2020,3 +2020,6 @@ table.leads.wk tbody tr.stage-red>td:first-child{box-shadow:inset 4px 0 0 var(--
 .redwhy{color:var(--red)}
 @media (max-width:900px){.stages{grid-template-columns:repeat(2,minmax(0,1fr))}.stage small{display:none}.stage b{font-size:20px}.stage.st-red{grid-column:1/-1}}
 td.lmsg .lmtext{font-size:13px;line-height:1.35}
+.wholine{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;padding:6px 8px;border-radius:8px;background:#FFF4D6;font-size:13px;white-space:normal}
+.wholine .btn.sm{padding:3px 9px}
+.tgwho{margin-top:12px}.tgwho .fld{max-width:440px}.tgwho p.small{margin-top:4px}

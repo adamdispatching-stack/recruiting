@@ -117,6 +117,7 @@ async function onButton(chat, cq, who) {
     const cur = await driverPerson(driverId);
     if (cur && cur.tg_id !== who.tg_id && !isStaff(who)) return `${cur.name} is already the driver here.`;
     if (isStaff(who)) return 'You are with our team here.';
+    if (await require('./whois').ruledOut(driverId, who.tg_id)) return 'Our team set another account as the driver here. Ask your recruiter if that is wrong.';
     await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1`, [who.tg_id, driverId]);
     return `Thanks ${who.name}, you are the driver ✓`;
   }
@@ -173,7 +174,7 @@ async function onMessage(chat, m, who) {
   const watch = c.bot_mode === 'watch'; // watch and learn: the bot says nothing in the group; the reply it would send waits on the website
   // a driver nobody named yet: whoever writes with the driver's first name
   if (!who.role && !(await driverPerson(c.driver_id)) && who.name.split(/\s+/)[0].toLowerCase() === c.name.split(/\s+/)[0].toLowerCase()) {
-    await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1`, [who.tg_id, c.driver_id]); who.role = 'driver';
+    if ((await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1 AND NOT EXISTS (SELECT 1 FROM tg_not_driver n WHERE n.tg_id = $1 AND n.driver_id = $2) RETURNING tg_id`, [who.tg_id, c.driver_id])).rows[0]) who.role = 'driver';
   }
   const file = m.photo ? { id: m.photo[m.photo.length - 1].file_id, mime: 'image/jpeg' } : m.document && /^(image\/|application\/pdf)/.test(m.document.mime_type || '') ? { id: m.document.file_id, mime: m.document.mime_type } : null;
   if (file && ai.on()) return watch ? null : readFile(c, m, who, file); // pictures: the digest reads them

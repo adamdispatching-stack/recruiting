@@ -35,7 +35,7 @@ async function onMessage(chat, m, who) {
   if (bot.isStaff(who) || who.role === 'accounting') return onb.learnFrom(chat, m, who, text);
   if (who.role && who.role !== 'driver') return;
   const c = await ctxOf(chat.driver_id, chat.chat_id); if (!c) return;
-  if (!who.role && who.name.split(/\s+/)[0].toLowerCase() === c.name.split(/\s+/)[0].toLowerCase()) await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1 AND role IS NULL`, [who.tg_id, c.driver_id]);
+  if (!who.role && who.name.split(/\s+/)[0].toLowerCase() === c.name.split(/\s+/)[0].toLowerCase()) await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1 AND role IS NULL AND NOT EXISTS (SELECT 1 FROM tg_not_driver n WHERE n.tg_id = $1 AND n.driver_id = $2)`, [who.tg_id, c.driver_id]);
   if (!text || !ai.on()) return;
   return onb.qa(c, chat, m, who, text, { context: `Name: ${c.name}. ${c.mode === 'Owner-operators' ? 'Owner-operator' : 'Company driver'}.${c.company ? ` Company: ${c.company}.` : ''}`, escalate: () => accountingTag(chat.chat_id), kinds: ['accounting', 'general'], role: ROLE });
 }

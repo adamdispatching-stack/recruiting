@@ -11,6 +11,7 @@ const profile = require('./tg/profile');
 const digest = require('./tg/digest');
 const summary = require('./tg/summary');
 const ai = require('./tg/ai');
+const whois = require('./tg/whois');
 const { q } = db;
 const { wrap, needUser, needAdmin, visSql, loadDriver } = lib;
 
@@ -466,7 +467,7 @@ module.exports = (app) => {
       SELECT p.tg_id::text tg_id, p.name, p.username, p.role, p.driver_id, d.name driver, p.user_id, u.name user_name, p.seen_at, coalesce(cnt.n, 0) msgs7, round(rep.med::numeric, 0)::int reply_min, rep.n replies,
       (SELECT count(*)::int FROM tg_members m WHERE m.tg_id = p.tg_id) groups FROM tg_people p LEFT JOIN drivers d ON d.id = p.driver_id LEFT JOIN users u ON u.id = p.user_id
       LEFT JOIN cnt ON cnt.from_id = p.tg_id LEFT JOIN rep ON rep.from_id = p.tg_id ORDER BY (p.role = 'dispatch') DESC NULLS LAST, coalesce(cnt.n, 0) DESC, p.seen_at DESC NULLS LAST LIMIT 500`, ['7 days'])).rows;
-    res.json({ people: r, roles: ROLES });
+    res.json({ people: r, roles: ROLES, likelyTeam: await whois.likelyTeam() });
   }));
   app.patch('/api/tg/people/:id', needUser, needAdmin, wrap(async (req, res) => {
     const b = req.body || {}; const role = b.role || null;
@@ -503,6 +504,34 @@ module.exports = (app) => {
     const sugg = (await q(`SELECT s.id, s.label, s.evidence, s.state, s.at, s.decided_by FROM onb_ai_steps s JOIN checklist c ON c.id = s.checklist_id WHERE s.driver_id = $1 AND (s.state = 'suggested' AND NOT c.done OR (s.state = 'auto' AND s.at > now() - interval '7 days')) ORDER BY s.at DESC`, [d.id])).rows;
     const onb = oc ? { mode: oc.mode, status: oc.ai_status, statusAt: oc.ai_status_at, steps: sugg } : null;
     res.json({ onb, botOn: bot.on(), bot: bot.state.me ? bot.state.me.username : null, openQuestions: open, groups: chats.map((c) => ({ chatId: c.chat_id, title: c.title, kind: c.kind, botAdmin: c.bot_admin, lastAt: c.last_at, eld: c.kind === 'eld' && c.steps ? eldView(c) : null })) });
+  }));
+  // ---------- which Telegram account is the driver's: the people in the driver's groups who are not our team ----------
+  const pick = (p) => ({ tgId: p.tgId, name: p.name, username: p.username, linked: p.linked, otherDriver: p.otherDriver, notDriver: p.notDriver, groups: p.groups, likelyTeam: p.likelyTeam, messages: p.messages, last: p.last });
+  app.get('/api/drivers/:id/tg-people', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const c = (await whois.candidates([d.id]))[d.id];
+    res.json({ people: c.people.map(pick), ask: whois.toAsk(c).map((p) => p.tgId) });
+  }));
+  app.post('/api/drivers/:id/tg-people', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const b = req.body || {}; const c = (await whois.candidates([d.id]))[d.id];
+    const list = b.none ? whois.toAsk(c) : c.people.filter((p) => p.tgId === String(b.tgId));
+    if (!list.length) return res.status(400).json({ error: b.none ? 'Nobody to rule out' : "That person is not in this driver's groups" });
+    const is = b.none ? 'not' : b.is;
+    if (!['driver', 'not'].includes(is)) return res.status(400).json({ error: 'Pick the driver or not the driver' });
+    let unlinked = 0;
+    for (const p of list) unlinked += await whois.answer(d.id, p.tgId, is);
+    const names = list.map((p) => p.name).join(', ');
+    const text = is === 'driver' ? `Telegram: ${names} is the driver's account` : `Telegram: ${names} ${list.length > 1 ? 'are' : 'is'} not the driver`;
+    await lib.history(d.id, text, req.user.name);
+    await bot.log('fact', `${text} (${d.name}, set by ${req.user.name} on the website)`, { driverId: d.id }).catch(() => {});
+    res.json({ ok: true, unlinked });
+  }));
+  // a likely team member who is not on the team: stop suggesting them
+  app.post('/api/tg/people/:id/not-team', needUser, needAdmin, wrap(async (req, res) => {
+    const r = await q(`UPDATE tg_people SET team_dismissed_at = now() WHERE tg_id = $1 RETURNING tg_id`, [String(req.params.id)]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Person not found' });
+    res.json({ ok: true });
   }));
   // ---------- onboarding groups: how the bot works, what the AI saw done, and learning ----------
   app.patch('/api/drivers/:id/tg-mode', needUser, wrap(async (req, res) => {

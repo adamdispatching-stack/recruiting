@@ -137,7 +137,7 @@ async function digestChat(chatId) {
     const role = ROLEMAP[p.role]; if (!role || !unknown.includes(p.name)) continue;
     const m = fresh.find((x) => x.from_name === p.name && x.from_id); if (!m) continue;
     if (role === 'driver' && (chat.kind !== 'dispatch' || (await q(`SELECT 1 FROM tg_people WHERE driver_id = $1 AND role = 'driver'`, [chat.driver_id])).rows[0])) continue;
-    const u = await q(`UPDATE tg_people SET role = $2, driver_id = $3 WHERE tg_id = $1 AND role IS NULL AND user_id IS NULL RETURNING name`, [m.from_id, role, role === 'driver' ? chat.driver_id : null]);
+    const u = await q(`UPDATE tg_people SET role = $2, driver_id = $3 WHERE tg_id = $1 AND role IS NULL AND user_id IS NULL AND NOT ($2 = 'driver' AND EXISTS (SELECT 1 FROM tg_not_driver n WHERE n.tg_id = $1 AND n.driver_id = $3)) RETURNING name`, [m.from_id, role, role === 'driver' ? chat.driver_id : null]);
     if (u.rows[0] && role === 'dispatch') await require('./accounts').ensure(m.from_id).catch((e) => console.error('tg account', e.message));
     if (u.rows[0]) await bot.log('fact', `Learned: ${p.name} is ${role === 'driver' ? 'the driver' : role === 'dispatch' ? 'a dispatcher' : role === 'eld' ? 'with the ELD team' : 'with accounting'}`, { chatId, driverId: chat.driver_id });
   }

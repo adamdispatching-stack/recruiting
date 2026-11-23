@@ -148,6 +148,7 @@ async function onButton(chat, cq, who) {
       const cur = await driverPerson(driverId);
       if (cur && cur.tg_id !== who.tg_id && !isStaff(who)) return `${cur.name} is already the driver here.`;
       if (who.role === 'eld') return 'You are with the ELD team.';
+      if (await require('./whois').ruledOut(driverId, who.tg_id)) return 'Our team set another account as the driver here. Ask your recruiter if that is wrong.';
       await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1`, [who.tg_id, driverId]);
       return `Thanks ${who.name}, you are the driver ✓`;
     }

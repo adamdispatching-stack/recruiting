@@ -216,7 +216,7 @@
           <dl class="figs"><div><dd>${kAll.filter((x) => x.active).length}</dd><dt>in use</dt></div><div><dd>${review.length + disp.filter((x) => x.review && !x.active).length}</dd><dt>to approve</dt></div><div><dd>${disp.length}</dd><dt>dispatching practices</dt></div></dl></section>`;
     } else if (tab === 'people') {
       const p = await api('/api/tg/people'); if (!live()) return;
-      body = `<p class="hint">Everyone the bot has seen in its groups. The bot learns who is a dispatcher, the driver, ELD or accounting from what they write; dispatchers are listed first. Drivers and the ELD team usually set this themselves with the buttons; change it here if it is wrong. "Our team" can tap any button.</p>
+      body = `${likelyTeamCard(p.likelyTeam || [])}<p class="hint">Everyone the bot has seen in its groups. The bot learns who is a dispatcher, the driver, ELD or accounting from what they write; dispatchers are listed first. Drivers and the ELD team usually set this themselves with the buttons; change it here if it is wrong. "Our team" can tap any button.</p>
         <div class="sheet"><table class="tgt"><thead><tr><th>Name</th><th>Telegram</th><th>Role</th><th>Driver</th><th class="n">Groups</th><th class="n">Messages, 7 days</th><th class="n" title="Median time from a driver's message to this person's reply, last 7 days">Reply time</th><th>Last seen</th></tr></thead><tbody>
         ${p.people.map((x) => `<tr data-tg="${x.tg_id}"><th scope="row">${esc(x.name || '')}${x.user_name ? `<div class="small mut">${esc(x.user_name)} on the website</div>` : ''}</th><td>${x.username ? '@' + esc(x.username) : '<span class="none">No user name</span>'}</td>
           <td><select data-ch="tgRole" aria-label="Role of ${esc(x.name || '')}"><option value="">Unknown</option>${p.roles.map((k) => `<option value="${k}" ${x.role === k ? 'selected' : ''}>${ROLE[k]}</option>`).join('')}</select></td>
@@ -237,6 +237,11 @@
     if (f) f.onsubmit = async (e) => { e.preventDefault(); const d = new FormData(f);
       try { await api('/api/settings', { method: 'PUT', body: { tg: { eldTimes: d.get('eldTimes'), eldDays: +d.get('eldDays'), remindMin: +d.get('remindMin'), eldTeam: d.get('eldTeam'), summaryAt: d.get('summaryAt') } } }); toast('Saved'); App.render(); } catch (er) { fail(er); } };
   }
+  // people in many driver groups the bot has not placed: almost surely our team. Marked once, they never show up as a driver.
+  const likelyTeamCard = (list) => (list.length ? `<section class="card"><h3>Probably our team <span class="cnt">${list.length}</span></h3>
+    <p class="hint">Each is in 5 or more driver groups, which a driver almost never is. Say who they are once: our team is then left out when picking a driver's account.</p>
+    <ul class="list">${list.map((x) => `<li data-tg="${x.tg_id}"><span class="grow"><b>${esc(x.name || 'No name')}</b>${x.username ? ` <span class="small mut">@${esc(x.username)}</span>` : ''}<div class="small mut">In ${x.groups} groups${x.role === 'driver' && x.driver ? ` · now set as ${esc(x.driver)}'s account` : ''}</div></span>
+      ${['staff', 'dispatch', 'eld', 'accounting'].map((k) => `<button type="button" class="btn plain sm" data-act="tgTeamRole" data-role="${k}">${ROLE[k]}</button>`).join('')}<button type="button" class="linkbtn" data-act="tgNotTeam">Not our team</button></li>`).join('')}</ul></section>` : '');
   function howHtml() {
     return `<article class="fbguide"><section class="card"><h2>Each driver has three groups</h2><ol class="gsteps">
       <li><b>Dispatch</b>: made when onboarding starts. It is the onboarding group first; once the driver is hired, the dispatchers run it.</li>
@@ -343,14 +348,34 @@
 
   // ---------- on a lead's page ----------
   async function leadGroups(driverId, host) {
-    let r; try { r = await api(`/api/drivers/${driverId}/tg`); } catch (e) { return; }
+    let r, w; try { [r, w] = await Promise.all([api(`/api/drivers/${driverId}/tg`), api(`/api/drivers/${driverId}/tg-people`).catch(() => null)]); } catch (e) { return; }
     if (!host.isConnected) return;
     const has = Object.fromEntries(r.groups.map((g) => [g.kind, g]));
     host.innerHTML = `<h4>Telegram groups${r.openQuestions ? ` <span class="latetag">${r.openQuestions} question${r.openQuestions > 1 ? 's' : ''} waiting</span>` : ''}</h4><ul class="tglead">${['dispatch', 'eld', 'accounting'].map((k) => {
       const g = has[k];
       return `<li><span class="tgk k-${k}">${KIND[k]}</span>${g ? `<a href="#/telegram/${g.chatId}">${esc(g.title || 'Group')}</a> ${g.eld ? eldLine(g.eld) : ''}` : `<span class="none">Not linked</span> <button type="button" class="linkbtn" data-act="tgLink" data-kind="${k}" data-driver="${driverId}">Link a group</button>`}</li>`;
-    }).join('')}</ul>${r.botOn ? '' : '<p class="hint">The Telegram bot is not turned on yet (see Telegram manager).</p>'}${has.dispatch ? onbPanel(driverId, r.onb, has.dispatch) : ''}`;
+    }).join('')}</ul>${whoBox(driverId, w, r.groups.length)}${r.botOn ? '' : '<p class="hint">The Telegram bot is not turned on yet (see Telegram manager).</p>'}${has.dispatch ? onbPanel(driverId, r.onb, has.dispatch) : ''}`;
   }
+  // ---------- which Telegram account is the driver's: picked from the people in the driver's groups, our team left out ----------
+  const said = (p) => (p.last && p.last.text ? '“' + p.last.text.slice(0, 90) + '”' : '');
+  function whoBox(driverId, w, groups) {
+    if (!w || !groups) return '';
+    const linked = w.people.find((p) => p.linked); const ask = w.people.filter((p) => w.ask.includes(p.tgId));
+    const tags = (p) => [p.username ? '@' + p.username : '', p.likelyTeam ? `in ${p.groups} groups, probably our team` : '', p.otherDriver ? `set as ${p.otherDriver.name}'s account` : '', p.notDriver ? 'marked not the driver' : '', p.messages ? '' : 'has not written'].filter(Boolean).join(', ');
+    return `<div class="tgwho" data-driver="${driverId}">
+      ${ask.length ? `<div class="wholine"><b>Who is the driver?</b> ${ask.map((p) => `<button type="button" class="btn plain sm" data-act="tgWho" data-tg="${p.tgId}" data-is="driver" title="${esc(said(p) || p.name)}">${esc(p.name)}</button>`).join('')}<button type="button" class="linkbtn" data-act="tgWho" data-is="none">None of them</button></div>` : ''}
+      <label class="fld">Driver's Telegram account<select data-ch="tgWhoPick" data-linked="${linked ? linked.tgId : ''}" ${w.people.length ? '' : 'disabled'}><option value="">${w.people.length ? 'Not set' : 'Nobody to pick yet'}</option>${w.people.map((p) => `<option value="${p.tgId}" ${p.linked ? 'selected' : ''}>${esc(p.name)}${tags(p) ? ' (' + esc(tags(p)) + ')' : ''}</option>`).join('')}</select></label>
+      <p class="small mut">${linked ? `The bot treats <b>${esc(linked.name)}</b> as the driver${linked.last ? `. Last wrote ${esc(App.teamWhen(linked.last.at))}${said(linked) ? ': ' + esc(said(linked)) : ''}` : ''}. <button type="button" class="linkbtn" data-act="tgWho" data-tg="${linked.tgId}" data-is="not">Not the driver</button>`
+        : w.people.length ? "Pick the driver's account so the bot knows who the driver is. Our team is not listed." : "Nobody from the driver's side yet. People show up here once they write in the group or join it after the bot."}</p></div>`;
+  }
+  const whoSave = async (driverId, body) => {
+    await api(`/api/drivers/${driverId}/tg-people`, { method: 'POST', body });
+    toast(body.is === 'driver' ? 'Saved: the bot now knows the driver' : 'Saved: not the driver'); App.render();
+  };
+  on('tgWho', (b) => whoSave(b.closest('[data-driver]').dataset.driver, b.dataset.is === 'none' ? { none: true } : { tgId: b.dataset.tg, is: b.dataset.is }));
+  onChange('tgWhoPick', (s) => { const id = s.closest('[data-driver]').dataset.driver; if (s.value) return whoSave(id, { tgId: s.value, is: 'driver' }); if (s.dataset.linked) return whoSave(id, { tgId: s.dataset.linked, is: 'not' }); });
+  on('tgTeamRole', async (b) => { await api('/api/tg/people/' + b.closest('[data-tg]').dataset.tg, { method: 'PATCH', body: { role: b.dataset.role } }); toast('Saved: ' + ROLE[b.dataset.role]); App.render(); });
+  on('tgNotTeam', async (b) => { await api('/api/tg/people/' + b.closest('[data-tg]').dataset.tg + '/not-team', { method: 'POST' }); toast('Saved: not our team'); App.render(); });
   // ---------- the onboarding bot on a lead: how it works, where the AI sees things, steps it saw done ----------
   const MODE = { watch: ['👀 Watch and learn', 'Reads everything, sums it up here and learns from the team. Never writes in the group.'], assist: ['💬 Answer questions', 'Also answers the driver\'s questions it knows; asks the team the rest.'], run: ['🚀 Run the onboarding', 'Guides the driver through every step and reminds him.'] };
   const WAIT = { driver: 'the driver', recruiter: 'the recruiter', amazon: 'Amazon', company: 'the company', nobody: 'nobody' };

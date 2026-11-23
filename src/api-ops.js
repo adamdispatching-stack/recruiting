@@ -53,6 +53,7 @@ module.exports = (app) => {
       FROM tg_chats c JOIN tg_messages m ON m.chat_id = c.chat_id LEFT JOIN tg_people p ON p.tg_id = m.from_id
       WHERE c.driver_id = ANY($1::int[]) ORDER BY c.driver_id, m.at DESC`, [ids])).rows.map((x) => [x.driver_id, x])) : {};
     const needed = await require('./needed').neededFor(ids);
+    const whois = require('./tg/whois'); const who = await whois.candidates(ids); // "Who is the driver?" when no account is linked
     const reach = await require('./reach').scoreMany(ids);
     const items = ids.length ? (await q(`SELECT id, driver_id, key, label, auto, done, note FROM checklist WHERE driver_id = ANY($1::int[]) ORDER BY position, id`, [ids])).rows : [];
     // the Telegram bot's view of each onboarding: who it waits on, the next step, steps it saw done to confirm
@@ -67,6 +68,7 @@ module.exports = (app) => {
         amazonStep: r.amazon_step, relayBefore: r.relay_before, ownTruck: [r.truck_year, r.truck_model].filter(Boolean).join(' ') || null, expYears: r.exp_years === null ? null : +r.exp_years, weeksOut: r.weeks_out === null ? null : +r.weeks_out, daysHome: r.days_home,
         lastMsg: lastMsg[r.id] ? { text: lastMsg[r.id].text || (lastMsg[r.id].media ? '[' + lastMsg[r.id].media + ']' : ''), at: lastMsg[r.id].at, who: lastMsg[r.id].is_bot ? 'Bot' : lastMsg[r.id].by_driver ? 'Driver' : lastMsg[r.id].who || 'Someone' }
           : r.last_message ? { text: r.last_message, indeed: true } : null,
+        whoDriver: whois.toAsk(who[r.id]).map((p) => ({ tgId: p.tgId, name: p.name, last: p.last })),
         needed: needed[r.id] || [], items: items.filter((c) => c.driver_id === r.id).map((c) => ({ id: c.id, key: c.key, label: c.label, auto: c.auto, done: c.done, note: c.note })) })),
       hired: hired.rows.map((r) => ({ id: r.id, name: r.name, ownerId: r.owner_id, companyId: r.company_id, hiredAt: r.completed_at, startedAt: r.started_at, truck: r.truck_unit })) });
   }));
