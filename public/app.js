@@ -480,6 +480,7 @@ window.App = (() => {
         <div class="grow"><b>${esc(DOCN[d.kind] || d.kind)}</b><div class="small mut">${esc(d.name)} · ${Math.max(1, Math.round(d.size / 1024))} KB · ${esc(when(d.at))}${d.by ? ' · ' + esc(d.by) : ''}</div></div>
         <a class="btn plain sm" href="/api/docs/${d.id}/file" target="_blank" rel="noopener">Open</a><button type="button" class="linkbtn danger" data-act="docDel">Delete</button></li>`).join('')}</ul>` : '<p class="hint">Nothing uploaded yet.</p>';
     } catch (e) { box.querySelector('.dlist').innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+    if (box.dataset.driver && App.tgPapers) App.tgPapers(box.dataset.driver, box); // CDL and medical card: there or not, and asking for them in Telegram
   }
   new MutationObserver(() => document.querySelectorAll('.docsbox:not([data-ready])').forEach(fillDocs)).observe(document.body, { childList: true, subtree: true });
   onChange('docUp', async (el) => {

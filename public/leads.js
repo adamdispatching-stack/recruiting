@@ -484,9 +484,9 @@
       <a class="back" href="#/leads">← Leads</a>
       <section class="dhead">
         <div class="top">
-          <div class="who"><h2>${esc(d.name)}${App.coTag(d.companyId, true)}</h2>
+          <div class="who"><h2>${esc(d.name)}<button type="button" class="cpy" data-copy="${esc(d.name)}" title="Copy ${esc(d.name)}" aria-label="Copy name ${esc(d.name)}">${App.COPY_ICON}</button>${App.coTag(d.companyId, true)}</h2>
             <div class="sub">${[one(d.mode), d.location, d.zip].filter(Boolean).map(esc).join(', ') || 'No details yet'}${expText(d) ? `<span class="src">${esc(expText(d))}</span>` : ''}${sourceLine ? `<span class="src">Found through ${sourceLine}</span>` : ''}</div>
-            <div class="contact">${(d.phones || []).map((p) => App.phone(p, '')).join('')}${(d.emails || []).map((e) => `<a href="mailto:${esc(e)}">${esc(e)}</a>`).join('')}<button class="linkbtn" data-act="editContact">Edit details</button></div>
+            <div class="contact">${(d.phones || []).map((p) => App.phone(p, '')).join('')}${(d.emails || []).map((e) => `<span class="phw"><a href="mailto:${esc(e)}">${esc(e)}</a><button type="button" class="cpy" data-copy="${esc(e)}" title="Copy ${esc(e)}" aria-label="Copy email ${esc(e)}">${App.COPY_ICON}</button></span>`).join('')}<button class="linkbtn" data-act="editContact">Edit details</button></div>
             <div class="tags" id="tags">${(d.tags || []).map((x) => `<span class="tag">${esc(x)}<button data-tag="${esc(x)}" aria-label="Remove tag ${esc(x)}">×</button></span>`).join('')}<input id="tagIn" type="text" placeholder="Add a tag, press Enter" aria-label="Add a tag" data-fk="tag"></div>
           </div>
           <div class="acts">
@@ -552,7 +552,7 @@
           ${d.status === 'Hired' ? activeCard(d) : ''}
           ${d.aiSummary ? `<section class="card"><div class="ai"><b>AI summary</b>${esc(d.aiSummary)}</div></section>` : ''}
           ${d.status === 'Onboarding' ? '<div id="leadDrafts"></div>' : ''}${cur && cur.orientation ? App.orientationCard(d.id, cur.orientation) : ''}
-          ${['Onboarding', 'Hired'].includes(d.status) || (cur && cur.onboarding) ? App.docsBox({ driverId: d.id, kinds: ['cdl', 'medical', 'other'], title: 'Driver papers', hint: 'Upload the CDL here. In the ELD group, /info shares it with the driver\'s info and the truck papers.' }) : ''}
+          ${App.docsBox({ driverId: d.id, kinds: ['cdl', 'medical', 'other'], title: 'Driver papers', hint: 'The CDL and the medical card. Upload them here, or have them sent in his Telegram group: the bot looks at each picture and saves a CDL or medical card here by itself. In the ELD group, /info shares them with the truck papers.' })}
           <section class="card"><h3>Profile</h3><dl class="facts">
             ${[['Status', `${badge(d.status)}${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Company', App.coTag(d.companyId)], ['Driver type', esc(one(d.mode))],
               ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Ran Amazon Relay before', d.relayBefore === true ? 'Yes' : d.relayBefore === false ? 'No' : ''], ['Working period', esc(App.periodText(d))], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Added to the website', esc([when(d.createdAt), person(d.createdBy) ? 'by ' + person(d.createdBy) : ''].filter(Boolean).join(', '))], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]

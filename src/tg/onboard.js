@@ -178,7 +178,8 @@ async function learnFrom(chat, m, who, text) {
 }
 async function onMessage(chat, m, who) {
   const text = (m.text || m.caption || '').trim();
-  if (isStaff(who)) return learnFrom(chat, m, who, text);
+  const pic = m.photo ? { id: m.photo[m.photo.length - 1].file_id, mime: 'image/jpeg' } : m.document && /^(image\/|application\/pdf)/.test(m.document.mime_type || '') ? { id: m.document.file_id, mime: m.document.mime_type } : null;
+  if (isStaff(who)) { if (pic && ai.on() && chat.driver_id) await quietPaper(chat, m, who, pic); return learnFrom(chat, m, who, text); } // a recruiter posts his CDL: kept
   const st = (await q(`SELECT status FROM drivers WHERE id = $1`, [chat.driver_id])).rows[0];
   if (!st || st.status === 'Hired' || chat.member_count > 10) return; // an active driver's group (or more than 10 people): the team handles it, the bot reads along (digest)
   let c = await caseOf(chat.driver_id);
@@ -191,7 +192,7 @@ async function onMessage(chat, m, who) {
     if ((await q(`UPDATE tg_people SET role = 'driver', driver_id = $2 WHERE tg_id = $1 AND NOT EXISTS (SELECT 1 FROM tg_not_driver n WHERE n.tg_id = $1 AND n.driver_id = $2) RETURNING tg_id`, [who.tg_id, c.driver_id])).rows[0]) who.role = 'driver';
   }
   const file = m.photo ? { id: m.photo[m.photo.length - 1].file_id, mime: 'image/jpeg' } : m.document && /^(image\/|application\/pdf)/.test(m.document.mime_type || '') ? { id: m.document.file_id, mime: m.document.mime_type } : null;
-  if (file && ai.on()) return watch ? null : readFile(c, m, who, file); // pictures: the digest reads them
+  if (file && ai.on()) return watch ? quietPaper(chat, m, who, file) : readFile(c, m, who, file); // Watch: only a CDL or medical card is kept, silently (the digest reads the rest)
   if (!text || !ai.on() || bot.trivial(m)) return; // "ok", "thanks", 👍: nothing to answer
   const context = `Name: ${c.name}. ${c.mode === 'Owner-operators' ? 'Owner-operator' : 'Company driver'}. Amazon Relay step: ${c.amazon_step ? db.AMAZON.find((s) => s.key === c.amazon_step).long : 'invite not sent yet'}. Start date: ${c.arrive ? nice(c.arrive) : 'not set yet'}.${c.unit ? ` Truck: ${c.unit} ${c.details || ''}.` : ''}${c.arrival_note ? ` Travel: ${c.arrival_note}.` : ''}${c.company ? ` Company: ${c.company}.` : ''}`;
   const indeed = await require('../cross').fromIndeed(c.driver_id).catch(() => '');
@@ -263,9 +264,31 @@ async function learn(qn, answer, by, kind = 'general') {
   await q(`UPDATE tg_questions SET answer = $2, answered_by = $3, answered_at = now() WHERE id = $1`, [qn.id, answer.slice(0, 1500), by]);
   await require('../kb').add({ kind, question: qn.text, answer: answer.slice(0, 1500), by, chatId: qn.chat_id, sure: true, source: 'learned' });
 }
+// A CDL or a medical card sent in the driver's group (by him or by one of us) is saved with his papers on the website.
+// The same file is not saved twice. Returns the kind saved ('cdl' | 'medical') or null.
+async function savePaper(driverId, chatId, buf, mime, r, who) {
+  const kind = r && r.kind === 'cdl' ? 'cdl' : r && r.kind === 'medical_card' ? 'medical' : null; if (!kind || !buf || !buf.length) return null;
+  if ((await q(`SELECT 1 FROM docs WHERE driver_id = $1 AND kind = $2 AND size = $3`, [driverId, kind, buf.length])).rows[0]) return null; // this very file is there already
+  const label = kind === 'cdl' ? 'CDL' : 'Medical card';
+  await q(`INSERT INTO docs (driver_id, kind, name, mime, size, data) VALUES ($1, $2, $3, $4, $5, $6)`, [driverId, kind, `${label} from Telegram.${mime === 'application/pdf' ? 'pdf' : /png/.test(mime) ? 'png' : 'jpg'}`, mime, buf.length, buf]);
+  await require('../lib').history(driverId, `${label} saved from the Telegram group${who && who.name ? ' (sent by ' + who.name + ')' : ''}`, 'Bot', 'telegram').catch(() => {});
+  await bot.log('fact', `${label} saved with the driver's papers`, { chatId, driverId }).catch(() => {});
+  return kind;
+}
+// Watch and learn, or a picture one of us sent: the bot says nothing, it only looks at the picture and keeps a CDL or medical card
+async function quietPaper(chat, m, who, file) {
+  let buf, r;
+  try { buf = await bot.download(file.id); r = await ai.onbDoc(buf, file.mime); } catch (e) { console.error('tg paper', e.message); return null; }
+  const kind = await savePaper(chat.driver_id, chat.chat_id, buf, file.mime, r, who);
+  if (!kind) return null;
+  await bot.noteMedia(chat.chat_id, m.message_id, `${r.kind}: ${r.note || ''}`).catch(() => {});
+  if (r.kind === 'cdl' && r.state) await require('./mvr').setFacts(chat.driver_id, { state: r.state }, 'AI', { onlyEmpty: true }).catch(() => {});
+  if (/^\d{4}-\d{2}-\d{2}$/.test(r.expires || '')) await q(`UPDATE drivers SET ${kind === 'cdl' ? 'cdl_expires' : 'med_expires'} = $2, updated_at = now() WHERE id = $1`, [chat.driver_id, r.expires]).catch(() => {});
+  return kind;
+}
 async function readFile(c, m, who, file) {
   let r;
-  try { const buf = await bot.download(file.id); r = await ai.onbDoc(buf, file.mime); } catch (e) { console.error('tg onb doc', e.message); return; }
+  try { const buf = await bot.download(file.id); r = await ai.onbDoc(buf, file.mime); await savePaper(c.driver_id, c.chat_id, buf, file.mime, r, who).catch((e) => console.error('tg paper', e.message)); } catch (e) { console.error('tg onb doc', e.message); return; }
   await bot.noteMedia(c.chat_id, m.message_id, `${r.kind}${r.result ? ' ' + r.result : ''}: ${r.note}`);
   if (r.kind === 'relay_screen') {
     if (r.relay_stage === 'approved') {
@@ -374,4 +397,4 @@ async function answerFromWebsite(qid, answer, user) {
 }
 function start() { setInterval(() => tick().catch((e) => console.error('onb tick', e.message)), +process.env.TG_TICK_MS || 60000); }
 bot.handlers.dispatch = { begin, onButton, onMessage, status, setMode };
-module.exports = { grade, sendDraft, draft, start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };
+module.exports = { savePaper, quietPaper, grade, sendDraft, draft, start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };

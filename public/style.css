@@ -2073,3 +2073,6 @@ td.lmsg .lmtext{font-size:13px;line-height:1.35}
 .tgv.noadmin{background:var(--yellow-t);color:var(--yellow-ink)}.tgv.removed{background:var(--red-t);color:var(--red)}
 .tgsay{margin-top:10px}.tgsay textarea{width:100%;resize:vertical}.tgsayrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:6px}
 .tgchat .convo .msg .w .mut{font-weight:400}
+.dhead h2 .cpy{margin-left:6px;vertical-align:middle}
+/* CDL and medical card: on file or missing */
+.pstat{display:grid;gap:6px;margin:4px 0 12px}.pstat .prow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.pstat .prow b{min-width:104px}

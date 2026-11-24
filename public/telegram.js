@@ -693,4 +693,19 @@
     catch (er) { fail(er); b.disabled = false; b.textContent = 'Send through the bot'; }
   });
   App.tgLeadChat = leadChat;
+  // ---------- CDL and medical card on a driver's papers: on file or missing, with a button to ask in his Telegram group ----------
+  const PAPER = { cdl: 'CDL', medical: 'Medical card' };
+  async function papers(driverId, box) {
+    let r; try { r = await api(`/api/drivers/${driverId}/papers`); } catch (e) { return; }
+    if (!box.isConnected) return;
+    let el = box.querySelector('.pstat'); if (!el) { el = document.createElement('div'); el.className = 'pstat'; box.querySelector('.dlist').before(el); }
+    el.dataset.driver = driverId;
+    el.innerHTML = ['cdl', 'medical'].map((k) => `<div class="prow"><b>${PAPER[k]}</b>${r[k] ? '<span class="okt">✓ On file</span>'
+      : `<span class="latetag">Missing</span>${r.canAsk ? `<button type="button" class="btn plain sm" data-act="tgPaperAsk" data-kind="${k}">${r.asked[k] ? 'Ask again in Telegram' : 'Request in Telegram'}</button>` : ''}${r.asked[k] ? `<span class="small mut">The bot asked ${esc(when(r.asked[k]))}</span>` : ''}`}</div>`).join('')
+      + (!r.cdl || !r.medical ? (r.canAsk ? '' : `<p class="small mut">${r.botOn ? 'To ask for them through the bot, the driver needs a Telegram group with the bot in it.' : 'The Telegram bot is not turned on, so it cannot ask for them.'}</p>`) : '');
+  }
+  on('tgPaperAsk', async (b) => { const el = b.closest('.pstat'); b.disabled = true;
+    try { await api(`/api/drivers/${el.dataset.driver}/request-paper`, { method: 'POST', body: { kind: b.dataset.kind } }); toast(`The bot asked for the ${PAPER[b.dataset.kind].toLowerCase() === 'cdl' ? 'CDL' : 'medical card'} in his Telegram group`); await papers(el.dataset.driver, el.closest('.docsbox')); const c = document.querySelector('.tgchat'); if (c && App.tgLeadChat) App.tgLeadChat(el.dataset.driver, c); }
+    catch (e) { fail(e); b.disabled = false; } });
+  App.tgPapers = papers;
 })();
