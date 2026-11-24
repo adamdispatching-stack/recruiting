@@ -136,7 +136,10 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   n = tg.sent.length;
   await web('/api/settings', { method: 'PUT', body: { tg: { eldTimes: [hm(2)], eldDays: 14, remindMin: 15 } } });
   const ck = await until(() => sentSince(n).find((m) => /ELD check: Ruby Ready/.test(m.text)), 8000, 'daily check');
-  ok(ck && /@eli_eld, please check today's logs/.test(ck.text) && /day 1 of 14/.test(ck.text), 'at the check time the ELD team is tagged to check the logs (day 1 of 14)');
+  // the setup was finished 3 hours ago: in the first 3 hours after midnight that was yesterday, so today is day 2
+  const dayOf = (t) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(t));
+  const dayN = dayOf(Date.now()) === dayOf(Date.now() - 3 * 3600000) ? 1 : 2;
+  ok(ck && /@eli_eld, please check today's logs/.test(ck.text) && ck.text.includes(`day ${dayN} of 14`), `at the check time the ELD team is tagged to check the logs (day ${dayN} of 14)`);
   const checkId = ck && ck.reply_markup.inline_keyboard[0][1].callback_data.split(':')[3];
   tap(ELI, `eld:${id}:check_problem:${checkId}`);
   await until(() => tg.sent.some((m) => /what is wrong\? Reply here/.test(m.text)));

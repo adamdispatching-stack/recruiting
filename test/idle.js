@@ -18,6 +18,11 @@ const u = Date.now().toString().slice(-5);
 (async () => {
   await db.migrate();
   const A = session(); await A('/api/login', { method: 'POST', body: { email, password: pw } });
+  // the test needs a working day that began over 70 minutes ago: just after midnight in the team's time zone it uses
+  // a zone where it is the middle of the day (the idle time is counted inside working hours only)
+  const hourIn = (z) => +new Date().toLocaleString('en-US', { timeZone: z, hour: 'numeric', hourCycle: 'h23' });
+  const zone = [db.settings.tz, 'America/New_York', 'Europe/London', 'Asia/Tokyo', 'Asia/Kolkata', 'America/Los_Angeles'].find((z) => hourIn(z) >= 3 && hourIn(z) < 21);
+  if (zone !== db.settings.tz) { await A('/api/settings', { method: 'PUT', body: { tz: zone } }); db.settings.tz = zone; }
   const em = `idle${u}@example.com`;
   const id = (await A('/api/users', { method: 'POST', body: { name: `Ivy Idle${u}`, email: em, password: 'idle-pass-1234' } })).body.id;
   await A(`/api/team/${id}/hours`, { method: 'PUT', body: { week: Array.from({ length: 7 }, () => ({ s: '00:00', e: '23:59' })) } });
