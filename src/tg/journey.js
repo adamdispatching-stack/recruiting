@@ -1,7 +1,7 @@
 // Follow-ups along the driver's journey. For every lead at the Relay invite and every driver in onboarding the bot looks
 // at what is still missing and who owes it, and follows up with that side the way a person would: one thing at a time,
 // by first name, never twice too soon, and it stops by itself once the thing is done.
-// - our team (in the management group, tagging the recruiter, around the clock; a website notice when there is no
+// - our team (in the management group, tagging the recruiter, in that recruiter's working hours; a website notice when there is no
 //   management group): Relay invite sent? signed up? verified yet? no Telegram group, the bot removed or not an admin,
 //   the driver has not joined his group, which account is the driver, what is still open on our side (insurance, MVR, contract, Clearinghouse, ELD,
 //   accounting, bank), missing start date/company/truck, did he arrive, ready to hire. Answered with the buttons or
@@ -154,6 +154,7 @@ async function tick() {
       if (lastOn(side) && hrs(lastOn(side)) < (side === 'team' ? 6 : 24)) continue;
       const it = items.find((x) => x.side === side && due(x, st[x.key])); if (!it) continue;
       if (side === 'team' && teamSent >= 4) continue;
+      if (side === 'team' && !(await require('../working').working(d.owner_id))) continue; // the recruiter is tagged only in their working hours: it waits
       if (side === 'driver' && driverSent >= 8) continue;
       // the wording: for the driver, the one that got more replies so far (tg/learn.js); for the team, the next one each time
       const n = side === 'driver' && it.nv ? await learn.choose('followup:' + it.key, it.nv) : st[it.key] ? st[it.key].count : 0; let msgId = null;

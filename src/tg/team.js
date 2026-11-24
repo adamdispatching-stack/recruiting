@@ -173,7 +173,7 @@ async function followups() {
       userId = t ? t.dispatcher_id : null; owner = t ? t.name : 'Dispatch';
     }
     const said = String(w.msg.text || '').replace(/\s+/g, ' ').trim();
-    items.push({ key: `wait:${w.id}:${w.chat_id}:${w.msg.msg_id}`, userId, owner, driverId: w.id,
+    items.push({ key: `wait:${w.id}:${w.chat_id}:${w.msg.msg_id}`, userId, owner, driverId: w.id, disp: w.status === 'Hired',
       text: `${esc(w.name)} wrote in the group ${ago(w.msg.at)} ago and got no response${said ? `: "${esc(said.length > 120 ? said.slice(0, 120) + '…' : said)}"` : '.'}` });
   }
   // a call-back that was missed
@@ -205,6 +205,7 @@ async function tick() {
     if (t.teamFollowups === false || !work) continue;
     const fu = await followups();
     for (const it of fu) {
+      if (it.userId && !it.disp && !(await require('../working').working(it.userId))) continue; // a recruiter is tagged only in their working hours: it waits (dispatch runs around the clock)
       if (!await once(`mf:${g.chat_id}:${it.key}:${L.date}`)) continue;
       const tg = await who(it.userId, it.owner);
       await send(g.chat_id, `🔔 ${tg}${it.text.startsWith('missed') ? ' ' : ': '}${it.text}`);
