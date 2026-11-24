@@ -4,7 +4,8 @@
 // - our team (in the management group, tagging the recruiter, in that recruiter's working hours; a website notice when there is no
 //   management group): Relay invite sent? signed up? verified yet? no Telegram group, the bot removed or not an admin,
 //   the driver has not joined his group, which account is the driver, what is still open on our side (insurance, MVR, contract, Clearinghouse, ELD,
-//   accounting, bank), missing start date/company/truck, did he arrive, ready to hire. Answered with the buttons or
+//   accounting, bank), once he is verified: is a truck available for him (never "set the company or the truck":
+//   the team decides those after Amazon verifies him), did he arrive, ready to hire. Answered with the buttons or
 //   by replying to the bot's message in words ("yes", "not yet", "done").
 // - the driver (in his group, 9:00 to 20:00): the Relay invite, his CDL state and ZIP, a check-in when he goes quiet.
 //   Sent in "Answer questions"; in "Watch and learn" it waits on his page as a reply ready to send; "Run" has its own.
@@ -41,7 +42,8 @@ async function load() {
   const who = await require('./whois').candidates(ids);
   const day = (v) => (!v ? null : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10)); // dates are plain text (db.js)
   const typ = await require('./learn').typical().catch(() => ({}));
-  return ds.map((d) => ({ ...d, typ, lead: d.status !== 'Onboarding', arrive: day(d.arrive), arrived: day(d.arrived), group: groups.find((g) => g.driver_id === d.id) || null, unit: (units.find((u) => u.driver_id === d.id) || {}).unit || null,
+  const emptyTrucks = +((await q(`SELECT count(*)::int n FROM trucks WHERE driver_id IS NULL AND driver_name IS NULL AND NOT out_of_service`).catch(() => ({ rows: [{ n: 0 }] }))).rows[0] || {}).n || 0;
+  return ds.map((d) => ({ ...d, typ, emptyTrucks, lead: d.status !== 'Onboarding', arrive: day(d.arrive), arrived: day(d.arrived), group: groups.find((g) => g.driver_id === d.id) || null, unit: (units.find((u) => u.driver_id === d.id) || {}).unit || null,
     teamOpen: open.filter((x) => x.driver_id === d.id).map((x) => x.key).sort((a, b) => Object.keys(TEAM_TODO).indexOf(a) - Object.keys(TEAM_TODO).indexOf(b)), // checklist order orient: orient.find((x) => x.driver_id === d.id) || null,
     spoke: (spoke.find((x) => x.driver_id === d.id) || {}).at || null, who: who[d.id] }));
 }
@@ -87,16 +89,19 @@ function owed(d) {
   // ---- our team: steps and facts ----
   if (d.teamOpen.length && (d.amazon_step === 'verified' || hrs(since) >= 72)) out.push({ key: 'team_todo', side: 'team', every: 48, max: 3,
     text: () => `${N}: still open on our side: ${d.teamOpen.map((k) => TEAM_TODO[k]).join(', ')}. Anything I can tell him about it?` });
-  const missing = [!d.arrive && 'start date', !d.company_id && 'company', !d.unit && 'truck'].filter(Boolean);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: db.settings.tz || 'America/Chicago' });
   if (d.arrive && d.arrive < today && !d.arrived) out.push({ key: 'arrived', side: 'team', every: 24, max: 3, yes: 'arr',
     text: () => `${N} was due to start ${esc(nice(d.arrive))}. Did he arrive?`, buttons: [[['✅ He arrived', `jr:${d.id}:arr`], ['Not yet', `jr:${d.id}:later:arrived`]]] });
-  const soon = d.arrive && !d.arrived && d.arrive >= today && (new Date(d.arrive) - new Date(today)) / 864e5 <= 3;
-  const need = [!d.company_id && 'company', !d.unit && 'truck'].filter(Boolean);
-  if (soon && need.length) out.push({ key: 'start_soon', side: 'team', every: 24, max: 3,
-    text: () => `${N} starts ${esc(nice(d.arrive))} and still has no ${need.join(' or ')}. Can you sort it before he travels?` });
-  if (d.amazon_step === 'verified' && missing.length && !d.arrived && !(soon && need.length)) out.push({ key: 'missing', side: 'team', every: 24, max: 3,
-    text: () => `${N} is verified on Amazon 🎉 We still need his ${missing.join(', ')}. Can you set ${missing.length > 1 ? 'them' : 'it'} on the website?` });
+  // The company and the truck are decided by the team after Amazon verifies him: the bot never asks to set them.
+  // Once he is verified and ready to roll, it only checks with the recruiter that a truck is available for him.
+  const ready = d.amazon_step === 'verified' && !d.arrived;
+  const upcoming = d.arrive && d.arrive >= today;
+  const empties = d.emptyTrucks ? ` (${d.emptyTrucks} empty right now)` : '';
+  if (ready && !d.unit) out.push({ key: 'truck_check', side: 'team', every: 48, max: 3, text: (n) => pick(n, [
+    `${N} is verified on Amazon and ready to roll 🎉${upcoming ? ` He starts ${esc(nice(d.arrive))}.` : ''} Do you have a truck available for him${empties}?`,
+    `Checking again on ${N}: he is verified${upcoming ? ` and starts ${esc(nice(d.arrive))}` : ''}. Is there a truck for him${empties}?`]) });
+  if (ready && d.unit && !d.arrive) out.push({ key: 'missing', side: 'team', every: 48, max: 2,
+    text: () => `${N} is verified on Amazon and has truck ${esc(d.unit)}. When does he start?` });
   if (d.arrived && d.orient && d.orient.total && !d.orient.open) out.push({ key: 'hire', side: 'team', every: 24, max: 2,
     text: () => `${N} finished orientation day ✓ Ready to mark him Hired on the website?` });
   // ---- the driver (not in Run mode: the onboarding bot already guides him there) ----
@@ -112,7 +117,7 @@ function owed(d) {
       `${f}, just checking in. Are you still with us? Tell me where you are with the Amazon steps and I'll help with the next one.`]) });
   }
   // what matters most first: without his group and the bot in it nothing else works
-  const ORDER = ['no_group', 'bot_removed', 'bot_admin', 'not_joined', 'arrived', 'start_soon', 'at_risk', 'invite', 'signed', 'verified', 'who_driver', 'missing', 'team_todo', 'hire'];
+  const ORDER = ['no_group', 'bot_removed', 'bot_admin', 'not_joined', 'arrived', 'at_risk', 'invite', 'signed', 'verified', 'who_driver', 'truck_check', 'missing', 'team_todo', 'hire'];
   return out.sort((a, b) => (ORDER.indexOf(a.key) + 1 || 99) - (ORDER.indexOf(b.key) + 1 || 99));
 }
 

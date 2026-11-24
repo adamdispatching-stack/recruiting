@@ -76,8 +76,11 @@ const q = db.q;
   ok(risk && /Lenny Learn has been on "Profile done" for 3 days\. Drivers who made it took about 14 hours here, so he may be slipping/.test(risk.text(0, 'Lenny')), 'a driver far slower than them is flagged as slipping: ' + (risk ? risk.text(0, 'Lenny') : ''));
   const day = (n) => new Date(Date.now() + n * 864e5).toLocaleDateString('en-CA', { timeZone: db.settings.tz || 'America/Chicago' });
   await q(`UPDATE onboarding SET expected_arrival = $2 WHERE driver_id = $1`, [did, day(2)]);
-  const soon = J.owed((await J.load()).find((d) => d.id === did)).find((x) => x.key === 'start_soon');
-  ok(soon && /starts .* and still has no company or truck\. Can you sort it before he travels\?/.test(soon.text(0, 'Lenny')), 'acting ahead: he starts in 2 days with no truck: ' + (soon ? soon.text(0, 'Lenny') : ''));
+  const notYet = J.owed((await J.load()).find((d) => d.id === did));
+  ok(!notYet.some((x) => ['truck_check', 'start_soon', 'missing'].includes(x.key)), 'not verified yet: the team is never asked about a truck or a company');
+  await q(`UPDATE drivers SET amazon_step = 'verified' WHERE id = $1`, [did]);
+  const soon = J.owed((await J.load()).find((d) => d.id === did)).find((x) => x.key === 'truck_check');
+  ok(soon && /Lenny Learn is verified on Amazon and ready to roll 🎉 He starts .*\. Do you have a truck available for him/.test(soon.text(0, 'Lenny')) && !/company/.test(soon.text(0, 'Lenny')), 'verified and ready to roll: the recruiter is asked if a truck is available, nothing about a company: ' + (soon ? soon.text(0, 'Lenny') : ''));
 
   // ---- 4. people ----
   await q(`DELETE FROM tg_messages WHERE chat_id = $1`, [CHAT]);

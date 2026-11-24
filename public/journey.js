@@ -77,7 +77,7 @@ onb: [
    driver: ['Agrees on a start date', 'Travels to the truck'],
    team: ['Assigns a truck and a company', 'Books his travel', 'Sets the expected arrival'],
    ai: [['on', 'Pick up the start date and travel plans from the chat. A date the team typed is never changed.'],
-        ['on', 'Ask the recruiter in the management group for the missing start date, company or truck once he is verified.'],
+        ['on', 'Once he is verified on Amazon and ready to roll, check with the recruiter that a truck is available for him. The company and the truck are your team\'s decision after verification: the bot never asks to set them.', '@rita, Mike Smith is verified on Amazon and ready to roll 🎉 Do you have a truck available for him (2 empty right now)?'],
         ['on', 'When the start date has passed, ask the team if he arrived. "He arrived" marks it on the website.', 'Mike Smith was due to start Mon, Nov 24. Did he arrive? [✅ He arrived] [Not yet]'],
         ['run', 'The day before: remind him with his travel and truck details.', '🗓 Mike, tomorrow is your start day!']],
    done: 'He arrives (marked Arrived on his page).' },
