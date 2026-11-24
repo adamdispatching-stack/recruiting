@@ -167,9 +167,21 @@ async function grade(dr, teamText) {
   if (g.verdict === 'wrong') await bot.log('learn', `The bot's draft was wrong: ${String(g.note || '').slice(0, 160)}`, { chatId: dr.chat_id, driverId: dr.driver_id }).catch(() => {});
   return g;
 }
+// One of us says in the group that the Amazon Relay invite went out: the lead's Amazon step moves to "Invite sent"
+// right away (only forward: a driver already further along is left alone).
+const INVITE_SENT = /\binvit(e|ation)\b[^.!?\n]{0,80}\b(sent|send|sending|went out|is out|on its way)\b|\b(sent|send|sending|resent)\b[^.!?\n]{0,50}\b(relay |amazon |the |an |your |you (an?|the) )*invit(e|ation)\b/i;
+const NOT_YET = /\b(not|n't|never|will|going to|gonna|tomorrow|later|once|when|after|as soon as|need to|have to|can you|could you|did you|please)\b[^.!?\n]{0,40}\b(sen[dt]|sending)\b|\?\s*$/i;
+async function teamSaid(chat, who, text) {
+  if (chat.kind !== 'dispatch' || !chat.driver_id || !INVITE_SENT.test(text) || NOT_YET.test(text)) return null;
+  if (!(await db.amazonTo(db.pool, chat.driver_id, 'invite', who.user_id || null))) return null; // already there, or further
+  await require('../lib').history(chat.driver_id, `Amazon: ${db.AMAZON.find((s) => s.key === 'invite').long} (${who.name} said so in the Telegram group)`, who.name, 'telegram').catch(() => {});
+  await bot.log('fact', `Amazon step set to "Invite sent": ${who.name} wrote "${String(text).slice(0, 100)}"`, { chatId: chat.chat_id, driverId: chat.driver_id }).catch(() => {});
+  return 'invite';
+}
 // Our team (or, in the accounting group, accounting): an answer to a question the bot could not answer is learned
 async function learnFrom(chat, m, who, text) {
   if (!text || text.startsWith('/')) return;
+  await teamSaid(chat, who, text).catch((e) => console.error('team said', e.message));
   const open = (await q(`UPDATE tg_drafts SET state = 'answered', decided_at = now(), sent_by = $2, team_text = $3 WHERE chat_id = $1 AND state = 'open' RETURNING *`, [chat.chat_id, who.name, bot.redact(text).slice(0, 1500)])).rows;
   for (const dr of open) await grade(dr, bot.redact(text)).catch((e) => console.error('self-grade', e.message)); // the bot checks its own draft against the real answer
   const qn = (await q(`SELECT * FROM tg_questions WHERE chat_id = $1 AND answer IS NULL AND asked_at > now() - interval '24 hours'
@@ -397,4 +409,4 @@ async function answerFromWebsite(qid, answer, user) {
 }
 function start() { setInterval(() => tick().catch((e) => console.error('onb tick', e.message)), +process.env.TG_TICK_MS || 60000); }
 bot.handlers.dispatch = { begin, onButton, onMessage, status, setMode };
-module.exports = { savePaper, quietPaper, grade, sendDraft, draft, start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };
+module.exports = { teamSaid, savePaper, quietPaper, grade, sendDraft, draft, start, tick, caseOf, setMode, MODES, answerFromWebsite, qa, learnFrom, tell, companyFacts, REPORT, RESULT };

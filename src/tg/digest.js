@@ -221,6 +221,11 @@ async function onboardingStatus(chat, o, steps, quiet, { imported = quiet, late 
   // the CDL state and the ZIP (for the MVR and the drug test): fills gaps only
   // the driver says he is not coming: flag it for the team to confirm (never changes the status by itself)
   if (o.dropping_out && o.dropping_out.quote && !imported) await dropFlag(chat, o.dropping_out, late).catch((e) => console.error('drop', e.message));
+  // the Amazon step the chat shows done (never "verified": a person confirms that), only forward
+  if (['invite', 'account', 'profile', 'accurate', 'waiting'].includes(o.amazon_step) && await db.amazonTo(db.pool, chat.driver_id, o.amazon_step, null).catch(() => false)) {
+    await require('../lib').history(chat.driver_id, `Amazon: ${db.AMAZON.find((s) => s.key === o.amazon_step).long} (AI, from Telegram)`, 'Bot', 'telegram').catch(() => {});
+    await bot.log('fact', `Amazon step set to "${db.AMAZON.find((s) => s.key === o.amazon_step).label}" from what was said in the group`, { chatId: chat.chat_id, driverId: chat.driver_id }).catch(() => {});
+  }
   // the start date and how the driver travels, from what was said
   if (o.start_date || o.travel) await startFromChat(chat, o, quiet).catch((e) => console.error('start date', e.message));
   if (o.license_state || o.zip) await require('./mvr').setFacts(chat.driver_id, { state: o.license_state || undefined, zip: o.zip || undefined }, 'AI', { onlyEmpty: true }).catch((e) => console.error('mvr', e.message));
