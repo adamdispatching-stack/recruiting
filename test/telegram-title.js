@@ -695,7 +695,7 @@ async function until(f, ms = 8000, what = '') { for (let i = 0; i < ms / 100; i+
   await pg.query(`UPDATE tg_updates SET at = at - interval '1 day' WHERE driver_id = $1`, [hank]);
   await pg.query(`UPDATE tg_checks SET created_at = created_at - interval '1 day', until_at = NULL WHERE driver_id = $1`, [hank]);
   dn = tg.sent.length;
-  const qr = await until(() => toDan(dn).find((m) => /Where is <b>Hank Hired<\/b>/.test(m.text) && /rolling to/.test(m.text)), 15000, 'rolling');
+  const qr = await until(() => toDan(dn).find((m) => /Where is <b><a href="https:\/\/t\.me\/c\/720\/\d+">Hank Hired<\/a><\/b>/.test(m.text) && /rolling to/.test(m.text)), 15000, 'rolling');
   ok(qr && !toSam(dn).some((m) => /rolling to/.test(m.text)), 'no update from Hank for hours: Dan (level 1) is asked where he is rolling to');
   push({ message: { message_id: mid++, from: DAN, chat: { id: DAN.id, type: 'private' }, date: Math.floor(Date.now() / 1000), text: 'Rolling to Kearny, ETA 7:30 PM', reply_to_message: { message_id: qr.message_id } } });
   ok(await until(async () => (await pg.query(`SELECT 1 FROM tg_updates WHERE driver_id = $1 AND status = 'rolling' AND text LIKE 'Rolling to Kearny%'`, [hank])).rows.length === 1), 'Dan\'s answer is kept as Hank\'s latest update');

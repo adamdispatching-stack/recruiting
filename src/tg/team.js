@@ -208,7 +208,8 @@ async function tick() {
       if (it.userId && !it.disp && !(await require('../working').working(it.userId))) continue; // a recruiter is tagged only in their working hours: it waits (dispatch runs around the clock)
       if (!await once(`mf:${g.chat_id}:${it.key}:${L.date}`)) continue;
       const tg = await who(it.userId, it.owner);
-      await send(g.chat_id, `🔔 ${tg}${it.text.startsWith('missed') ? ' ' : ': '}${it.text}`);
+      const nm = it.driverId ? ((await q(`SELECT name FROM drivers WHERE id = $1`, [it.driverId])).rows[0] || {}).name : null; // his name opens his group
+      await send(g.chat_id, `🔔 ${tg}${it.text.startsWith('missed') ? ' ' : ': '}${nm ? await bot.linkName(it.text, it.driverId, nm) : it.text}`);
       await bot.log('ask', `Follow-up: ${it.owner || 'no recruiter'}: ${bot.stripHtml ? bot.stripHtml(it.text) : it.text}`, { chatId: g.chat_id, driverId: it.driverId });
     }
   }

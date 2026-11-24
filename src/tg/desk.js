@@ -97,7 +97,7 @@ function question(k, d, a) {
 async function ask(check, people) {
   const bot = require('./bot'); const c = cfg();
   const d = (await q(`SELECT d.name, (SELECT unit FROM trucks WHERE driver_id = d.id LIMIT 1) unit FROM drivers d WHERE d.id = $1`, [check.driver_id])).rows[0];
-  const text = question(check, d, bot);
+  const text = c.where === 'group' ? question(check, d, bot) : await bot.linkName(question(check, d, bot), check.driver_id, d.name); // his name opens his group
   let asked = 0;
   for (const p of people) {
     const buttons = [(BTN[check.kind] || BTN.other).map(([l, act]) => [l, `desk:${check.id}:${act}`])];

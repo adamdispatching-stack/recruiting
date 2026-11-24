@@ -120,6 +120,15 @@ const q = db.q;
   ok(!(await reply('who is on shift tonight?', 556, 604)), 'a reply that is not an answer is left alone');
   ok(!(await reply('yes', 999, 605)), 'a reply to another message is left alone');
 
+  // the driver's name in a team message opens his Telegram group
+  const B = require('../src/tg/bot');
+  const lnk = await driver('Lina Link', { step: 'verified' }); await group('-1009900042', lnk);
+  await q(`INSERT INTO tg_messages (chat_id, msg_id, from_id, text, at) VALUES (-1009900042, 57, 5, 'hi', now())`);
+  ok(await B.linkName('<b>Lina Link</b> is verified', lnk, 'Lina Link') === '<b><a href="https://t.me/c/9900042/57">Lina Link</a></b> is verified', 'his name links to his group (the newest message)');
+  const inv = await driver('Ivy Invite'); await group('-990077', inv); await q(`UPDATE tg_chats SET invite_link = 'https://t.me/+abcDEF' WHERE chat_id = -990077`);
+  ok(/<a href="https:\/\/t\.me\/\+abcDEF">Ivy Invite<\/a>/.test(await B.linkName('Ivy Invite is late', inv, 'Ivy Invite')), 'an old-style group: its invite link');
+  const none = await driver('Nate None');
+  ok(await B.linkName('Nate None is late', none, 'Nate None') === 'Nate None is late', 'no group: the name stays plain');
   // switched off with the team follow-ups
   db.settings.tg = { ...(db.settings.tg || {}), teamFollowups: false }; await clear(); await J.tick();
   ok(!SENT.length, 'off when team follow-ups are off');

@@ -617,4 +617,20 @@ async function start() {
   await retryWaiting().catch((e) => console.error('tg waiting', e.message));
   loop();
 }
-module.exports = { paused, react, isStaff, trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+// A link that opens the driver's Telegram group. For the team's messages about a driver (management group, private
+// chats): the first time his name appears in the text it becomes this link. In a group the bot is in (a supergroup),
+// a t.me/c/ link to the newest message opens the chat for anyone who is a member; else the group's invite link.
+async function groupUrl(driverId) {
+  const g = (await db.q(`SELECT c.chat_id::text chat_id, c.invite_link, (SELECT max(m.msg_id) FROM tg_messages m WHERE m.chat_id = c.chat_id) last
+    FROM tg_chats c WHERE c.driver_id = $1 AND c.kind = 'dispatch' AND c.active ORDER BY c.linked_at DESC NULLS LAST LIMIT 1`, [driverId])).rows[0];
+  if (!g) { const o = (await db.q(`SELECT telegram_link FROM onboarding WHERE driver_id = $1`, [driverId])).rows[0]; return o && /^https:\/\/t\.me\//.test(o.telegram_link || '') ? o.telegram_link : null; }
+  if (/^-100\d+$/.test(g.chat_id) && g.last) return `https://t.me/c/${g.chat_id.slice(4)}/${g.last}`;
+  return g.invite_link || null;
+}
+async function linkName(html, driverId, name) {
+  if (!driverId || !name) return html;
+  const n = esc(name); const at = html.indexOf(n); if (at < 0 || /<a [^>]*>[^<]*$/.test(html.slice(0, at))) return html;
+  const url = await groupUrl(driverId).catch(() => null); if (!url) return html;
+  return html.slice(0, at) + `<a href="${esc(url)}">${n}</a>` + html.slice(at + n.length);
+}
+module.exports = { groupUrl, linkName, paused, react, isStaff, trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };

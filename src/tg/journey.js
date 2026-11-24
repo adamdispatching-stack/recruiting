@@ -165,7 +165,7 @@ async function tick() {
       const n = side === 'driver' && it.nv ? await learn.choose('followup:' + it.key, it.nv) : st[it.key] ? st[it.key].count : 0; let msgId = null;
       if (side === 'team') {
         const tag = await require('./team').who(d.owner_id, d.owner);
-        if (teamChat) { await typing(teamChat); const m = await bot.send(teamChat, `${tag}, ${it.text(n, first(d.name))}`, it.buttons ? { buttons: it.buttons } : {}); msgId = m && m.message_id; await learn.record({ driverId: d.id, kind: 'team:' + it.key }).catch(() => {}); if (it.key === 'at_risk') await learn.flag(d.id).catch(() => {}); }
+        if (teamChat) { await typing(teamChat); const m = await bot.send(teamChat, `${tag}, ${await bot.linkName(it.text(n, first(d.name)), d.id, d.name)}`, it.buttons ? { buttons: it.buttons } : {}); msgId = m && m.message_id; await learn.record({ driverId: d.id, kind: 'team:' + it.key }).catch(() => {}); if (it.key === 'at_risk') await learn.flag(d.id).catch(() => {}); }
         else if (d.owner_id) await db.notify(db.pool, d.owner_id, 'telegram', bot.stripHtml(it.text(n, first(d.name))), `#/driver/${d.id}`, { driverId: d.id });
         else continue; // nobody to tell
         teamSent++;
