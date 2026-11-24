@@ -516,6 +516,38 @@ module.exports = (app) => {
     const removed = (await q(`SELECT chat_id::text chat_id, title, kind FROM tg_chats WHERE driver_id = $1 AND NOT active AND kind IS NOT NULL`, [d.id])).rows;
     res.json({ onb, removed, botOn: bot.on(), bot: bot.state.me ? bot.state.me.username : null, openQuestions: open, groups: chats.map((c) => ({ chatId: c.chat_id, title: c.title, kind: c.kind, botAdmin: c.bot_admin, lastAt: c.last_at, eld: c.kind === 'eld' && c.steps ? eldView(c) : null })) });
   }));
+  // ---------- the Telegram conversation on the lead page (like the Indeed one), and writing in it from the website ----------
+  app.get('/api/drivers/:id/tg-chat', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const groups = (await q(`SELECT chat_id::text chat_id, title, kind, active FROM tg_chats WHERE driver_id = $1 AND kind IS NOT NULL ORDER BY active DESC, (kind = 'dispatch') DESC, linked_at DESC NULLS LAST`, [d.id])).rows;
+    if (!groups.length) return res.json({ groups: [], msgs: [], canSend: false });
+    const rows = (await q(`SELECT m.chat_id::text chat_id, m.msg_id, m.from_name, m.is_bot, m.text, m.media, m.media_note, m.at, p.role, p.driver_id, p.user_id, p.name person
+      FROM tg_messages m LEFT JOIN tg_people p ON p.tg_id = m.from_id WHERE m.chat_id = ANY($1::bigint[]) ORDER BY m.at DESC, m.msg_id DESC LIMIT 300`, [groups.map((g) => g.chat_id)])).rows.reverse();
+    const kindOf = Object.fromEntries(groups.map((g) => [g.chat_id, g.kind]));
+    const msgs = rows.map((m) => {
+      const by = m.is_bot ? /\n\(([^()\n]+)\)$/.exec(m.text || '') : null; // sent from the website: ends with "(name)"
+      const side = by ? 'team' : m.is_bot ? 'bot' : m.role === 'driver' && m.driver_id === d.id ? 'driver' : m.user_id || (m.role && m.role !== 'driver') ? 'team' : 'other';
+      return { chatId: m.chat_id, kind: kindOf[m.chat_id], msgId: +m.msg_id, side, who: by ? by[1] : m.is_bot ? 'Bot' : m.person || m.from_name || 'Someone',
+        text: by ? m.text.slice(0, by.index) : m.text || (m.media ? '[' + m.media + ']' : ''), note: m.media_note || null, at: m.at };
+    });
+    const to = groups.filter((g) => g.active);
+    res.json({ groups: groups.map((g) => ({ chatId: g.chat_id, title: g.title, kind: g.kind, active: g.active })), msgs, canSend: bot.on() && !!to.length, botOn: bot.on(), sendTo: to.map((g) => g.kind) });
+  }));
+  app.post('/api/drivers/:id/tg-chat', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const b = req.body || {}; const text = String(b.text || '').trim().slice(0, 3000); if (!text) return res.status(400).json({ error: 'Write the message first' });
+    if (!bot.on()) return res.status(400).json({ error: 'The Telegram bot is not turned on' });
+    const kind = ['dispatch', 'eld', 'accounting'].includes(b.kind) ? b.kind : 'dispatch';
+    const chat = (await q(`SELECT * FROM tg_chats WHERE driver_id = $1 AND kind = $2 AND active ORDER BY last_at DESC NULLS LAST LIMIT 1`, [d.id, kind])).rows[0];
+    if (!chat) return res.status(404).json({ error: `This driver has no ${kind === 'dispatch' ? 'Telegram' : kind} group with the bot in it` });
+    let sent;
+    try { sent = await bot.send(chat.chat_id, `${bot.esc(text)}\n<i>(${bot.esc(req.user.name)})</i>`, { human: true }); } catch (e) { return res.status(502).json({ error: 'Telegram did not take it: ' + e.message }); }
+    // an answer from our team, like one written in the group: the bot's waiting draft is closed and graded against it, an open question is learned
+    await require('./tg/onboard').learnFrom(chat, {}, { name: req.user.name, user_id: req.user.id }, text).catch((e) => console.error('tg-chat learn', e.message));
+    await lib.history(d.id, `Telegram: wrote in the ${kind === 'dispatch' ? '' : kind + ' '}group: "${text.slice(0, 160)}"`, req.user.name);
+    await bot.log('reply', `${req.user.name} wrote from the website: "${text.slice(0, 120)}"`, { chatId: chat.chat_id, driverId: d.id, who: req.user.name }).catch(() => {});
+    res.json({ ok: true, msgId: sent && sent.message_id });
+  }));
   // ---------- which Telegram account is the driver's: the people in the driver's groups who are not our team ----------
   const pick = (p) => ({ tgId: p.tgId, name: p.name, username: p.username, linked: p.linked, otherDriver: p.otherDriver, notDriver: p.notDriver, groups: p.groups, likelyTeam: p.likelyTeam, messages: p.messages, last: p.last });
   app.get('/api/drivers/:id/tg-people', needUser, wrap(async (req, res) => {

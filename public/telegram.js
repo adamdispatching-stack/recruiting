@@ -669,4 +669,28 @@
   App.route(/^#\/shifts$/, () => { tab = 'desk'; return viewList(); }); // the Shift desk, also from the menu
   App.route(/^#\/telegram\/(-?\d+)$/, viewChat);
   App.tgLeadGroups = leadGroups;
+  // ---------- the Telegram conversation on the lead page, and a box to write in it through the bot ----------
+  const GK = { dispatch: 'Dispatch', eld: 'ELD', accounting: 'Accounting' };
+  async function leadChat(driverId, host, keep) {
+    let r; try { r = await api(`/api/drivers/${driverId}/tg-chat`); } catch (e) { return; }
+    if (!host.isConnected) return;
+    const many = new Set(r.msgs.map((m) => m.chatId)).size > 1;
+    const bubble = (m) => `<div class="msg ${m.side === 'driver' ? 'c' : m.side === 'other' ? 's' : 'd'}"><span class="w">${esc(m.who)}${many ? ' · ' + (GK[m.kind] || m.kind) : ''} <span class="mut">${esc(when(m.at))}</span></span>${esc(m.text)}${m.note ? `<span class="small mut" style="display:block">${esc(m.note)}</span>` : ''}</div>`;
+    const draft = keep || '';
+    host.innerHTML = `<h3>Telegram conversation${r.msgs.length ? ` <span class="small mut">${plural(r.msgs.length, 'message')}${r.msgs.length >= 300 ? ', the latest' : ''}</span>` : ''}</h3>
+      ${!r.groups.length ? '<p class="hint">No Telegram group is linked to this driver yet. Add the bot to his group; it links itself by the name or phone in the title, or link it under Telegram groups above.</p>'
+        : r.msgs.length ? `<div class="convo" id="tgcv">${r.msgs.map(bubble).join('')}</div>` : '<p class="hint">The group is linked, but nothing was written since the bot joined.</p>'}
+      ${r.groups.length ? (r.canSend ? `<form class="tgsay"><textarea name="text" rows="2" maxlength="3000" placeholder="Write to the driver in his Telegram group…" aria-label="Message to the driver's Telegram group">${esc(draft)}</textarea>
+        <div class="tgsayrow">${r.sendTo.length > 1 ? `<select name="kind" aria-label="Which group">${r.sendTo.map((k) => `<option value="${k}">${GK[k] || k} group</option>`).join('')}</select>` : ''}<button class="btn primary">Send through the bot</button><span class="small mut">Goes out as the bot, signed with your name.</span></div></form>`
+        : `<p class="hint">${r.botOn ? 'The bot is no longer in this driver\'s group, so a message cannot be sent from here.' : 'The Telegram bot is not turned on, so a message cannot be sent from here.'}</p>`) : ''}`;
+    const cv = host.querySelector('#tgcv'); if (cv) cv.scrollTop = cv.scrollHeight;
+  }
+  document.addEventListener('submit', async (e) => {
+    const f = e.target.closest('form.tgsay'); if (!f) return; e.preventDefault();
+    const host = f.closest('.tgchat'); const text = f.text.value.trim(); if (!text) return;
+    const b = f.querySelector('button'); b.disabled = true; b.textContent = 'Sending…';
+    try { await api(`/api/drivers/${host.dataset.driver}/tg-chat`, { method: 'POST', body: { text, kind: f.kind ? f.kind.value : 'dispatch' } }); toast('Sent in the Telegram group'); await leadChat(host.dataset.driver, host); }
+    catch (er) { fail(er); b.disabled = false; b.textContent = 'Send through the bot'; }
+  });
+  App.tgLeadChat = leadChat;
 })();

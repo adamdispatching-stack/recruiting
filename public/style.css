@@ -2068,3 +2068,8 @@ td.lmsg .lmtext{font-size:13px;line-height:1.35}
 .djdone b{color:var(--green-d);white-space:nowrap}
 .learnc h4{margin:16px 0 6px;font-size:14px}.learnc .props li{align-items:flex-start;gap:8px}.learnc label.chk{display:block;margin:8px 0}
 .learnc .audits li{align-items:flex-start;gap:8px;flex-wrap:wrap}.learnc h3 .btn{margin-left:8px}
+/* Telegram on the leads table and the lead page */
+.tgv{display:inline-block;margin-left:6px;padding:0 7px;border-radius:999px;font-size:11.5px;font-weight:700;line-height:18px;white-space:nowrap;background:var(--blue-t);color:var(--blue)}
+.tgv.noadmin{background:var(--yellow-t);color:var(--yellow-ink)}.tgv.removed{background:var(--red-t);color:var(--red)}
+.tgsay{margin-top:10px}.tgsay textarea{width:100%;resize:vertical}.tgsayrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:6px}
+.tgchat .convo .msg .w .mut{font-weight:400}

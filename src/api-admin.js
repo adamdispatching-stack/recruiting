@@ -205,8 +205,10 @@ module.exports = (app) => {
     const r = await q(`SELECT d.*, (SELECT string_agg(coalesce(u.name, 'Chrome ' || substr(n.source, 5)) || ', ' || to_char(n.created_at, 'Mon DD') || ': ' ||
           ${lib.NOTE_TEXT}, E'\\n' ORDER BY n.created_at DESC)
         FROM notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.driver_id = d.id AND coalesce(n.source, '') <> $2) team_notes
-      FROM drivers d WHERE d.web_updated_at > $1 AND ($3::int IS NULL OR d.owner_id = $3::int OR ${lib.unownedSql()}) ORDER BY d.web_updated_at LIMIT 1000`, [sinceIso, 'ext:' + req.key.name, own]);
-    res.json({ now: new Date().toISOString(), drivers: r.rows.map((d) => ({ name: d.name, phones: d.phones, emails: d.emails, account: d.account, status: d.status, statusLocked: d.status_locked, followUp: d.follow_up || null, tags: d.tags, teamNotes: d.team_notes || '', url: `/#/driver/${d.id}` })) });
+      FROM drivers d WHERE (d.web_updated_at > $1 OR EXISTS (SELECT 1 FROM tg_chats c WHERE c.driver_id = d.id AND c.linked_at > $1) OR EXISTS (SELECT 1 FROM onb_cases o WHERE o.driver_id = d.id AND o.ai_status_at > $1))
+        AND ($3::int IS NULL OR d.owner_id = $3::int OR ${lib.unownedSql()}) ORDER BY d.web_updated_at LIMIT 1000`, [sinceIso, 'ext:' + req.key.name, own]);
+    const tg = await require('./cross').fromTelegram(r.rows.map((d) => d.id)); // what Telegram knows, for the Indeed auto-reply
+    res.json({ now: new Date().toISOString(), drivers: r.rows.map((d) => ({ name: d.name, phones: d.phones, emails: d.emails, account: d.account, status: d.status, statusLocked: d.status_locked, followUp: d.follow_up || null, tags: d.tags, teamNotes: d.team_notes || '', url: `/#/driver/${d.id}`, telegram: tg[d.id] || null })) });
   }));
   // ---------- backups, data, errors (admins) ----------
   app.get('/api/admin/backup', needUser, needAdmin, wrap(async (req, res) => {

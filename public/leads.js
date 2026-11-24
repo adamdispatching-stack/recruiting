@@ -158,7 +158,7 @@
         <td class="w"><div class="nx${nx.strong ? ' strong' : ''}"${nx.tip ? ` title="${esc(nx.tip)}"` : ''}>${nx.text ? esc(nx.text) : `<span class="none">${esc(nx.none)}</span>`}</div>${nx.hint ? `<div class="small mut clamp1">${esc(nx.hint)}</div>` : ''}${d.stage === 'red' && (d.lostReason || d.lostNote) ? `<div class="small redwhy">${esc([d.lostReason, d.lostNote].filter(Boolean).join(': '))}</div>` : ''}<div class="moves">${moves(d)}</div></td>
         <td class="w">${dueCell(d, t)}</td>
         <td class="w wlast">${owner}${opensBtn(d.id, d.opens)}</td>
-        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}${d.relayBefore === true || d.relayBefore === false ? `<div class="small mut relay1" title="Has the driver run Amazon Relay loads before?">Relay before: ${relayTag(d.relayBefore)}</div>` : ''}<div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
+        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}${d.telegram ? `<span class="tgv xs ${d.telegram}" title="${d.telegram === 'on' ? 'Telegram group linked, the bot is in it' : d.telegram === 'noadmin' ? 'Telegram group linked, but the bot is not an admin there' : 'The bot was removed from the Telegram group'}">${d.telegram === 'removed' ? '✕' : '✓'} Telegram</span>` : ''}${d.relayBefore === true || d.relayBefore === false ? `<div class="small mut relay1" title="Has the driver run Amazon Relay loads before?">Relay before: ${relayTag(d.relayBefore)}</div>` : ''}<div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
         <td>${esc(d.source || '') || '<span class="none">No source</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}<div class="small mut added1" title="Added to the website ${esc(when(d.createdAt))}">Added ${esc(when(d.createdAt))}</div><div class="coline">${App.coTag(d.companyId) || ''}</div></td>
         </tr>`;
@@ -544,7 +544,8 @@
                 <button type="button" class="btn plain sm" data-act="logContact" data-kind="email" data-outcome="Sent">Emailed</button></div>${r.indeedChat && S.me.noAnswerOn ? '<p class="hint imhint">No answer or voicemail: Chrome also sends an Indeed message in this driver\'s chat.</p>' : ''}</form>
             ${r.notes.length ? `<ul class="notes">${r.notes.map(noteHtml).join('')}</ul>` : '<p class="hint" style="margin:10px 0 0">No notes yet.</p>'}
           </section>
-          <section class="card"><h3>Conversation</h3>${d.transcript ? `<div class="convo" id="cv">${convoHtml(d.transcript)}</div>` : '<p class="hint">No Indeed conversation saved for this driver.</p>'}</section>
+          <section class="card"><h3>Indeed conversation</h3>${d.transcript ? `<div class="convo" id="cv">${convoHtml(d.transcript)}</div>` : '<p class="hint">No Indeed conversation saved for this driver.</p>'}</section>
+          <section class="card tgchat" data-driver="${d.id}"><h3>Telegram conversation</h3><p class="hint">Loading…</p></section>
           ${d.status !== 'Onboarding' ? onb : ''}
         </div>
         <div>
@@ -573,6 +574,7 @@
         expYears: f.get('expYears'), experience: f.get('experience'), relayBefore: f.get('relayBefore'), weeksOut: f.get('weeksOut'), daysHome: f.get('daysHome'), truckYear: oo ? f.get('truckYear') : '', truckModel: oo ? f.get('truckModel') : '' }, 'Details saved');
     };
     const tgh = document.querySelector('.tggroups'); if (tgh && App.tgLeadGroups) App.tgLeadGroups(d.id, tgh);
+    const tgc = document.querySelector('.tgchat'); if (tgc && App.tgLeadChat) App.tgLeadChat(d.id, tgc);
     const ldr = document.getElementById('leadDrafts'); if (ldr) App.draftsBox(ldr, 'driverId=' + d.id);
     const dp = document.getElementById('dprof'); if (dp && App.profileCard) App.profileCard(d.id, dp, d.status === 'Hired' || d.status === 'Onboarding');
     const sf = $('#stepForm'); if (sf) sf.onsubmit = async (e) => { e.preventDefault(); const v = sf.label.value.trim(); if (!v) return; try { await api(`/api/drivers/${d.id}/checklist`, { method: 'POST', body: { label: v } }); toast('Step added'); again(); } catch (err) { fail(err); } };

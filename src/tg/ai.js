@@ -169,7 +169,7 @@ ${orientation}${working ? 'This is a WORKING driver\'s dispatch group. Today is 
 
 This driver is ONBOARDING (not driving for us yet).
 Today is ${onb.today}. Start date on the website: ${onb.start || 'not set'}.${onb.travel ? ` Travel details on the website: ${onb.travel}.` : ''}
-Amazon Relay step: ${onb.amazon || 'invite not sent yet'}.${onb.last ? ` Last known status: ${onb.last}` : ''}
+Amazon Relay step: ${onb.amazon || 'invite not sent yet'}.${onb.last ? ` Last known status: ${onb.last}` : ''}${onb.indeed ? `\nWhat he told us on Indeed before this group (already known, not news; do not list it as an open question):\n${onb.indeed}` : ''}
 ONBOARDING STEPS still open (id: step): ${onb.steps.length ? onb.steps.map((x) => `${x.id}: ${x.label}`).join('; ') : 'none'}` : ''}`;
   const content = [...images.map((im) => (im.mime === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: im.data } } : { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } })),
     { type: 'text', text: `${about}\n\nEARLIER MESSAGES (context):\n${context.join('\n') || '(none)'}\n\nNEW MESSAGES:\n${fresh.join('\n')}${images.length ? `\n\n(The ${images.length} picture(s) above are the photos in the new messages, in order.)` : ''}` }];

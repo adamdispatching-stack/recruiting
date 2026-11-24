@@ -194,7 +194,8 @@ async function onMessage(chat, m, who) {
   if (file && ai.on()) return watch ? null : readFile(c, m, who, file); // pictures: the digest reads them
   if (!text || !ai.on() || bot.trivial(m)) return; // "ok", "thanks", 👍: nothing to answer
   const context = `Name: ${c.name}. ${c.mode === 'Owner-operators' ? 'Owner-operator' : 'Company driver'}. Amazon Relay step: ${c.amazon_step ? db.AMAZON.find((s) => s.key === c.amazon_step).long : 'invite not sent yet'}. Start date: ${c.arrive ? nice(c.arrive) : 'not set yet'}.${c.unit ? ` Truck: ${c.unit} ${c.details || ''}.` : ''}${c.arrival_note ? ` Travel: ${c.arrival_note}.` : ''}${c.company ? ` Company: ${c.company}.` : ''}`;
-  return qa(c, chat, m, who, text, { context, mode: c.bot_mode, escalate: () => recruiterTag(c), kinds: ['general'], onProgress: (k) => moveAmazon(c, k, who.name) });
+  const indeed = await require('../cross').fromIndeed(c.driver_id).catch(() => '');
+  return qa(c, chat, m, who, text, { context: indeed ? `${context}\nWHAT HE ALREADY TOLD US ON INDEED, before this group (never ask him for these again; use them when you answer):\n${indeed}` : context, mode: c.bot_mode, escalate: () => recruiterTag(c), kinds: ['general'], onProgress: (k) => moveAmazon(c, k, who.name) });
 }
 // Answer a driver's message from the facts and knowledge; if unsure, ask a person and remember their answer.
 // c: { name, driver_id, chat_id, owner_id, mode }; opts: { context, escalate() -> tag, kinds, onProgress(key), who: 'recruiter' }

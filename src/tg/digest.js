@@ -50,7 +50,8 @@ async function digestChat(chatId) {
     const cs = (await q(`SELECT ai_status FROM onb_cases WHERE driver_id = $1`, [chat.driver_id])).rows[0];
     const am = chat.amazon_step ? (db.AMAZON.find((x) => x.key === chat.amazon_step) || {}).long : null;
     const ob = (await q(`SELECT to_char(expected_arrival, 'Dy YYYY-MM-DD') start, arrival_note, to_char(now() AT TIME ZONE $2, 'Dy YYYY-MM-DD') today FROM onboarding WHERE driver_id = $1`, [chat.driver_id, db.settings.tz])).rows[0] || {};
-    onb = { steps, amazon: am, last: cs && cs.ai_status ? cs.ai_status.summary : null, start: ob.start || null, travel: ob.arrival_note || null,
+    const indeed = await require('../cross').fromIndeed(chat.driver_id).catch(() => '');
+    onb = { indeed, steps, amazon: am, last: cs && cs.ai_status ? cs.ai_status.summary : null, start: ob.start || null, travel: ob.arrival_note || null,
       today: ob.today || (await q(`SELECT to_char(now() AT TIME ZONE $1, 'Dy YYYY-MM-DD') t`, [db.settings.tz])).rows[0].t };
   }
   // messages brought in from an export (before the bot joined): read and learned from, never acted on

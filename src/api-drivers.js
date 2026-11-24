@@ -116,7 +116,9 @@ module.exports = (app) => {
       FROM drivers d ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY ${sortSql}, d.id LIMIT ${Math.min(500, Math.max(1, +limit || 100))} OFFSET ${Math.max(0, +offset || 0)}`, p2);
     const pv = []; const v2 = visSql(req.user, pv);
     const accounts = await q(`SELECT DISTINCT account FROM drivers d WHERE account IS NOT NULL ${v2 ? 'AND ' + v2 : ''} ORDER BY 1`, pv);
-    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ ...toClient(d), cold: d.is_cold, dueToday: d.is_today, overdue: d.is_overdue, opens: d.opens })), counts: counts.rows, stages: Object.fromEntries(db.STAGES.map((k) => [k, (stages.rows.find((x) => x.stage === k) || { n: 0 }).n])), accounts: accounts.rows.map((r) => r.account) });
+    // the Telegram group of each lead on this page: the bot is in it (on), not an admin, or was removed
+    const tgOf = rows.rows.length ? Object.fromEntries((await q(`SELECT DISTINCT ON (driver_id) driver_id, active, bot_admin FROM tg_chats WHERE kind = 'dispatch' AND driver_id = ANY($1::int[]) ORDER BY driver_id, active DESC, linked_at DESC NULLS LAST`, [rows.rows.map((d) => d.id)])).rows.map((x) => [x.driver_id, !x.active ? 'removed' : x.bot_admin ? 'on' : 'noadmin'])) : {};
+    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ telegram: tgOf[d.id] || null, ...toClient(d), cold: d.is_cold, dueToday: d.is_today, overdue: d.is_overdue, opens: d.opens })), counts: counts.rows, stages: Object.fromEntries(db.STAGES.map((k) => [k, (stages.rows.find((x) => x.stage === k) || { n: 0 }).n])), accounts: accounts.rows.map((r) => r.account) });
   }));
 
   // The number on Leads in the menu
