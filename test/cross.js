@@ -22,7 +22,7 @@ const q = db.q;
   ok(/CDL-A experience: 6 years/.test(txt) && /Ran Amazon Relay loads before: yes/.test(txt) && /ZIP code: 19104/.test(txt) && /CDL state: PA/.test(txt) && /Lives in: Philadelphia, PA/.test(txt), 'the facts from Indeed are listed for the Telegram bot');
   ok(/About Telegram he said: "ok installed"/.test(txt) && /Summary of the Indeed chat: Experienced/.test(txt), 'with what he said about Telegram, and the summary');
   ok(/The last lines of the Indeed chat:/.test(txt) && /Driver: ivan@example\.com/.test(txt) && !/\[Indeed: invited\]/.test(txt), 'and how the Indeed chat ended (the driver\'s and our lines, not Indeed\'s notices)');
-  const blank = (await q(`INSERT INTO drivers (name, name_key, status) VALUES ('Nora Nothing', 'nora nothing', 'Onboarding') RETURNING id`)).rows[0].id;
+  const blank = (await q(`INSERT INTO drivers (name, name_key, status, web_updated_at) VALUES ('Nora Nothing', 'nora nothing', 'Onboarding', now() - interval '10 days') RETURNING id`)).rows[0].id;
   ok(await cross.fromIndeed(blank) === '', 'nothing from Indeed: nothing is added');
   const src = (f) => fs.readFileSync(__dirname + '/../src/tg/' + f, 'utf8');
   ok(/fromIndeed\(c\.driver_id\)/.test(src('onboard.js')) && /WHAT HE ALREADY TOLD US ON INDEED/.test(src('onboard.js')), 'the bot\'s replies in Telegram are written with it');
