@@ -695,9 +695,16 @@
         <section class="card">${[['Keep doing', p.strengths], ['To improve', p.improve], ['How he runs updates', p.update_habits], ['His typical messages', p.phrases]].filter(([, a]) => a && a.length).map(([t, a]) => `<h4>${t}</h4><ul>${li(a)}</ul>`).join('')}</section></div>`}
       ${r.history.length > 1 ? `<section class="card"><h3>Past reviews</h3><table class="mini"><thead><tr><th>Date</th><th class="n">Average</th><th>Goal given</th><th>Trend</th></tr></thead><tbody>${r.history.map((h) => `<tr><td>${when(h.at)}</td><td class="n">${avg(h.scores) === null ? '—' : avg(h.scores).toFixed(1) + ' / 5'}</td><td>${esc(h.goal || '')}</td><td>${esc((TREND[(h.trend || {}).direction] || ''))}</td></tr>`).join('')}</tbody></table></section>` : ''}
       ${r.groups.length ? `<section class="card"><h3>His groups, last 30 days</h3><ul class="glist">${r.groups.map((g) => `<li><a href="#/telegram/${g.chat_id}">${esc(g.title || 'Group')}</a> <span class="small mut">${plural(g.n, 'message')}</span></li>`).join('')}</ul></section>` : ''}
+      ${r.rules ? `<details class="card rulescard" ${r.rules.own ? '' : 'open'}><summary><b>How we work</b> <span class="small mut">the reviews must fit these rules</span></summary>
+        <p class="hint">Always applied:</p><pre class="rulesfixed">${esc(r.rules.fixed)}</pre>
+        <label class="fld">Your own rules, one per line<textarea id="dispRules" rows="6" placeholder="- A tired driver: ...
+- A late driver: ...">${esc(r.rules.own)}</textarea></label>
+        <p class="hint">When a review suggests something your team cannot or should not do, write the rule here. It is used from the next review of every dispatcher (press Review again now to see it at once).</p>
+        <div><button type="button" class="btn primary sm" data-act="dispRulesSave">Save the rules</button></div></details>` : ''}
     </main>`;
     App.lastReview = r;
   }
+  on('dispRulesSave', async (b) => { b.disabled = true; try { await api('/api/tg/dispatch-rules', { method: 'PUT', body: { text: $('#dispRules').value } }); toast('Saved. Used from the next review.'); } catch (e) { fail(e); } b.disabled = false; });
   on('dispReview', async (btn) => { btn.disabled = true; btn.textContent = 'Reviewing… (up to a minute)'; try { await api(`/api/tg/dispatchers/${dispRefNow}/review`, { method: 'POST' }); toast('Review updated'); viewDispatcher(dispRefNow); } catch (e) { fail(e); btn.disabled = false; btn.textContent = 'Review again now'; } });
   on('dispCopy', async () => { const fb = ((App.lastReview || {}).profile || {}).feedback || {};
     const t = [fb.praise_first, fb.main_point, fb.show_example, fb.how_to_say_it, fb.goal && 'Goal for the next 2 weeks: ' + fb.goal].filter(Boolean).join('\n\n');

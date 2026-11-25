@@ -226,8 +226,17 @@ const DISP_TOOL = { name: 'dispatcher_profile', description: 'A detailed, fair r
   trend: { type: 'object', properties: { direction: { type: 'string', enum: ['first', 'better', 'same', 'worse'] }, what_changed: { type: 'string' } }, required: ['direction'] },
   confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'low when there are few messages or few real situations.' } },
   required: ['summary', 'tone', 'clarity', 'professionalism', 'scores', 'issues', 'thinking', 'drivers_view', 'update_habits', 'phrases', 'strengths', 'improve', 'red_flags', 'feedback', 'tip', 'trend', 'confidence'] } };
-async function dispatcherProfile({ name, stats, lines, previous }) {
-  const system = `You review how one dispatcher of a US trucking company works with the drivers in their Telegram groups, so the managers can coach him and a bot can learn to run updates the same way. Be fair, specific and factual: everything must come from the messages and numbers given, never invented. Give credit where it is due. When there is little to go on, say so and set confidence low. Never include phone numbers, addresses, load or truck numbers, or anyone's full name.`;
+// How this company really works: without it the advice asks for things a dispatcher here cannot do (move a delivery time,
+// call the receiver). The admins add their own rules on the review page (settings tg.dispatchRules).
+const DISP_RULES = `- The loads are Amazon Relay loads. Once a load is booked, Amazon expects it picked up and delivered straight through, on time.
+- The dispatchers do not talk to shippers or receivers, and cannot move a pickup or delivery time.
+- So never advise him to call the shipper or receiver, to move or reschedule a pickup or drop, or to promise a driver a later time.`;
+async function dispatcherProfile({ name, stats, lines, previous, rules }) {
+  const system = `You review how one dispatcher of a US trucking company works with the drivers in their Telegram groups, so the managers can coach him and a bot can learn to run updates the same way. Be fair, specific and factual: everything must come from the messages and numbers given, never invented. Give credit where it is due. When there is little to go on, say so and set confidence low. Never include phone numbers, addresses, load or truck numbers, or anyone's full name.
+
+HOW THIS COMPANY WORKS (facts; all your advice must fit them):
+${[DISP_RULES, String(rules || '').trim().slice(0, 4000)].filter(Boolean).join('\n')}
+Every piece of advice (improve, say_instead, better_way, feedback, tip, goal) must be something this dispatcher can really do under these facts. Do not invent options, tools or permissions he may not have. When the facts leave no good way out of a situation, the advice is about what he could have done earlier (for example checking the driver's rest and hours before booking the load) and about how he speaks to the driver, not about changing the load.`;
   const prev = previous ? `\nTHE LAST REVIEW (${previous.at}): ${previous.summary || ''}\nScores then: ${(previous.scores || []).map((s) => `${s.area} ${s.score}`).join(', ')}\nGoal given then: ${(previous.feedback || {}).goal || 'none'}\nSay in trend whether he got better, and whether he reached that goal.\n` : '\nThis is his first review: trend.direction = first.\n';
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: `Dispatcher: ${name}\n${stats}${prev}\nMESSAGES (oldest first; each of his messages starts with its number [#n], with the driver's message before it when it was a reply. Give that number as ref for every situation, example and red flag):\n${lines.join('\n').slice(-90000)}` }], tool: DISP_TOOL, maxTokens: 4000 });
 }
@@ -273,4 +282,4 @@ async function weeklyReview(text) {
   const system = 'You are the onboarding assistant of a US trucking company, reviewing your own last week to get better. Below: your drafts that did not match what the team wrote, steps you wrongly thought were done, follow-ups nobody answered, your score by topic and which wordings drivers answered. Propose only fixes the evidence supports, the most useful first, at most 8. No personal details, no driver names. If the week gives nothing worth changing, return an empty list.';
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text }], tool: REVIEW_TOOL, maxTokens: 2500 });
 }
-module.exports = { weeklyReview, gradeDraft, AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile, kbTidy };
+module.exports = { DISP_RULES, weeklyReview, gradeDraft, AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile, kbTidy };

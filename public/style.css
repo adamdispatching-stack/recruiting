@@ -2087,3 +2087,4 @@ dd .multi{margin-left:0;margin-right:6px}
 .agnone{margin-top:10px}.agnone summary{cursor:pointer;color:var(--mut);font-size:14px}
 @media (max-width:900px){.agd .gcell{flex-direction:column;align-items:stretch;gap:3px}.agd .gcell select{width:100%}.agbar .agsearch,.agbar .agsearch input{width:100%}}
 .scoretab .howto{margin-top:6px;padding:6px 10px;border-left:3px solid var(--green);background:#F3F8F4;border-radius:0 6px 6px 0}.scoretab .better{margin-top:4px;color:#12451F}
+.rulescard summary{cursor:pointer}.rulescard .rulesfixed{white-space:pre-wrap;font:inherit;background:#F6F4EF;border-radius:6px;padding:8px 10px;margin:4px 0 10px}.rulescard textarea{width:100%;font:inherit}

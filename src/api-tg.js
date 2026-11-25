@@ -378,7 +378,13 @@ module.exports = (app) => {
     const user = p.user_id ? (await q(`SELECT id, name, email, active FROM users WHERE id = $1`, [p.user_id])).rows[0] : null;
     const history = (await q(`SELECT at, profile->'scores' scores, profile->>'summary' summary, profile->'trend' trend, profile->'feedback'->>'goal' goal FROM tg_disp_reviews WHERE tg_id = $1 ORDER BY at DESC LIMIT 12`, [p.tg_id])).rows;
     const groups = (await q(`SELECT c.chat_id::text chat_id, c.title, count(*)::int n, max(m.at) last FROM tg_messages m JOIN tg_chats c ON c.chat_id = m.chat_id WHERE m.from_id = $1 AND m.at > now() - interval '30 days' GROUP BY 1, 2 ORDER BY n DESC LIMIT 30`, [p.tg_id])).rows;
-    res.json({ person: { tg_id: String(p.tg_id), name: p.name, username: p.username, role: p.role }, user: user && { ...user, noLogin: require('./tg/accounts').noLogin(user.email) }, profile: p.profile, at: p.profile_at, stats: st, history, groups });
+    res.json({ person: { tg_id: String(p.tg_id), name: p.name, username: p.username, role: p.role }, user: user && { ...user, noLogin: require('./tg/accounts').noLogin(user.email) }, profile: p.profile, at: p.profile_at, stats: st, history, groups,
+      rules: req.user.role === 'admin' ? { fixed: require('./tg/ai').DISP_RULES, own: (db.settings.tg || {}).dispatchRules || '' } : null });
+  }));
+  // how the company really works, in the admins' own words: every dispatcher review must fit it
+  app.put('/api/tg/dispatch-rules', needUser, needAdmin, wrap(async (req, res) => {
+    await db.saveSetting('tg', { ...db.settings.tg, dispatchRules: String((req.body || {}).text || '').trim().slice(0, 4000) });
+    res.json({ ok: true });
   }));
   // one moment of a group's chat: the messages before and after one message (links from the dispatcher review)
   app.get('/api/tg/chats/:id/around', needUser, needAdmin, wrap(async (req, res) => {

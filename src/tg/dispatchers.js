@@ -47,7 +47,7 @@ async function build(tgId, { force = false } = {}) {
     return `${b ? `  driver: ${bot.redact(b.text || '').slice(0, 200)}\n` : ''}[#${k + 1} group ${gn[r.chat_id]} ${r.hm}${gap !== null ? `, ${gap} min after the driver` : ''}] ${bot.redact(r.text).slice(0, 400)}`; });
   const last = (await q(`SELECT profile, at FROM tg_disp_reviews WHERE tg_id = $1 ORDER BY at DESC LIMIT 1`, [tgId])).rows[0];
   const previous = last ? { ...last.profile, at: new Date(last.at).toISOString().slice(0, 10) } : null;
-  const prof = await ai.dispatcherProfile({ name: p.name, stats: statsText(st), lines, previous });
+  const prof = await ai.dispatcherProfile({ name: p.name, stats: statsText(st), lines, previous, rules: (db.settings.tg || {}).dispatchRules || '' });
   if (!prof) return null;
   prof.refs = refsOf(prof, at);
   await q(`UPDATE tg_people SET profile = $2, profile_at = now(), profile_msgs = $3 WHERE tg_id = $1`, [tgId, JSON.stringify(prof), st.msgs]);
