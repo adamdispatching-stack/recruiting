@@ -12,16 +12,20 @@
   // ---------- the list ----------
   // Five stages as tabs. Everything else (exact status, follow-up, sort, source...) is under More filters.
   // Old links still work (?status=, ?due=1, ?working=1): they look through every stage.
-  const FILTERS = ['q', 'stage', 'status', 'account', 'mode', 'view', 'owner', 'source', 'company'];
+  const FILTERS = ['q', 'stage', 'status', 'account', 'mode', 'view', 'owner', 'source', 'company', 'multi'];
   const STAGES = [['new', 'New', 'Given to you, not worked yet'], ['process', 'In process', 'Talked, or got their information'], ['onboarding', 'Onboarding', 'Applying and getting set up'], ['hired', 'Hired', 'Joined the team'], ['red', 'Red zone', 'Not interested, declined, rejected, no CDL, stalled']];
   const stageName = (k) => (STAGES.find((x) => x[0] === k) || [])[1] || '';
   const ACTIVE_STAGE = '__active';
   // the default stage: every lead still being recruited (not in onboarding, not hired: the Onboarding page has those)
-  const list = { q: '', stage: 'new', stages: {}, status: '', account: '', mode: '', view: '', owner: '', source: '', company: '', sort: 'assigned', rows: [], total: 0, counts: [], accounts: [], sel: new Set() };
+  const list = { q: '', stage: 'new', stages: {}, status: '', account: '', mode: '', view: '', owner: '', source: '', company: '', multi: '', sort: 'assigned', rows: [], total: 0, counts: [], accounts: [], sel: new Set() };
 
+  // the same driver in two or three Indeed accounts: for sure (same phone, email or chat) or maybe (same name only)
+  const multiTag = (d) => ((d.accounts || []).length > 1
+    ? `<span class="multi xs" title="The same phone, email or chat came in through: ${esc(d.accounts.join(', '))}">${d.accounts.length} Indeed accounts</span>`
+    : d.sameName ? `<span class="multi maybe xs" title="A lead with the same name is in ${plural(d.sameName, 'other Indeed account')}. It may be the same person: open the lead to compare.">Same name in ${d.sameName} other</span>` : '');
   async function load(more) {
     const v = list.view, st = list.status;
-    const p = new URLSearchParams({ q: list.q, status: st === ACTIVE_STAGE ? '' : st, working: st === ACTIVE_STAGE ? 1 : '', stage: list.stage, account: list.account, mode: list.mode,
+    const p = new URLSearchParams({ q: list.q, status: st === ACTIVE_STAGE ? '' : st, working: st === ACTIVE_STAGE ? 1 : '', stage: list.stage, account: list.account, mode: list.mode, multi: list.multi,
       today: v === 'today' ? 1 : '', overdue: v === 'overdue' ? 1 : '', due: v === 'due' ? 1 : '', cold: v === 'cold' ? 1 : '',
       owner: list.owner, source: list.source, company: list.company, sort: list.sort, limit: 100, offset: more ? list.rows.length : 0 });
     const r = await api('/api/drivers?' + p);
@@ -33,7 +37,7 @@
   let ownerDefaultFor = null;
   const myDefault = () => 'me';
   const setDefaults = () => { FILTERS.forEach((k) => { list[k] = ''; }); list.owner = 'me'; list.stage = 'new'; list.sort = 'assigned'; };
-  const MORE = ['status', 'view', 'source', 'mode', 'company', 'account'];
+  const MORE = ['status', 'view', 'source', 'mode', 'company', 'account', 'multi'];
   const isDefault = () => list.owner === 'me' && !list.q && MORE.every((k) => !list[k]); // whichever tab is on
   let moreOpen = false;
   async function viewLeads(params) {
@@ -60,13 +64,14 @@
         <select id="fStage" class="pick" aria-label="Exact status"></select>
         <select id="fSource" class="pick" aria-label="Source"><option value="">All sources</option>${S.me.sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
         <select id="fAcct" class="pick" aria-label="Indeed account" hidden></select>
+        <select id="fMulti" class="pick" aria-label="Number of Indeed accounts"><option value="">Any number of Indeed accounts</option><option value="1">In 2 or more Indeed accounts</option></select>
         <select id="fMode" class="pick" aria-label="Driver type"><option value="">All types</option><option value="Company drivers">Company drivers</option><option value="Owner-operators">Owner operators</option></select>
         ${(S.me.companies || []).length ? `<select id="fCo" class="pick" aria-label="Company"><option value="">All companies</option>${S.me.companies.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="none">No company</option></select>` : ''}
         <label class="wvsort">Sort <select id="fSort" class="pick" aria-label="Sort"><option value="assigned">Newest assigned</option><option value="due">What's due first</option><option value="updated">Newest activity</option><option value="followup">Follow-up date</option><option value="name">Name A to Z</option><option value="created">Newest added</option></select></label></div></div></section><div id="bulk" class="bulk" hidden></div><div id="lst"></div></main>`;
-    $('#q').value = list.q; $('#fMode').value = list.mode; $('#fSort').value = list.sort; $('#fOwner').value = list.owner; $('#fSource').value = list.source;
+    $('#q').value = list.q; $('#fMulti').value = list.multi; $('#fMode').value = list.mode; $('#fSort').value = list.sort; $('#fOwner').value = list.owner; $('#fSource').value = list.source;
     let t; $('#q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { list.q = e.target.value; refresh(); }, 250); };
     if ($('#fCo')) $('#fCo').value = list.company;
-    for (const [id, key] of [['fAcct', 'account'], ['fMode', 'mode'], ['fSort', 'sort'], ['fOwner', 'owner'], ['fSource', 'source'], ['fCo', 'company'], ['fStage', 'status'], ['fView', 'view']]) if ($('#' + id)) $('#' + id).onchange = (e) => { list[key] = e.target.value; if ((key === 'status' || key === 'view') && list[key]) list.stage = ''; if (key === 'view' && list[key]) { list.sort = 'due'; $('#fSort').value = 'due'; } refresh(); };
+    for (const [id, key] of [['fAcct', 'account'], ['fMulti', 'multi'], ['fMode', 'mode'], ['fSort', 'sort'], ['fOwner', 'owner'], ['fSource', 'source'], ['fCo', 'company'], ['fStage', 'status'], ['fView', 'view']]) if ($('#' + id)) $('#' + id).onchange = (e) => { list[key] = e.target.value; if ((key === 'status' || key === 'view') && list[key]) list.stage = ''; if (key === 'view' && list[key]) { list.sort = 'due'; $('#fSort').value = 'due'; } refresh(); };
     await refresh();
   }
   // What to do next with a lead: a call-back the driver asked for first, then going cold, then the next step of its stage
@@ -158,7 +163,7 @@
         <td class="w"><div class="nx${nx.strong ? ' strong' : ''}"${nx.tip ? ` title="${esc(nx.tip)}"` : ''}>${nx.text ? esc(nx.text) : `<span class="none">${esc(nx.none)}</span>`}</div>${nx.hint ? `<div class="small mut clamp1">${esc(nx.hint)}</div>` : ''}${d.stage === 'red' && (d.lostReason || d.lostNote) ? `<div class="small redwhy">${esc([d.lostReason, d.lostNote].filter(Boolean).join(': '))}</div>` : ''}<div class="moves">${moves(d)}</div></td>
         <td class="w">${dueCell(d, t)}</td>
         <td class="w wlast">${owner}${opensBtn(d.id, d.opens)}</td>
-        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}${d.telegram ? `<span class="tgv xs ${d.telegram}" title="${d.telegram === 'on' ? 'Telegram group linked, the bot is in it' : d.telegram === 'noadmin' ? 'Telegram group linked, but the bot is not an admin there' : 'The bot was removed from the Telegram group'}">${d.telegram === 'removed' ? '✕' : '✓'} Telegram</span>` : ''}${d.relayBefore === true || d.relayBefore === false ? `<div class="small mut relay1" title="Has the driver run Amazon Relay loads before?">Relay before: ${relayTag(d.relayBefore)}</div>` : ''}<div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
+        <td>${badge(d.status)}${d.amazonStep === 'verified' ? '<span class="azv xs">✓ Amazon</span>' : ''}${d.telegram ? `<span class="tgv xs ${d.telegram}" title="${d.telegram === 'on' ? 'Telegram group linked, the bot is in it' : d.telegram === 'noadmin' ? 'Telegram group linked, but the bot is not an admin there' : 'The bot was removed from the Telegram group'}">${d.telegram === 'removed' ? '✕' : '✓'} Telegram</span>` : ''}${multiTag(d)}${d.relayBefore === true || d.relayBefore === false ? `<div class="small mut relay1" title="Has the driver run Amazon Relay loads before?">Relay before: ${relayTag(d.relayBefore)}</div>` : ''}<div class="small mut upd" title="Last change ${esc(when(d.updatedAt))}">Updated ${esc(shortWhen(d.updatedAt))}</div></td>
         <td><div class="note1 clamp">${note || '<span class="none">No notes</span>'}</div>${d.noteCount ? `<div class="small mut">${plural(d.noteCount, 'note')}</div>` : ''}</td>
         <td>${esc(d.source || '') || '<span class="none">No source</span>'}${d.sourceDetail || d.account ? `<div class="small mut clamp1">${esc(d.sourceDetail && d.source !== 'Indeed' ? d.sourceDetail : d.account || d.sourceDetail)}</div>` : ''}<div class="small mut added1" title="Added to the website ${esc(when(d.createdAt))}">Added ${esc(when(d.createdAt))}</div><div class="coline">${App.coTag(d.companyId) || ''}</div></td>
         </tr>`;
@@ -171,7 +176,7 @@
         ${any < 5 && isDefault() ? addMoreArt() : ''}`
       : list.stage && STAGES.some(([k]) => k !== list.stage && list.stages[k]) ? `<div class="empty"><p>${list.q ? `Nothing in ${stageName(list.stage)} matches your search. Found in:` : list.stage === 'new' && isDefault() ? 'No new leads waiting. Carry on with:' : `Nothing in ${stageName(list.stage)}. There are leads in:`}</p>${STAGES.filter(([k]) => k !== list.stage && list.stages[k]).map(([k, l]) => `<button class="btn plain" data-act="leadStage" data-v="${k}">${l} (${list.stages[k]})</button>`).join(' ')}</div>`
       : isDefault() ? `<div class="empty"><p>${any ? 'No leads in this stage.' : 'No leads are assigned to you yet. New leads are shared between recruiters as they come in.'}</p><button class="btn plain" data-act="allLeads">See all recruiters' leads</button></div>`
-      : (any || list.q || list.owner || list.source || list.mode || list.account || list.company ? '<div class="empty"><p>No leads match these filters.</p><button class="btn plain" data-act="clearFilters">Clear filters</button></div>' : addMoreArt());
+      : (any || list.q || list.owner || list.source || list.mode || list.account || list.company || list.multi ? '<div class="empty"><p>No leads match these filters.</p><button class="btn plain" data-act="clearFilters">Clear filters</button></div>' : addMoreArt());
     drawBulk();
   }
   function drawBulk() {
@@ -555,7 +560,7 @@
           ${App.docsBox({ driverId: d.id, kinds: ['cdl', 'medical', 'other'], title: 'Driver papers', hint: 'The CDL and the medical card. Upload them here, or have them sent in his Telegram group: the bot looks at each picture and saves a CDL or medical card here by itself. In the ELD group, /info shares them with the truck papers.' })}
           <section class="card"><h3>Profile</h3><dl class="facts">
             ${[['Status', `${badge(d.status)}${d.statusLocked ? ' <span class="small mut">set by hand</span>' : ''}`], ['Company', App.coTag(d.companyId)], ['Driver type', esc(one(d.mode))],
-              ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Ran Amazon Relay before', d.relayBefore === true ? 'Yes' : d.relayBefore === false ? 'No' : ''], ['Working period', esc(App.periodText(d))], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], ['Indeed account', esc(d.account)], ['Added to the website', esc([when(d.createdAt), person(d.createdBy) ? 'by ' + person(d.createdBy) : ''].filter(Boolean).join(', '))], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
+              ['CDL-A experience', d.expYears !== null && d.expYears !== undefined ? esc(plural(d.expYears, 'year')) : ''], ['Drove', esc(d.experience || '')], ['Ran Amazon Relay before', d.relayBefore === true ? 'Yes' : d.relayBefore === false ? 'No' : ''], ['Working period', esc(App.periodText(d))], ['Their truck', esc([d.truckYear, d.truckModel].filter(Boolean).join(' '))], ['Recruiter', esc(person(d.ownerId))], ['Found through', sourceLine], ['Job', esc(d.job)], [(d.accounts || []).length > 1 ? 'Indeed accounts' : 'Indeed account', (d.accounts || []).length > 1 ? `<span class="multi">${d.accounts.length} accounts</span> ${esc(d.accounts.join(', '))}` : esc(d.account)], ['Same name elsewhere', '<span id="sameName"></span>'], ['Added to the website', esc([when(d.createdAt), person(d.createdBy) ? 'by ' + person(d.createdBy) : ''].filter(Boolean).join(', '))], ['Became a lead', esc(when(d.leadAt))], ['Invited', esc(when(d.invitedAt))], ['Last contact', esc(when(d.lastContactAt))], ['Indeed profile', esc(d.profileSummary)]]
               .concat(answerKeys.map((k) => [label(k), esc(a[k])])).filter(([, v]) => v).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}
           </dl></section>
           <section class="card"><h3>History</h3>${r.events.length ? `<ol class="tl">${r.events.map((e) => `<li><time>${esc(when(e.t))}${e.who ? `, ${esc(e.who)}` : ''}</time>${esc(e.text)}</li>`).join('')}</ol>` : '<p class="hint">No activity yet.</p>'}</section>
@@ -575,6 +580,17 @@
     };
     const tgh = document.querySelector('.tggroups'); if (tgh && App.tgLeadGroups) App.tgLeadGroups(d.id, tgh);
     const tgc = document.querySelector('.tgchat'); if (tgc && App.tgLeadChat) App.tgLeadChat(d.id, tgc);
+    // leads with the same name in another Indeed account: maybe the same person, so the recruiter can compare
+    const sn = document.getElementById('sameName');
+    if (sn) {
+      const row = [sn.closest('dd'), sn.closest('dd') && sn.closest('dd').previousElementSibling].filter(Boolean);
+      row.forEach((x) => { x.hidden = true; });
+      api(`/api/drivers/${d.id}/same-name`).then((r) => {
+        if (!r.leads || !r.leads.length || !sn.isConnected) return;
+        sn.innerHTML = r.leads.map((o) => `<a href="#/driver/${o.id}">${esc(o.name)}</a> <span class="small mut">${esc([o.account, o.status, o.location].filter(Boolean).join(' · '))}</span>`).join('<br>');
+        row.forEach((x) => { x.hidden = false; });
+      }).catch(() => {});
+    }
     const ldr = document.getElementById('leadDrafts'); if (ldr) App.draftsBox(ldr, 'driverId=' + d.id);
     const dp = document.getElementById('dprof'); if (dp && App.profileCard) App.profileCard(d.id, dp, d.status === 'Hired' || d.status === 'Onboarding');
     const sf = $('#stepForm'); if (sf) sf.onsubmit = async (e) => { e.preventDefault(); const v = sf.label.value.trim(); if (!v) return; try { await api(`/api/drivers/${d.id}/checklist`, { method: 'POST', body: { label: v } }); toast('Step added'); again(); } catch (err) { fail(err); } };

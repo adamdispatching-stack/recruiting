@@ -14,7 +14,7 @@ const NEEDS_REASON = [...db.LOST.filter((s) => s !== 'Declined on Indeed'), 'Sta
 
 function toClient(d) {
   return { id: d.id, name: d.name, status: d.status, statusLocked: d.status_locked, phones: d.phones, emails: d.emails, location: d.location, zip: d.zip,
-    mode: d.mode, source: d.source, sourceDetail: d.source_detail, job: d.job, account: d.account, answers: d.answers, aiSummary: d.ai_summary, redFlags: d.red_flags, transcript: d.transcript,
+    mode: d.mode, source: d.source, sourceDetail: d.source_detail, job: d.job, account: d.account, accounts: (d.accounts && d.accounts.length ? d.accounts : d.account ? [d.account] : []), answers: d.answers, aiSummary: d.ai_summary, redFlags: d.red_flags, transcript: d.transcript,
     conversationUrl: d.conversation_url, lastMessage: d.last_message, profileSummary: d.profile_summary, lastActive: d.last_active, invitedAt: d.invited_at,
     lastContactAt: d.last_contact_at, followUp: d.follow_up || null, tags: d.tags, ownerId: d.owner_id, createdBy: d.created_by, lostReason: d.lost_reason, leadAt: d.lead_at,
     weeksOut: d.weeks_out === null || d.weeks_out === undefined ? null : +d.weeks_out, daysHome: d.days_home ?? null, cdlExpires: d.cdl_expires || null, medExpires: d.med_expires || null,
@@ -67,12 +67,16 @@ const personName = async (id) => { const r = await q(`SELECT name FROM users WHE
 
 module.exports = (app) => {
   // ---------- list ----------
+  // leads with the same name in another Indeed account (o is the other lead, d this one)
+  const SAME_NAME = (head) => `${head} FROM drivers o WHERE o.name_key = d.name_key AND o.id <> d.id AND o.account IS NOT NULL AND o.account <> coalesce(d.account, ''))`;
   app.get('/api/drivers', needUser, wrap(async (req, res) => {
-    const { q: text = '', status = '', account = '', mode = '', due = '', today: dueToday = '', overdue = '', exclude = '', cold = '', working = '', owner = '', source = '', company = '', stage = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
+    const { q: text = '', status = '', account = '', mode = '', due = '', today: dueToday = '', overdue = '', exclude = '', cold = '', working = '', owner = '', source = '', company = '', stage = '', multi = '', sort = 'updated', limit = '100', offset = '0' } = req.query;
     const where = []; const params = [];
     const P = (v) => { params.push(v); return '$' + params.length; };
     const vis = visSql(req.user, params); if (vis) where.push(vis);
-    if (account) where.push(`d.account = ${P(account)}`);
+    if (account) where.push(`(d.account = ${P(account)} OR ${P(account)} = ANY(d.accounts))`);
+    // in two or more Indeed accounts: the same person for sure (same phone, email or chat), or a lead with the same name in another account
+    if (multi === '1') where.push(`(cardinality(d.accounts) > 1 OR ${SAME_NAME('EXISTS (SELECT 1')})`);
     if (mode) where.push(`d.mode = ${P(mode)}`);
     if (source) where.push(`d.source = ${P(source)}`);
     if (company === 'none') where.push('d.company_id IS NULL'); else if (+company) where.push(`d.company_id = ${P(+company)}`);
@@ -111,14 +115,14 @@ module.exports = (app) => {
       FROM drivers d ${w.length ? 'WHERE ' + w.join(' AND ') : ''}) x GROUP BY x.stage`, p2);
     if (db.STAGES.includes(stage)) w.push(`${db.stageSql()} = '${stage}'`); // one of five fixed words
     const sortSql = { assigned: 'coalesce(d.assigned_at, d.created_at) DESC', due: `${overdueSql} DESC, ${todaySql} DESC, coalesce(LEAST(d.follow_up::timestamptz, CASE WHEN ${cbOpen} THEN d.callback_at END), 'infinity') ASC, d.updated_at DESC`, updated: 'd.updated_at DESC', name: 'lower(d.name) ASC', followup: 'd.follow_up ASC NULLS LAST, d.updated_at DESC', created: 'd.created_at DESC' }[sort] || 'd.updated_at DESC';
-    const rows = await q(`SELECT d.*, ${db.stageSql()} stage, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, ${todaySql} is_today, ${overdueSql} is_overdue, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count, (SELECT count(*)::int FROM activity a WHERE a.driver_id = d.id AND a.type = 'open') opens,
+    const rows = await q(`SELECT d.*, ${db.stageSql()} stage, count(*) OVER() total_n, ${dueSql} is_due, ${coldSql} is_cold, ${todaySql} is_today, ${overdueSql} is_overdue, (SELECT count(*) FROM notes n WHERE n.driver_id = d.id) note_count, (SELECT count(*)::int FROM activity a WHERE a.driver_id = d.id AND a.type = 'open') opens, ${SAME_NAME('(SELECT count(*)::int')} same_name,
         (SELECT ${lib.NOTE_TEXT} FROM notes n WHERE n.driver_id = d.id ORDER BY n.updated_at DESC LIMIT 1) last_note
       FROM drivers d ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY ${sortSql}, d.id LIMIT ${Math.min(500, Math.max(1, +limit || 100))} OFFSET ${Math.max(0, +offset || 0)}`, p2);
     const pv = []; const v2 = visSql(req.user, pv);
     const accounts = await q(`SELECT DISTINCT account FROM drivers d WHERE account IS NOT NULL ${v2 ? 'AND ' + v2 : ''} ORDER BY 1`, pv);
     // the Telegram group of each lead on this page: the bot is in it (on), not an admin, or was removed
     const tgOf = rows.rows.length ? Object.fromEntries((await q(`SELECT DISTINCT ON (driver_id) driver_id, active, bot_admin FROM tg_chats WHERE kind = 'dispatch' AND driver_id = ANY($1::int[]) ORDER BY driver_id, active DESC, linked_at DESC NULLS LAST`, [rows.rows.map((d) => d.id)])).rows.map((x) => [x.driver_id, !x.active ? 'removed' : x.bot_admin ? 'on' : 'noadmin'])) : {};
-    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ telegram: tgOf[d.id] || null, ...toClient(d), cold: d.is_cold, dueToday: d.is_today, overdue: d.is_overdue, opens: d.opens })), counts: counts.rows, stages: Object.fromEntries(db.STAGES.map((k) => [k, (stages.rows.find((x) => x.stage === k) || { n: 0 }).n])), accounts: accounts.rows.map((r) => r.account) });
+    res.json({ total: rows.rows[0] ? +rows.rows[0].total_n : 0, drivers: rows.rows.map((d) => ({ telegram: tgOf[d.id] || null, ...toClient(d), cold: d.is_cold, dueToday: d.is_today, overdue: d.is_overdue, opens: d.opens, sameName: d.same_name || 0 })), counts: counts.rows, stages: Object.fromEntries(db.STAGES.map((k) => [k, (stages.rows.find((x) => x.stage === k) || { n: 0 }).n])), accounts: accounts.rows.map((r) => r.account) });
   }));
 
   // The number on Leads in the menu
@@ -151,6 +155,12 @@ module.exports = (app) => {
   }));
 
   // ---------- one driver ----------
+  // other leads with this lead's name that sit in another Indeed account: maybe the same person, nothing to prove it
+  app.get('/api/drivers/:id/same-name', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const r = await q(`SELECT o.id, o.name, o.account, o.status, o.location FROM drivers o WHERE o.name_key = $1 AND o.id <> $2 AND o.account IS NOT NULL AND o.account <> coalesce($3, '') ORDER BY o.updated_at DESC LIMIT 10`, [d.name_key, d.id, d.account]);
+    res.json({ leads: r.rows });
+  }));
   app.get('/api/drivers/:id', needUser, wrap(async (req, res) => {
     const d = await loadDriver(req, res); if (!d) return;
     await q(`UPDATE notices SET seen_at = now() WHERE user_id = $1 AND driver_id = $2 AND seen_at IS NULL`, [req.user.id, d.id]); // opening the lead reads its notifications

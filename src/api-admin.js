@@ -208,7 +208,15 @@ module.exports = (app) => {
       FROM drivers d WHERE (d.web_updated_at > $1 OR EXISTS (SELECT 1 FROM tg_chats c WHERE c.driver_id = d.id AND c.linked_at > $1) OR EXISTS (SELECT 1 FROM onb_cases o WHERE o.driver_id = d.id AND o.ai_status_at > $1))
         AND ($3::int IS NULL OR d.owner_id = $3::int OR ${lib.unownedSql()}) ORDER BY d.web_updated_at LIMIT 1000`, [sinceIso, 'ext:' + req.key.name, own]);
     const tg = await require('./cross').fromTelegram(r.rows.map((d) => d.id)); // what Telegram knows, for the Indeed auto-reply
-    res.json({ now: new Date().toISOString(), drivers: r.rows.map((d) => ({ name: d.name, phones: d.phones, emails: d.emails, account: d.account, status: d.status, statusLocked: d.status_locked, followUp: d.follow_up || null, tags: d.tags, teamNotes: d.team_notes || '', url: `/#/driver/${d.id}`, telegram: tg[d.id] || null })) });
+    // Drivers who are in more than one Indeed account, by name: for sure (one lead that came in through several accounts,
+    // same phone, email or chat) or maybe (the same name in several accounts). The whole short list goes out with every
+    // pull, so each Chrome profile can mark them on Indeed.
+    const shared = {};
+    const maybe = await q(`SELECT name_key, array_agg(DISTINCT account) accounts FROM drivers WHERE account IS NOT NULL AND name_key <> '' GROUP BY name_key HAVING count(DISTINCT account) > 1 LIMIT 3000`).catch(() => ({ rows: [] }));
+    for (const x of maybe.rows) shared[x.name_key] = { accounts: x.accounts, sure: false };
+    const sure = await q(`SELECT name_key, accounts FROM drivers WHERE cardinality(accounts) > 1 AND name_key <> '' LIMIT 3000`).catch(() => ({ rows: [] }));
+    for (const x of sure.rows) shared[x.name_key] = { accounts: [...new Set([...x.accounts, ...((shared[x.name_key] || {}).accounts || [])])], sure: true };
+    res.json({ now: new Date().toISOString(), shared, drivers: r.rows.map((d) => ({ name: d.name, phones: d.phones, emails: d.emails, account: d.account, status: d.status, statusLocked: d.status_locked, followUp: d.follow_up || null, tags: d.tags, teamNotes: d.team_notes || '', url: `/#/driver/${d.id}`, telegram: tg[d.id] || null })) });
   }));
   // ---------- backups, data, errors (admins) ----------
   app.get('/api/admin/backup', needUser, needAdmin, wrap(async (req, res) => {

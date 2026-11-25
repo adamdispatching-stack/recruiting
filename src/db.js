@@ -612,6 +612,7 @@ async function migrate() {
     ALTER TABLE truck_events ADD COLUMN IF NOT EXISTS paid BOOLEAN;            -- the shop is paid: yes / no / not known
     ALTER TABLE truck_events ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
     ALTER TABLE truck_events ADD COLUMN IF NOT EXISTS done_on DATE;            -- the day the work was done
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS accounts TEXT[] NOT NULL DEFAULT '{}'; -- every Indeed account this person reached us through (account holds the latest)
     -- who drove the truck, which company it was under, in and out of service: written by the database on every change
     CREATE TABLE IF NOT EXISTS truck_history (
       id SERIAL PRIMARY KEY, truck_id INT NOT NULL REFERENCES trucks(id) ON DELETE CASCADE, kind TEXT NOT NULL,
@@ -671,6 +672,7 @@ async function migrate() {
     await q(`UPDATE drivers SET source_detail = COALESCE(source_detail, source), source = 'Indeed'
       WHERE source IS NOT NULL AND source <> 'Indeed' AND (source ILIKE '%indeed%' OR source ILIKE '%matched candidate%' OR account IS NOT NULL OR cardinality(conv_ids) > 0)`);
     await q(`UPDATE drivers SET source = 'Indeed' WHERE source IS NULL AND (account IS NOT NULL OR cardinality(conv_ids) > 0)`);
+    await q(`UPDATE drivers SET accounts = ARRAY[account] WHERE account IS NOT NULL AND cardinality(accounts) = 0`).catch((e) => console.error('accounts', e.message)); // leads from before the list was kept
     await q(`UPDATE drivers SET source = 'Other', source_detail = COALESCE(source_detail, 'Added by hand') WHERE source = 'Added by hand'`);
     // An invite with no reply is not a lead yet. lead_at = when someone first answered or was added by hand.
     await q(`UPDATE drivers SET lead_at = created_at WHERE lead_at IS NULL AND status <> 'Invited'`);
@@ -984,6 +986,9 @@ async function mergeFromExtension(c, rec, sourceLabel, opts = {}) {
   if (phones.length !== d.phones.length) set.phones = phones;
   if (emails.length !== d.emails.length) set.emails = emails;
   if (conv.length !== d.conv_ids.length) set.conv_ids = conv;
+  // the same person (same chat, phone or email) through another Indeed account: every account is kept
+  const accts = d.accounts || [];
+  if (p.account && !accts.includes(p.account)) set.accounts = [...accts, p.account];
   if (rec.answers && typeof rec.answers === 'object' && Object.keys(rec.answers).length) {
     const merged = { ...d.answers, ...rec.answers };
     if (JSON.stringify(merged) !== JSON.stringify(d.answers)) set.answers = JSON.stringify(merged);
