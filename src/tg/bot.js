@@ -46,8 +46,36 @@ const tag = (p) => (p.username ? '@' + p.username : `<a href="tg://user?id=${p.t
 // Paused (Telegram → Autopilot, or /pause): the bot writes nothing by itself in any group. What a person sends from the
 // website (human) still goes out, and so do private alerts to our team.
 const paused = () => !!(db.settings.tg || {}).paused;
+// ---------- Watch means silent ----------
+// In a driver's own group (kind "dispatch") that is in Watch, the bot writes only
+//   - what a person sends through it (human: true: a reply from the website, a button like "ask for the CDL"), and
+//   - its answer to something that was just written or tapped in that same group (a command, a button).
+// Anything it would write there on its own (a reminder, a follow-up, a question from a timer) is held back and noted
+// in the log, whichever feature tried. A group is in Watch unless it was set to post updates (a working driver's
+// group in "updater") or the driver's onboarding is in Assist or Run.
+const { AsyncLocalStorage } = require('async_hooks');
+const handling = new AsyncLocalStorage(); // the chat whose message or button is being handled right now
+async function watchOnly(chatId) {
+  try {
+    const c = (await db.q('SELECT kind, mode, driver_id FROM tg_chats WHERE chat_id = $1', [chatId])).rows[0];
+    if (!c || c.kind !== 'dispatch') return false;
+    if (c.mode === 'updater') return false;
+    if (!c.driver_id) return true;
+    const d = (await db.q('SELECT status FROM drivers WHERE id = $1', [c.driver_id])).rows[0] || {};
+    if (d.status === 'Hired') return true; // a working driver: only the group's own mode counts
+    const o = (await db.q('SELECT mode FROM onb_cases WHERE driver_id = $1', [c.driver_id])).rows[0];
+    return ((o && o.mode) || (db.settings.tg || {}).onbMode || 'watch') === 'watch';
+  } catch (e) { return false; } // if this cannot be read, the message goes as it always did
+}
 async function send(chatId, html, { buttons, replyTo, forceReply, human } = {}) {
   if (+chatId < 0 && !human && paused()) { await log('paused', `Not sent, the bot is paused: ${clip(html, 140)}`, { chatId }).catch(() => {}); return { message_id: null, paused: true }; }
+  if (+chatId < 0 && !human) {
+    const now = handling.getStore();
+    if (!(now && String(now.chatId) === String(chatId)) && await watchOnly(chatId)) {
+      await log('held', `Not sent, this group is in Watch: ${clip(html, 140)}`, { chatId }).catch(() => {});
+      return { message_id: null, held: true };
+    }
+  }
   const params = { chat_id: chatId, text: html, parse_mode: 'HTML', disable_web_page_preview: true };
   if (buttons) params.reply_markup = { inline_keyboard: buttons.map((row) => row.map(([text, data]) => (/^https?:/.test(data) ? { text, url: data } : { text, callback_data: data }))) };
   if (forceReply) params.reply_markup = { force_reply: true, selective: true };
@@ -388,7 +416,12 @@ async function isAdmin(chatId) {
 }
 
 // ---------- one update ----------
-async function handle(u) {
+// every update is handled "in" its chat, so the bot's answers there are told apart from what it writes on its own
+function handle(u) {
+  const m = u.message || u.edited_message || (u.callback_query && u.callback_query.message) || u.my_chat_member || u.chat_member || {};
+  return handling.run({ chatId: m.chat ? m.chat.id : null }, () => handleUpdate(u));
+}
+async function handleUpdate(u) {
   state.lastUpdateAt = new Date();
   if (u.my_chat_member) {
     const c = u.my_chat_member; const st = c.new_chat_member.status; await chatOf(c.chat);
@@ -633,4 +666,4 @@ async function linkName(html, driverId, name) {
   const url = await groupUrl(driverId).catch(() => null); if (!url) return html;
   return html.slice(0, at) + `<a href="${esc(url)}">${n}</a>` + html.slice(at + n.length);
 }
-module.exports = { groupUrl, linkName, paused, react, isStaff, trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
+module.exports = { watchOnly, inChat: (chatId, fn) => handling.run({ chatId }, fn), groupUrl, linkName, paused, react, isStaff, trivial, sendFile, linkTeam, stripHtml, latin, setChatMode, CMODES, resolveWaiting, log, wait, titleInfo, findDrivers, start, call, send, edit, dropButtons, download, noteMedia, tag, esc, redact, state, handlers, handle, KINDS, isStaff, linkChat, on: () => !!TOKEN() };
