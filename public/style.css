@@ -2079,3 +2079,10 @@ dd .multi{margin-left:0;margin-right:6px}
 .dhead h2 .cpy{margin-left:6px;vertical-align:middle}
 /* CDL and medical card: on file or missing */
 .pstat{display:grid;gap:6px;margin:4px 0 12px}.pstat .prow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.pstat .prow b{min-width:104px}
+.agbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;margin:0 0 8px}.agbar .fbtabs{margin:0}.agbar .agsearch input{width:260px;padding:6px 10px}
+.agbar .fbtabs .cnt{font-size:12px;background:#EFEBE3;border-radius:9px;padding:0 7px;margin-left:3px;color:#5E594F}
+.agcard{padding-top:10px}.agcard>.hint:first-child{margin-top:0}
+.agd td,.agd th{padding-top:5px;padding-bottom:5px;vertical-align:middle}.agd th[scope=row]{font-weight:700}
+.agd .gcell{display:flex;gap:8px;align-items:center;min-width:0}.agd .gcell a.gname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;font-size:14px}.agd .gcell select{flex:none;width:118px;padding:3px 6px;font-size:13px}
+.agnone{margin-top:10px}.agnone summary{cursor:pointer;color:var(--mut);font-size:14px}
+@media (max-width:900px){.agd .gcell{flex-direction:column;align-items:stretch;gap:3px}.agd .gcell select{width:100%}.agbar .agsearch,.agbar .agsearch input{width:100%}}

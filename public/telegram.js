@@ -8,7 +8,7 @@
   const MOOD = { good: '🙂 Good', neutral: '😐 Neutral', unhappy: '🙁 Unhappy', angry: '😠 Angry', unknown: '' };
   const PHASE = { docs: 'waiting on the driver: CDL and registration', login: 'waiting on the ELD team: login', driver: 'waiting on the driver: log in, manual, paper logs', checked: 'waiting on the ELD team: setup check', done: 'setup complete' };
   const ROLE = { driver: 'Driver', eld: 'ELD team', accounting: 'Accounting', dispatch: 'Dispatcher', staff: 'Our team' };
-  let tab = 'groups';
+  let tab = 'groups', agView = 'active';
 
   const kindTag = (k) => (k ? `<span class="tgk k-${k}">${KIND[k]}</span>` : '<span class="tgk none">Not linked</span>');
   function eldLine(e, lastCheck, open) {
@@ -181,23 +181,34 @@
             <optgroup label="Team groups">${teamG.map((g) => opt(g.chat_id, `${g.title || 'Group'} (${KIND[g.kind]})`)).join('')}</optgroup>
             ${k.priv && ag.privates.length ? `<optgroup label="Private chat with the bot">${ag.privates.map((p) => opt(p.chat_id, p.title || 'Private chat')).join('')}</optgroup>` : ''}</select>
             ${now && now.broken ? '<div class="small latetag">The chat picked before now belongs to a driver, or the bot left it. The default is used until you pick another.</div>' : ''}</td></tr>`; };
-      const routesCard = `<section class="card"><h3>Where the team's messages go</h3><p class="hint">Pick the chat for each kind of message. Only a Management or Shift group (or a private chat) can be picked, never a driver's group. To use another group, set its type to Management in the list below first.</p>
+      const routesCard = `<p class="hint">Pick the chat for each kind of message. Only a Management or Shift group (or a private chat) can be picked, never a driver's group. To use another group, set its type to Management under All connected first.</p>
         <div class="sheet"><table class="tgt agt"><thead><tr><th>Kind of message</th><th style="width:380px">Goes to</th></tr></thead><tbody>${ag.routeKinds.map(routeRow).join('')}</tbody></table></div>
-        <p class="hint">The shift groups of the dispatchers are set in <a href="#/shifts">Shift desk</a>.</p></section>`;
+        <p class="hint">The shift groups of the dispatchers are set in <a href="#/shifts">Shift desk</a>.</p>`;
       // every driver with his three groups, and how the bot works in each (set by hand)
-      const MODES = (k) => (k === 'dispatch' ? [['watch', '👀 Watch (silent)'], ['updater', '🚚 Updater (writes)']] : [['watch', '👀 Silent (reads only)'], ['updater', '🛠 Runs setup and checks']]);
+      const MODES = (k) => (k === 'dispatch' ? [['watch', '👀 Watch'], ['updater', '🚚 Updater']] : [['watch', '👀 Silent'], ['updater', '🛠 Runs']]);
       const own = {}; for (const g of ag.groups) if (g.active && g.driver_id && ['dispatch', 'eld', 'accounting'].includes(g.kind)) (own[g.driver_id] = own[g.driver_id] || {})[g.kind] = g;
-      const dcell = (d, k) => { const g = (own[d.id] || {})[k]; if (!g) return '<td><span class="none">No group</span></td>';
-        return `<td><a class="gname" href="#/telegram/${g.chat_id}">${esc(g.title || KIND[k])}</a>${g.bot_admin ? '' : ' <span class="latetag small">bot not admin</span>'}
-          <div><select data-ch="agMode" data-chat="${g.chat_id}" aria-label="How the bot works in the ${KIND[k]} group of ${esc(d.name)}">${MODES(k).map(([v, l]) => `<option value="${v}" ${(g.mode || 'watch') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></td>`; };
-      const dlist = ag.drivers.slice().sort((a, b) => (!!own[b.id] - !!own[a.id]) || a.name.localeCompare(b.name));
-      const driversCard = `<section class="card"><h3>Drivers and their groups <span class="cnt">${dlist.filter((d) => own[d.id]).length}</span></h3><p class="hint">How the bot works in each group is set here, by hand. <b>Watch / Silent</b>: it reads and learns and writes nothing of its own. The change is saved as soon as you pick it.</p>
-        <div class="sheet"><table class="tgt agt agd"><thead><tr><th>Driver</th><th>Dispatch</th><th>ELD</th><th>Accounting</th></tr></thead><tbody>
-        ${dlist.map((d) => `<tr data-ag-d="${d.id}"><th scope="row"><a class="nml" href="${App.driverHref(d.id, d.status)}"><b>${esc(d.name)}</b></a><div class="small mut">${esc(st(d.status))}</div></th>${dcell(d, 'dispatch')}${dcell(d, 'eld')}${dcell(d, 'accounting')}</tr>`).join('')}</tbody></table></div></section>`;
+      const dcell = (d, k) => { const g = (own[d.id] || {})[k]; if (!g) return '<td><span class="none">None</span></td>';
+        return `<td><div class="gcell"><a class="gname" href="#/telegram/${g.chat_id}" title="${esc(g.title || KIND[k])}${g.bot_admin ? '' : ' (the bot is not an admin here)'}">${g.bot_admin ? '' : '<span class="latetag" aria-label="bot not admin">!</span> '}${esc(g.title || KIND[k])}</a>
+          <select data-ch="agMode" data-chat="${g.chat_id}" aria-label="How the bot works in the ${KIND[k]} group of ${esc(d.name)}">${MODES(k).map(([v, l]) => `<option value="${v}" ${(g.mode || 'watch') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></td>`; };
+      const byName = (x, y) => x.name.localeCompare(y.name);
+      const dTable = (list) => { const withG = list.filter((d) => own[d.id]).sort(byName), noG = list.filter((d) => !own[d.id]).sort(byName);
+        return `${withG.length ? `<div class="sheet"><table class="tgt agt agd"><thead><tr><th style="width:22%">Driver</th><th>Dispatch</th><th>ELD</th><th>Accounting</th></tr></thead><tbody>
+          ${withG.map((d) => `<tr data-ag-d="${d.id}"><th scope="row"><a class="nml" href="${App.driverHref(d.id, d.status)}">${esc(d.name)}</a></th>${dcell(d, 'dispatch')}${dcell(d, 'eld')}${dcell(d, 'accounting')}</tr>`).join('')}</tbody></table></div>` : '<p class="hint">No driver here has a group yet.</p>'}
+          ${noG.length ? `<details class="agnone"><summary>${plural(noG.length, 'driver')} with no group yet</summary><p class="small">${noG.map((d) => `<a href="${App.driverHref(d.id, d.status)}">${esc(d.name)}</a>`).join(' · ')}</p></details>` : ''}`; };
+      const actD = ag.drivers.filter((d) => d.status === 'Hired'), onbD = ag.drivers.filter((d) => d.status !== 'Hired');
+      const nG = (l) => l.filter((d) => own[d.id]).length;
+      const VIEWS = [['active', 'Active drivers', nG(actD)], ['onb', 'Onboarding drivers', nG(onbD)], ['team', 'Team messages', null], ['open', 'Not connected', notc.length], ['conn', 'All connected', conn.length]];
+      if (!VIEWS.some(([v]) => v === agView)) agView = 'active';
+      const modeHint = '<p class="hint">How the bot works in each group, set by hand and saved as you pick. <b>Watch / Silent</b>: it reads and writes nothing of its own.</p>';
+      const part = agView === 'active' ? modeHint + dTable(actD)
+        : agView === 'onb' ? modeHint + dTable(onbD)
+        : agView === 'team' ? routesCard
+        : agView === 'open' ? `<p class="hint">The bot is in these groups but they belong to no one yet. Pick the type and the driver, then Connect. Nothing is written in the group.</p>${notc.length ? table(notc, true) : '<p class="hint">Every group is connected.</p>'}`
+        : `<p class="hint">Change the type or the driver and press Save: what the wrong type started is undone, and a group it pushed out gets its place back.</p>${table(conn.sort(byKind), false)}`;
       body = `<datalist id="agDrivers">${dopt.drivers.map((d) => `<option value="${esc(dval(d.id, d.name, d.status))}"></option>`).join('')}</datalist>
-        ${routesCard}<p class="agsearch"><input type="search" id="agFind" placeholder="Find a group or a driver" aria-label="Find a group or a driver"></p>${driversCard}
-        <section class="card"><h3>Not connected <span class="cnt">${notc.length}</span></h3><p class="hint">The bot is in these groups but they belong to no one yet. Pick the type and the driver, then Connect. Nothing is written in the group.</p>${notc.length ? table(notc, true) : '<p class="hint">Every group is connected.</p>'}</section>
-        <section class="card"><h3>Connected <span class="cnt">${conn.length}</span></h3><p class="hint">Change the type or the driver and press Save: what the wrong type started is undone, and a group it pushed out gets its place back.</p>${table(conn.sort(byKind), false)}</section>
+        <div class="agbar"><nav class="fbtabs sub" aria-label="Show">${VIEWS.map(([v, l, n]) => `<button type="button" class="${agView === v ? 'on' : ''}" data-act="agView" data-v="${v}">${l}${n === null ? '' : ` <span class="cnt">${n}</span>`}</button>`).join('')}</nav>
+          ${agView === 'team' ? '' : '<span class="agsearch"><input type="search" id="agFind" placeholder="Find a group or a driver" aria-label="Find a group or a driver"></span>'}</div>
+        <section class="card agcard">${part}</section>
         ${gone.length ? `<details class="card"><summary>Groups the bot was removed from (${gone.length})</summary><ul class="list">${gone.map((g) => `<li><a href="#/telegram/${g.chat_id}">${esc(g.title || 'Group')}</a> <span class="small mut">${g.kind ? kindTag(g.kind) : ''}${g.driver ? ' ' + esc(g.driver) : ''}</span></li>`).join('')}</ul></details>` : ''}`;
     } else if (tab === 'history') {
       const lg = await api('/api/tg/log' + (logFilter ? '?kinds=' + logFilter : '')); if (!live()) return;
@@ -569,6 +580,7 @@
     try { await api('/api/tg/notes/' + li.dataset.nd, { method: 'POST', body: { text: li.querySelector('textarea').value } }); toast('Posted in his group'); App.render(); } catch (e) { fail(e); b.disabled = false; } });
   // All groups tab: connect, change, disconnect in the row
   onChange('agKind', (el) => { const i = el.closest('tr').querySelector('.agdrv'); i.disabled = ['management', 'shift'].includes(el.value); });
+  on('agView', (b) => { agView = b.dataset.v; App.render(); });
   onChange('agRoute', async (el) => { try { await api('/api/tg/routes', { method: 'PUT', body: { key: el.dataset.key, chatId: el.value } }); toast(el.value ? 'Saved: these messages go there from now on' : 'Back to the default'); App.render(); } catch (e) { fail(e); App.render(); } });
   onChange('agMode', async (el) => { try { await api(`/api/tg/chats/${el.dataset.chat}/mode`, { method: 'PATCH', body: { mode: el.value } }); toast(el.value === 'watch' ? 'Saved: the bot stays silent in this group' : 'Saved: the bot works in this group'); } catch (e) { fail(e); App.render(); } });
   on('agSave', async (b) => { const tr = b.closest('tr'); const kind = tr.querySelector('[data-ch=agKind]').value; const v = tr.querySelector('.agdrv').value; const m = /#(\d+)\s*$/.exec(v);
@@ -580,7 +592,7 @@
   on('agOff', async (b) => { const tr = b.closest('tr'); if (!confirm('Disconnect this group? The bot stays in it and keeps reading, but it belongs to no one until you connect it again.')) return;
     try { await api(`/api/tg/chats/${tr.dataset.ag}/link`, { method: 'PATCH', body: { kind: 'none' } }); toast('Disconnected'); App.render(); } catch (e) { fail(e); } });
   document.addEventListener('input', (e) => { if (e.target.id !== 'agFind') return; const t = e.target.value.trim().toLowerCase();
-    for (const tr of document.querySelectorAll('tr[data-ag]')) tr.hidden = !!t && !(tr.textContent.toLowerCase().includes(t) || (tr.querySelector('.agdrv').value || '').toLowerCase().includes(t));
+    for (const tr of document.querySelectorAll('tr[data-ag]')) tr.hidden = !!t && !(tr.textContent.toLowerCase().includes(t) || ((tr.querySelector('.agdrv') || {}).value || '').toLowerCase().includes(t));
     for (const tr of document.querySelectorAll('tr[data-ag-d]')) tr.hidden = !!t && !tr.textContent.toLowerCase().includes(t); });
   // a group linked as the wrong type (an ELD group set as Dispatch...) or to the wrong driver
   on('tgRelink', async (b) => {
