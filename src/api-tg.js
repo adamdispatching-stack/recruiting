@@ -523,6 +523,9 @@ module.exports = (app) => {
     // set by hand on the website (Telegram → All groups): that chat and no other
     const set = await require('./tg/routes').chatOf('recruiting');
     if (set) return { chatId: set.chatId, title: set.title, routed: true };
+    // nothing picked: the admin's own private chat with the bot (the admin who connected Telegram on the website)
+    const adm = (await q(`SELECT p.tg_id::text chat_id, coalesce(u.name, p.name) title FROM tg_people p JOIN users u ON u.id = p.user_id WHERE u.active AND u.role = 'admin' ORDER BY u.id LIMIT 1`)).rows[0];
+    if (adm) return { chatId: adm.chat_id, title: `${adm.title || 'Admin'} (private chat)`, routed: true };
     const g =(await q(`SELECT chat_id::text chat_id, title FROM tg_chats WHERE kind = 'management' AND active ORDER BY linked_at NULLS LAST LIMIT 1`)).rows[0];
     if (g) return { chatId: g.chat_id, title: g.title || 'Management group' };
     const p = (await q(`SELECT m.chat_id::text chat_id, m.from_name FROM tg_messages m WHERE NOT m.is_bot AND m.chat_id > 0 ORDER BY m.at DESC LIMIT 1`)).rows[0];

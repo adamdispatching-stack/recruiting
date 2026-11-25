@@ -5,7 +5,7 @@ const db = require('../db');
 const q = (...a) => db.pool.query(...a);
 
 const KINDS = [
-  { key: 'recruiting', label: 'Recruiting alerts', hint: 'From the Indeed extension: job rotation, "verify you are human", email collected, a driver needs you, the AI coach review.', priv: true },
+  { key: 'recruiting', label: 'Recruiting alerts', hint: 'From the Indeed extension: job rotation, "verify you are human", email collected, a driver needs you, the AI coach review. Not set: the private chat of the admin with the bot (the management group if the admin has not connected Telegram).', priv: true },
   { key: 'team', label: 'Morning report and onboarding list', hint: 'The daily team report and the onboarding follow-ups. Not set: every management group gets them.', priv: false },
   { key: 'followups', label: 'Driver journey reminders for the team', hint: 'What is still owed for a driver (papers, ELD, first load). Not set: the first management group.', priv: false },
 ];

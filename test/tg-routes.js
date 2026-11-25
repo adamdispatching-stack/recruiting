@@ -22,10 +22,12 @@ const q = db.q;
   await q(`INSERT INTO tg_chats (chat_id, title, kind, active, linked_at) VALUES ($1, 'FleetHire Management', 'management', true, now() - interval '2 days')`, [MGMT]);
   await q(`INSERT INTO tg_chats (chat_id, title, kind, active, linked_at) VALUES ($1, 'Recruiting team', 'management', true, now())`, [REC]);
   await q(`INSERT INTO tg_chats (chat_id, title, kind, active) VALUES ($1, 'Night shift', 'shift', true)`, [SHIFT]);
-  await q(`INSERT INTO tg_people (tg_id, name, user_id) VALUES ($1, 'Admin on Telegram', (SELECT id FROM users ORDER BY id LIMIT 1))`, [PRIV]);
 
   let i = await ext('/api/ext/tg/info');
-  ok(i.alertChat && i.alertChat.chatId === String(MGMT) && !i.alertChat.routed, 'nothing set: the extension\'s alerts go to the first management group, as before');
+  ok(i.alertChat && i.alertChat.chatId === String(MGMT) && !i.alertChat.routed, 'nothing set and the admin has not connected Telegram: the alerts go to the first management group');
+  await q(`INSERT INTO tg_people (tg_id, name, user_id) VALUES ($1, 'Admin on Telegram', (SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1))`, [PRIV]);
+  i = await ext('/api/ext/tg/info?chat=' + MGMT);
+  ok(i.alertChat.chatId === String(PRIV) && i.alertChat.routed === true && /private chat/.test(i.alertChat.title), 'nothing set, the admin connected Telegram: the alerts go to the admin\'s private chat with the bot, also for a profile that sits in the management group');
 
   let r = await route('recruiting', String(DRV));
   ok(r.http === 400, 'a driver\'s group cannot be picked for the recruiting alerts');
@@ -43,7 +45,7 @@ const q = db.q;
 
   r = await route('recruiting', String(PRIV));
   i = await ext('/api/ext/tg/info');
-  ok(r.http === 200 && i.alertChat.chatId === String(PRIV) && i.alertChat.title === 'Admin on Telegram', 'the recruiting alerts can go to a private chat with the bot');
+  ok(r.http === 200 && i.alertChat.chatId === String(PRIV) && /^Admin/.test(i.alertChat.title), 'the recruiting alerts can go to a private chat picked by hand');
   r = await route('team', String(PRIV));
   ok(r.http === 400, 'the morning report needs a group, not a private chat');
   r = await route('team', String(SHIFT));
@@ -65,7 +67,7 @@ const q = db.q;
   // the picked group is later connected to a driver: it is no longer used, and the page says so
   await q(`UPDATE tg_chats SET kind = 'dispatch', driver_id = $2 WHERE chat_id = $1`, [REC, did]);
   i = await ext('/api/ext/tg/info?chat=' + REC);
-  ok(i.alertChat.chatId === String(MGMT) && !i.alertChat.routed && i.chat.driverGroup === true, 'a picked group that became a driver\'s group is dropped: the alerts fall back to the management group');
+  ok(i.alertChat.chatId === String(PRIV) && i.chat.driverGroup === true, 'a picked group that became a driver\'s group is dropped: the alerts fall back to the admin\'s private chat');
   const ag2 = await A('/api/tg/all-groups');
   ok(ag2.routes.recruiting && ag2.routes.recruiting.broken === true, 'the page shows that the picked chat can no longer be used');
   r = await route('recruiting', '');

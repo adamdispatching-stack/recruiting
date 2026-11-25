@@ -176,7 +176,7 @@
       const routeRow = (k) => { const now = ag.routes[k.key]; const cur = now ? now.chatId : '';
         const opt = (id, l) => `<option value="${id}" ${String(id) === String(cur) ? 'selected' : ''}>${esc(l)}</option>`;
         return `<tr><th scope="row">${esc(k.label)}<div class="small mut">${esc(k.hint)}</div></th>
-          <td><select data-ch="agRoute" data-key="${k.key}" aria-label="Where ${esc(k.label)} go"><option value="">Default${k.key === 'recruiting' ? ' (the management group)' : ''}</option>
+          <td><select data-ch="agRoute" data-key="${k.key}" aria-label="Where ${esc(k.label)} go"><option value="">Default${k.key === 'recruiting' ? ' (private chat of the admin with the bot)' : ''}</option>
             ${now && now.broken ? `<option value="${now.chatId}" selected>A chat that can no longer be used</option>` : ''}
             <optgroup label="Team groups">${teamG.map((g) => opt(g.chat_id, `${g.title || 'Group'} (${KIND[g.kind]})`)).join('')}</optgroup>
             ${k.priv && ag.privates.length ? `<optgroup label="Private chat with the bot">${ag.privates.map((p) => opt(p.chat_id, p.title || 'Private chat')).join('')}</optgroup>` : ''}</select>
