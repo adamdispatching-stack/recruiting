@@ -492,8 +492,24 @@ module.exports = (app) => {
   // Telegram lets only one program read a bot's messages. When the website runs the bot, the extension reads
   // your replies to its alerts from here instead of from Telegram.
   app.get('/api/ext/tg/info', lib.needKey, wrap(async (req, res) => {
-    res.json({ on: bot.on(), botId: bot.state.me ? String(bot.state.me.id) : null, username: bot.state.me ? bot.state.me.username : null });
+    const out = { on: bot.on(), botId: bot.state.me ? String(bot.state.me.id) : null, username: bot.state.me ? bot.state.me.username : null };
+    // where the extension's own alerts belong (the team's group), and whether the chat it uses now is a driver's group
+    out.alertChat = await alertChat();
+    const chat = String(req.query.chat || '');
+    if (/^-?\d+$/.test(chat)) {
+      const c = (await q(`SELECT kind, driver_id, title FROM tg_chats WHERE chat_id = $1`, [chat])).rows[0];
+      out.chat = { kind: c ? c.kind : null, title: c ? c.title : null, driverGroup: !!(c && (c.driver_id || ['dispatch', 'eld', 'accounting'].includes(c.kind))) };
+    }
+    res.json(out);
   }));
+  // The extension's alerts (job rotation, a driver needs you) are for the team, never for a driver: the management
+  // group, or failing that the private chat of whoever wrote to the bot last. A driver's group is never offered.
+  const alertChat = async () => {
+    const g = (await q(`SELECT chat_id::text chat_id, title FROM tg_chats WHERE kind = 'management' AND active ORDER BY linked_at NULLS LAST LIMIT 1`)).rows[0];
+    if (g) return { chatId: g.chat_id, title: g.title || 'Management group' };
+    const p = (await q(`SELECT m.chat_id::text chat_id, m.from_name FROM tg_messages m WHERE NOT m.is_bot AND m.chat_id > 0 ORDER BY m.at DESC LIMIT 1`)).rows[0];
+    return p ? { chatId: p.chat_id, title: p.from_name || 'Private chat' } : null;
+  };
   app.get('/api/ext/tg/messages', lib.needKey, wrap(async (req, res) => {
     const chat = String(req.query.chat || ''); if (!/^-?\d+$/.test(chat)) return res.status(400).json({ error: 'Which chat?' });
     if (req.query.latest) return res.json({ last: +((await q(`SELECT max(msg_id) m FROM tg_messages WHERE chat_id = $1`, [chat])).rows[0].m || 0) });
@@ -501,8 +517,9 @@ module.exports = (app) => {
     res.json({ msgs: r.map((m) => ({ msgId: +m.msg_id, text: m.text, replyTo: m.reply_to ? +m.reply_to : null })) });
   }));
   app.get('/api/ext/tg/recent-chat', lib.needKey, wrap(async (req, res) => {
-    const m = (await q(`SELECT m.chat_id, c.title, m.from_name FROM tg_messages m LEFT JOIN tg_chats c ON c.chat_id = m.chat_id WHERE NOT m.is_bot ORDER BY m.at DESC LIMIT 1`)).rows[0];
-    res.json(m ? { chatId: String(m.chat_id), title: m.title || m.from_name } : {});
+    // (this used to answer with whichever chat had the newest message, which is nearly always a driver's group:
+    // the extension's alerts then went to that driver)
+    res.json((await alertChat()) || {});
   }));
 
   // a driver's groups, and a code to link one
