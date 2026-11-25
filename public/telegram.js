@@ -171,8 +171,31 @@
       const notc = ag.groups.filter((g) => g.active && !g.kind), conn = ag.groups.filter((g) => g.active && g.kind), gone = ag.groups.filter((g) => !g.active);
       const byKind = (a, b) => ['dispatch', 'eld', 'accounting', 'management'].indexOf(a.kind) - ['dispatch', 'eld', 'accounting', 'management'].indexOf(b.kind) || String(a.driver || '').localeCompare(String(b.driver || ''));
       const table = (list, open) => `<div class="sheet"><table class="tgt agt"><thead><tr><th>Group</th><th style="width:190px">Type</th><th style="width:300px">Driver</th><th>Connected by</th><th></th></tr></thead><tbody>${list.map((g) => row(g, open)).join('')}</tbody></table></div>`;
+      // where the team's messages go: set by hand, one chat for each kind
+      const teamG = ag.groups.filter((g) => g.active && ['management', 'shift'].includes(g.kind));
+      const routeRow = (k) => { const now = ag.routes[k.key]; const cur = now ? now.chatId : '';
+        const opt = (id, l) => `<option value="${id}" ${String(id) === String(cur) ? 'selected' : ''}>${esc(l)}</option>`;
+        return `<tr><th scope="row">${esc(k.label)}<div class="small mut">${esc(k.hint)}</div></th>
+          <td><select data-ch="agRoute" data-key="${k.key}" aria-label="Where ${esc(k.label)} go"><option value="">Default${k.key === 'recruiting' ? ' (the management group)' : ''}</option>
+            ${now && now.broken ? `<option value="${now.chatId}" selected>A chat that can no longer be used</option>` : ''}
+            <optgroup label="Team groups">${teamG.map((g) => opt(g.chat_id, `${g.title || 'Group'} (${KIND[g.kind]})`)).join('')}</optgroup>
+            ${k.priv && ag.privates.length ? `<optgroup label="Private chat with the bot">${ag.privates.map((p) => opt(p.chat_id, p.title || 'Private chat')).join('')}</optgroup>` : ''}</select>
+            ${now && now.broken ? '<div class="small latetag">The chat picked before now belongs to a driver, or the bot left it. The default is used until you pick another.</div>' : ''}</td></tr>`; };
+      const routesCard = `<section class="card"><h3>Where the team's messages go</h3><p class="hint">Pick the chat for each kind of message. Only a Management or Shift group (or a private chat) can be picked, never a driver's group. To use another group, set its type to Management in the list below first.</p>
+        <div class="sheet"><table class="tgt agt"><thead><tr><th>Kind of message</th><th style="width:380px">Goes to</th></tr></thead><tbody>${ag.routeKinds.map(routeRow).join('')}</tbody></table></div>
+        <p class="hint">The shift groups of the dispatchers are set in <a href="#/shifts">Shift desk</a>.</p></section>`;
+      // every driver with his three groups, and how the bot works in each (set by hand)
+      const MODES = (k) => (k === 'dispatch' ? [['watch', '👀 Watch (silent)'], ['updater', '🚚 Updater (writes)']] : [['watch', '👀 Silent (reads only)'], ['updater', '🛠 Runs setup and checks']]);
+      const own = {}; for (const g of ag.groups) if (g.active && g.driver_id && ['dispatch', 'eld', 'accounting'].includes(g.kind)) (own[g.driver_id] = own[g.driver_id] || {})[g.kind] = g;
+      const dcell = (d, k) => { const g = (own[d.id] || {})[k]; if (!g) return '<td><span class="none">No group</span></td>';
+        return `<td><a class="gname" href="#/telegram/${g.chat_id}">${esc(g.title || KIND[k])}</a>${g.bot_admin ? '' : ' <span class="latetag small">bot not admin</span>'}
+          <div><select data-ch="agMode" data-chat="${g.chat_id}" aria-label="How the bot works in the ${KIND[k]} group of ${esc(d.name)}">${MODES(k).map(([v, l]) => `<option value="${v}" ${(g.mode || 'watch') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></td>`; };
+      const dlist = ag.drivers.slice().sort((a, b) => (!!own[b.id] - !!own[a.id]) || a.name.localeCompare(b.name));
+      const driversCard = `<section class="card"><h3>Drivers and their groups <span class="cnt">${dlist.filter((d) => own[d.id]).length}</span></h3><p class="hint">How the bot works in each group is set here, by hand. <b>Watch / Silent</b>: it reads and learns and writes nothing of its own. The change is saved as soon as you pick it.</p>
+        <div class="sheet"><table class="tgt agt agd"><thead><tr><th>Driver</th><th>Dispatch</th><th>ELD</th><th>Accounting</th></tr></thead><tbody>
+        ${dlist.map((d) => `<tr data-ag-d="${d.id}"><th scope="row"><a class="nml" href="${App.driverHref(d.id, d.status)}"><b>${esc(d.name)}</b></a><div class="small mut">${esc(st(d.status))}</div></th>${dcell(d, 'dispatch')}${dcell(d, 'eld')}${dcell(d, 'accounting')}</tr>`).join('')}</tbody></table></div></section>`;
       body = `<datalist id="agDrivers">${dopt.drivers.map((d) => `<option value="${esc(dval(d.id, d.name, d.status))}"></option>`).join('')}</datalist>
-        <p class="agsearch"><input type="search" id="agFind" placeholder="Find a group or a driver" aria-label="Find a group or a driver"></p>
+        ${routesCard}<p class="agsearch"><input type="search" id="agFind" placeholder="Find a group or a driver" aria-label="Find a group or a driver"></p>${driversCard}
         <section class="card"><h3>Not connected <span class="cnt">${notc.length}</span></h3><p class="hint">The bot is in these groups but they belong to no one yet. Pick the type and the driver, then Connect. Nothing is written in the group.</p>${notc.length ? table(notc, true) : '<p class="hint">Every group is connected.</p>'}</section>
         <section class="card"><h3>Connected <span class="cnt">${conn.length}</span></h3><p class="hint">Change the type or the driver and press Save: what the wrong type started is undone, and a group it pushed out gets its place back.</p>${table(conn.sort(byKind), false)}</section>
         ${gone.length ? `<details class="card"><summary>Groups the bot was removed from (${gone.length})</summary><ul class="list">${gone.map((g) => `<li><a href="#/telegram/${g.chat_id}">${esc(g.title || 'Group')}</a> <span class="small mut">${g.kind ? kindTag(g.kind) : ''}${g.driver ? ' ' + esc(g.driver) : ''}</span></li>`).join('')}</ul></details>` : ''}`;
@@ -546,6 +569,8 @@
     try { await api('/api/tg/notes/' + li.dataset.nd, { method: 'POST', body: { text: li.querySelector('textarea').value } }); toast('Posted in his group'); App.render(); } catch (e) { fail(e); b.disabled = false; } });
   // All groups tab: connect, change, disconnect in the row
   onChange('agKind', (el) => { const i = el.closest('tr').querySelector('.agdrv'); i.disabled = ['management', 'shift'].includes(el.value); });
+  onChange('agRoute', async (el) => { try { await api('/api/tg/routes', { method: 'PUT', body: { key: el.dataset.key, chatId: el.value } }); toast(el.value ? 'Saved: these messages go there from now on' : 'Back to the default'); App.render(); } catch (e) { fail(e); App.render(); } });
+  onChange('agMode', async (el) => { try { await api(`/api/tg/chats/${el.dataset.chat}/mode`, { method: 'PATCH', body: { mode: el.value } }); toast(el.value === 'watch' ? 'Saved: the bot stays silent in this group' : 'Saved: the bot works in this group'); } catch (e) { fail(e); App.render(); } });
   on('agSave', async (b) => { const tr = b.closest('tr'); const kind = tr.querySelector('[data-ch=agKind]').value; const v = tr.querySelector('.agdrv').value; const m = /#(\d+)\s*$/.exec(v);
     if (!['management', 'shift'].includes(kind) && !m) return toast('Pick the driver from the list (type a name)', true);
     b.disabled = true;
@@ -555,7 +580,8 @@
   on('agOff', async (b) => { const tr = b.closest('tr'); if (!confirm('Disconnect this group? The bot stays in it and keeps reading, but it belongs to no one until you connect it again.')) return;
     try { await api(`/api/tg/chats/${tr.dataset.ag}/link`, { method: 'PATCH', body: { kind: 'none' } }); toast('Disconnected'); App.render(); } catch (e) { fail(e); } });
   document.addEventListener('input', (e) => { if (e.target.id !== 'agFind') return; const t = e.target.value.trim().toLowerCase();
-    for (const tr of document.querySelectorAll('tr[data-ag]')) tr.hidden = !!t && !(tr.textContent.toLowerCase().includes(t) || (tr.querySelector('.agdrv').value || '').toLowerCase().includes(t)); });
+    for (const tr of document.querySelectorAll('tr[data-ag]')) tr.hidden = !!t && !(tr.textContent.toLowerCase().includes(t) || (tr.querySelector('.agdrv').value || '').toLowerCase().includes(t));
+    for (const tr of document.querySelectorAll('tr[data-ag-d]')) tr.hidden = !!t && !tr.textContent.toLowerCase().includes(t); });
   // a group linked as the wrong type (an ELD group set as Dispatch...) or to the wrong driver
   on('tgRelink', async (b) => {
     let ds; try { ds = (await api('/api/tg/driver-options')).drivers; } catch (e) { return fail(e); }

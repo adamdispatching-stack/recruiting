@@ -133,7 +133,7 @@ async function tick() {
   // our team works around the clock; drivers hear from the bot only in the daytime
   const h = +new Date().toLocaleString('en-US', { timeZone: db.settings.tz || 'America/Chicago', hour: 'numeric', hourCycle: 'h23' });
   const daytime = !!process.env.TG_NO_QUIET || (h >= 9 && h < 20);
-  const teamChat = ((await q(`SELECT chat_id FROM tg_chats WHERE kind = 'management' AND active ORDER BY linked_at NULLS LAST LIMIT 1`)).rows[0] || {}).chat_id;
+  const teamChat = ((await require('./routes').chatOf('followups')) || {}).chatId || ((await q(`SELECT chat_id FROM tg_chats WHERE kind = 'management' AND active ORDER BY linked_at NULLS LAST LIMIT 1`)).rows[0] || {}).chat_id;
   const admins = (await q(`SELECT id FROM users WHERE active AND role = 'admin'`)).rows.map((r) => r.id);
   let teamSent = 0, driverSent = 0;
   for (const d of await load()) {

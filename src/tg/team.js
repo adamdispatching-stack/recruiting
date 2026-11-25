@@ -188,7 +188,8 @@ async function followups() {
 }
 async function tick() {
   if (!bot.state.me) return;
-  const groups = (await q(`SELECT chat_id FROM tg_chats WHERE kind = 'management' AND active`)).rows;
+  const routed = await require('./routes').chatOf('team'); // set by hand on the website: that group only
+  const groups = routed ? [{ chat_id: routed.chatId }] : (await q(`SELECT chat_id FROM tg_chats WHERE kind = 'management' AND active`)).rows;
   if (bot.paused()) return; // paused everywhere (Telegram → Autopilot)
   if (!groups.length) return;
   const t = db.settings.tg || {}; const L = local();

@@ -178,7 +178,22 @@ module.exports = (app) => {
       FROM tg_chats c LEFT JOIN drivers d ON d.id = c.driver_id LEFT JOIN users u ON u.id = c.linked_by ORDER BY c.active DESC, c.kind IS NOT NULL, c.last_at DESC NULLS LAST`)).rows;
     for (const r of rows) if (!r.kind && r.active) { const t = bot.titleInfo(r.title); const f = await bot.findDrivers({ ...t, big: r.member_count > 10 }).catch(() => ({}));
       r.guess = { kind: t.kind || 'dispatch', driverId: f.sure ? f.sure.id : null, driver: f.sure ? f.sure.name : null, status: f.sure ? ((await q(`SELECT status FROM drivers WHERE id = $1`, [f.sure.id])).rows[0] || {}).status : null }; }
-    res.json({ groups: rows });
+    // the drivers with their groups, where the team's messages go, and the chats that can be picked for them
+    const R = require('./tg/routes');
+    const drivers = (await q(`SELECT id, name, status FROM drivers WHERE status IN ('Hired', 'Onboarding') OR id IN (SELECT driver_id FROM tg_chats WHERE active AND driver_id IS NOT NULL) ORDER BY name LIMIT 800`)).rows;
+    const privates = (await q(`SELECT p.tg_id::text chat_id, coalesce(u.name, p.name) title FROM tg_people p JOIN users u ON u.id = p.user_id WHERE u.active ORDER BY 2`)).rows;
+    const routes = R.all(); const routeNow = {};
+    for (const k of R.KINDS) routeNow[k.key] = routes[k.key] ? (await R.chatOf(k.key)) || { chatId: String(routes[k.key]), broken: true } : null;
+    res.json({ groups: rows, drivers, privates, routeKinds: R.KINDS, routes: routeNow });
+  }));
+  // where one kind of team message goes (chatId empty: back to the default)
+  app.put('/api/tg/routes', needUser, needAdmin, wrap(async (req, res) => {
+    const b = req.body || {}; const R = require('./tg/routes');
+    const r = await R.set(String(b.key || ''), b.chatId ? String(b.chatId) : '');
+    if (r.error) return res.status(400).json({ error: r.error });
+    const k = R.KINDS.find((x) => x.key === b.key); const c = b.chatId ? await R.chatOf(b.key) : null;
+    await bot.log('connect', c ? `${req.user.name} set where "${k.label}" go: ${c.title}` : `${req.user.name} set "${k.label}" back to the default`, { chatId: c && +c.chatId < 0 ? c.chatId : null, driverId: null, who: req.user.name });
+    res.json({ ok: true });
   }));
   app.get('/api/tg/driver-options', needUser, wrap(async (req, res) => res.json({ drivers: (await q(`SELECT id, name, status FROM drivers WHERE status IN ('Hired', 'Onboarding') OR updated_at > now() - interval '60 days' ORDER BY (status = 'Hired') DESC, (status = 'Onboarding') DESC, name LIMIT 600`)).rows })));
   app.patch('/api/tg/chats/:id/link', needUser, needAdmin, wrap(async (req, res) => {
@@ -505,7 +520,10 @@ module.exports = (app) => {
   // The extension's alerts (job rotation, a driver needs you) are for the team, never for a driver: the management
   // group, or failing that the private chat of whoever wrote to the bot last. A driver's group is never offered.
   const alertChat = async () => {
-    const g = (await q(`SELECT chat_id::text chat_id, title FROM tg_chats WHERE kind = 'management' AND active ORDER BY linked_at NULLS LAST LIMIT 1`)).rows[0];
+    // set by hand on the website (Telegram → All groups): that chat and no other
+    const set = await require('./tg/routes').chatOf('recruiting');
+    if (set) return { chatId: set.chatId, title: set.title, routed: true };
+    const g =(await q(`SELECT chat_id::text chat_id, title FROM tg_chats WHERE kind = 'management' AND active ORDER BY linked_at NULLS LAST LIMIT 1`)).rows[0];
     if (g) return { chatId: g.chat_id, title: g.title || 'Management group' };
     const p = (await q(`SELECT m.chat_id::text chat_id, m.from_name FROM tg_messages m WHERE NOT m.is_bot AND m.chat_id > 0 ORDER BY m.at DESC LIMIT 1`)).rows[0];
     return p ? { chatId: p.chat_id, title: p.from_name || 'Private chat' } : null;
