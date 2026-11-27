@@ -56,5 +56,10 @@ const q = db.q;
   ok(sh['mona multi'] && sh['mona multi'].sure === true && sh['mona multi'].accounts.length === 3, 'the extension is told: Mona is in three accounts, for sure');
   ok(sh['nate namesake'] && sh['nate namesake'].sure === false && sh['nate namesake'].accounts.slice().sort().join() === 'a@example.com,b@example.com', 'and Nate\'s name is in two accounts, maybe the same person');
   ok(!sh['otto once'], 'a driver in one account is not in that list');
+  // and who the recruiter of each driver is, shown on Indeed next to "Verified"
+  const boss = (await q(`SELECT id, name FROM users ORDER BY id LIMIT 1`)).rows[0];
+  await q(`UPDATE drivers SET owner_id = NULL`); await q(`UPDATE drivers SET owner_id = $1 WHERE name_key = 'mona multi'`, [boss.id]);
+  const pull2 = await (await fetch(BASE + '/api/ext/pull?since=' + encodeURIComponent(new Date().toISOString()), { headers: { authorization: 'Bearer ' + key } })).json();
+  ok(pull2.owners && pull2.owners['mona multi'] === boss.name && !pull2.owners['otto once'], 'the extension is told the recruiter of each driver, and nothing for a driver nobody has');
   process.exit();
 })().catch((e) => { console.log('FAIL', e.stack); process.exit(1); });

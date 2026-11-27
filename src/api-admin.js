@@ -216,7 +216,12 @@ module.exports = (app) => {
     for (const x of maybe.rows) shared[x.name_key] = { accounts: x.accounts, sure: false };
     const sure = await q(`SELECT name_key, accounts FROM drivers WHERE cardinality(accounts) > 1 AND name_key <> '' LIMIT 3000`).catch(() => ({ rows: [] }));
     for (const x of sure.rows) shared[x.name_key] = { accounts: [...new Set([...x.accounts, ...((shared[x.name_key] || {}).accounts || [])])], sure: true };
-    res.json({ now: new Date().toISOString(), shared, drivers: r.rows.map((d) => ({ name: d.name, phones: d.phones, emails: d.emails, account: d.account, status: d.status, statusLocked: d.status_locked, followUp: d.follow_up || null, tags: d.tags, teamNotes: d.team_notes || '', url: `/#/driver/${d.id}`, telegram: tg[d.id] || null })) });
+    // Who the recruiter of each driver is, by name: shown on Indeed next to "Verified". The whole short list with every pull,
+    // so a change of recruiter reaches every Chrome profile.
+    const owners = {};
+    const ow = await q(`SELECT d.name_key, u.name FROM drivers d JOIN users u ON u.id = d.owner_id WHERE u.active AND d.name_key <> '' AND ($1::int IS NULL OR d.owner_id = $1::int) ORDER BY d.id LIMIT 8000`, [own]).catch(() => ({ rows: [] }));
+    for (const x of ow.rows) owners[x.name_key] = x.name;
+    res.json({ now: new Date().toISOString(), shared, owners, drivers: r.rows.map((d) => ({ name: d.name, phones: d.phones, emails: d.emails, account: d.account, status: d.status, statusLocked: d.status_locked, followUp: d.follow_up || null, tags: d.tags, teamNotes: d.team_notes || '', url: `/#/driver/${d.id}`, telegram: tg[d.id] || null })) });
   }));
   // ---------- backups, data, errors (admins) ----------
   app.get('/api/admin/backup', needUser, needAdmin, wrap(async (req, res) => {
