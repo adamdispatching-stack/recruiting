@@ -41,6 +41,8 @@
         <div class="mdays">${r.mood.map((x, i) => `<span>${i === r.mood.length - 1 ? 'today' : esc(dateText(x.day, { month: undefined, day: 'numeric' }))}</span>`).join('')}</div>
         <p class="hint">From the evening summary of each of his groups (the worst of the day counts); a red edge means an important alert that day. Hover a day for the summary.</p></section>
 
+      <section class="card dprof dweek" id="dweek"><p class="hint">Loading the week…</p></section>
+
       <div class="cols">
         <div>
           ${open.length || r.alerts.length ? `<section class="card"><h3>Alerts${open.length ? ` <span class="cnt">${open.length}</span>` : ''}</h3><ul class="list tgalerts">${r.alerts.slice(0, 15).map((a) => `<li data-al="${a.id}" class="${a.severity === 'high' ? 'hi' : ''}"><span class="grow"><span class="tgk ${a.severity === 'high' ? 'k-hi' : ''}">${esc(AK[a.kind] || a.kind)}</span> ${esc(a.text)} <span class="small mut">${esc(teamWhen(a.at))}</span></span>${a.resolved_at ? `<span class="small okt">Done${a.resolved_by ? ', ' + esc(a.resolved_by) : ''}</span>` : '<button type="button" class="btn plain sm" data-act="tgAlertDone">Done</button>'}</li>`).join('')}</ul></section>` : ''}
@@ -62,6 +64,7 @@
         </div>
       </div></main>`;
     App.profileCard(d.id, document.getElementById('dprof'), true);
+    App.weekCard(d.id, document.getElementById('dweek'));
     const dcs = document.getElementById('dcases'); if (dcs) App.casesCard(dcs, 'driverId=' + d.id, { title: 'Open cases' });
   }
   const oilTag = (o) => (o.state === 'unknown' ? '<span class="oil unknown">No oil record</span>' : `<span class="oil ${o.state}">${o.state === 'overdue' ? 'Oil overdue' : o.state === 'soon' ? 'Oil due soon' : 'Oil OK'}</span>`);

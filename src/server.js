@@ -121,7 +121,7 @@ require('./guard').install();
     require('./share').start();
     require('./callback').start();
     require('./api-coach').start();
-    if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/digest').start(); require('./tg/profile').start(); require('./tg/dispatchers').start(); require('./tg/team').start(); require('./tg/journey').start(); require('./tg/learn').start(); }
+    if (require('./tg/bot').on()) { require('./tg/bot').start(); require('./tg/eld').start(); require('./tg/onboard').start(); require('./tg/acct'); require('./tg/summary').start(); require('./tg/weekly').start(); require('./tg/digest').start(); require('./tg/profile').start(); require('./tg/dispatchers').start(); require('./tg/team').start(); require('./tg/journey').start(); require('./tg/learn').start(); }
     if (require('./tg/bot').on()) require('./tg/cases').start(); else { require('./tg/cases').seed().catch(() => {}); require('./tg/routines').seed().catch(() => {}); }
     require('./needed').start(); // verified drivers missing the arrival date, company or truck
     require('./idle').start(); // idle time and idle alerts, checked every minute

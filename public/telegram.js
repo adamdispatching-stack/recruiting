@@ -508,6 +508,34 @@
   on('profCopy', async (b) => { const h = b.closest('#dprof'); try { await navigator.clipboard.writeText(h._text || ''); toast('Copied: paste it to the new dispatcher'); } catch (e) { toast('Could not copy', true); } });
   on('profBuild', async (b) => { const h = b.closest('#dprof'); b.disabled = true; try { await api(`/api/drivers/${h.dataset.driver}/profile/build`, { method: 'POST', body: {} }); toast('Profile rebuilt'); profileCard(+h.dataset.driver, h, true); } catch (e) { fail(e); b.disabled = false; } });
   App.profileCard = profileCard;
+
+  // ---------- an active driver's week in money (Sunday to Saturday), any kept week from the drop-down ----------
+  const WK = { repair: 'Repair', tires: 'Tires', tow_road_service: 'Tow / road service', fuel: 'Fuel', tolls_parking: 'Tolls, parking', fine_ticket: 'Fine / ticket', damage_claim: 'Damage / claim', advance: 'Advance', deduction: 'Deduction', pay_question: 'Pay question', reimbursement: 'Reimbursement', other: 'Other' };
+  const usd = (n) => '$' + (+n).toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  const wkName = (w) => `${dateText(w.week)} – ${dateText(w.to)}`;
+  function weekDraw(host) {
+    const r = host._r; const w = r.weeks.find((x) => x.week === host._sel) || r.weeks[0]; host._sel = w.week;
+    const it = w.items || []; const sum = (by) => it.filter((x) => x.paidBy === by).reduce((n, x) => n + (x.amount || 0), 0);
+    const co = sum('company'), dr = sum('driver'), un = sum('unknown'), noFig = it.filter((x) => x.amount === null).length;
+    host.innerHTML = `<h3>Money this week<span class="grow"></span><select data-ch="wkPick" aria-label="Which week">${r.weeks.map((x) => `<option value="${x.week}" ${x.week === w.week ? 'selected' : ''}>${esc(wkName(x))}${x.week === r.now ? ' (this week)' : ''}${x.none ? ' · not written' : x.total ? ' · ' + usd(x.total) : ''}</option>`).join('')}</select></h3>
+      ${w.none ? `<p class="hint">${!r.groups ? 'No messages from his Telegram groups yet.' : w.week === r.now ? 'This week is still running: it is written by itself on Sunday, or now if you want it.' : 'This week was not written.'}</p>`
+        : `<p class="plead">${esc(w.summary || '')}</p>
+          ${it.length ? `<div class="wktot">${co ? `<span>Company paid <b>${usd(co)}</b></span>` : ''}${dr ? `<span>Driver paid <b>${usd(dr)}</b></span>` : ''}${un ? `<span>Not clear who pays <b>${usd(un)}</b></span>` : ''}${noFig ? `<span class="mut">${plural(noFig, 'case')} with no amount said</span>` : ''}</div>
+            <table class="wkt"><thead><tr><th>Day</th><th>Kind</th><th>What</th><th>Paid by</th><th class="n">Amount</th><th></th></tr></thead><tbody>${it.map((x) => `<tr><td class="nw">${x.day ? esc(dateText(x.day, { weekday: 'short' })) : ''}</td><td class="nw">${esc(WK[x.kind] || 'Other')}</td><td>${esc(x.what)}</td><td class="nw">${x.paidBy === 'company' ? 'Company' : x.paidBy === 'driver' ? 'Driver' : '<span class="mut">Not clear</span>'}</td><td class="n nw">${x.amount === null ? '<span class="mut">not said</span>' : usd(x.amount)}</td><td class="nw">${x.status === 'open' ? '<span class="latetag">Open</span>' : x.status === 'settled' ? '<span class="onl">Settled</span>' : ''}</td></tr>`).join('')}</tbody></table>` : ''}
+          ${(w.open || []).length ? `<div class="pl"><h4>Still open</h4><ul>${w.open.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+          <p class="hint">Read by the AI from ${plural(w.messages || 0, 'message')} in his Telegram groups, ${esc(when(w.at))}. Truck expenses and money matters only, loads are left out. An amount is shown only when someone wrote it.</p>`}
+      ${r.ai && r.groups ? `<div class="drow"><button type="button" class="btn plain sm" data-act="wkBuild">${w.none ? 'Write this week now' : 'Write it again'}</button></div>` : r.ai ? '' : '<p class="hint">AI is off: add ANTHROPIC_API_KEY on Railway.</p>'}`;
+  }
+  async function weekCard(driverId, host) {
+    let r; try { r = await api(`/api/drivers/${driverId}/weeks`); } catch (e) { return; }
+    if (!host.isConnected) return;
+    host._r = r; host.dataset.driver = driverId;
+    if (!host._sel || !r.weeks.some((x) => x.week === host._sel)) host._sel = (r.weeks.find((x) => !x.none) || r.weeks[0]).week; // the latest week that is written
+    weekDraw(host);
+  }
+  onChange('wkPick', (el) => { const h = el.closest('.dweek'); h._sel = el.value; weekDraw(h); });
+  on('wkBuild', async (b) => { const h = b.closest('.dweek'); b.disabled = true; b.textContent = 'Reading the week…'; try { await api(`/api/drivers/${h.dataset.driver}/weeks/build`, { method: 'POST', body: { week: h._sel } }); toast('Week written'); await weekCard(+h.dataset.driver, h); } catch (e) { fail(e); if (h.isConnected) weekDraw(h); } });
+  App.weekCard = weekCard;
   // a dispatcher has no driver pages: a driver's name opens his profile for dispatchers instead
   App.profileDialog = (id) => { App.dialog(`<div class="dform pdlg"><section class="dprof" id="dprof"><p class="hint">Loading…</p></section><div class="dact"><button type="button" class="btn plain" data-act="closeDialog">Close</button></div></div>`, (d) => profileCard(+id, d.querySelector('#dprof'), true)); };
 

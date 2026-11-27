@@ -39,6 +39,26 @@ async function summarize({ kind, driver, lines }) {
   const system = `You read the ${kind} Telegram group of a trucking company for one driver (${driver || 'unknown driver'}) and write the day's summary for the managers. Be short and concrete. Never include passwords, login details, license or account numbers.`;
   return ask({ model: DAY_MODEL(), system, content: [{ type: 'text', text: lines.join('\n').slice(-60000) }], tool: SUM_TOOL, maxTokens: 900 });
 }
+// One driver's week (Sunday to Saturday) in money: what the truck cost and every other money case. Not the loads.
+const WEEK_KINDS = ['repair', 'tires', 'tow_road_service', 'fuel', 'tolls_parking', 'fine_ticket', 'damage_claim', 'advance', 'deduction', 'pay_question', 'reimbursement', 'other'];
+const WEEK_TOOL = { name: 'week_money', description: 'The money side of one week of one driver.', input_schema: { type: 'object', properties: {
+  summary: { type: 'string', description: '2 to 6 short lines for the owner: what the truck cost this week and why, and the other money matters. Plain sentences. If nothing about money came up, one line saying so.' },
+  items: { type: 'array', description: 'One per case, not one per message. Empty if none.', items: { type: 'object', properties: {
+    day: { type: 'string', description: 'The day it came up, YYYY-MM-DD.' },
+    kind: { type: 'string', enum: WEEK_KINDS, description: 'repair = shop, parts, mechanic, oil, DEF; tow_road_service = tow or road service call; tolls_parking = tolls, parking, scales, washes, permits; fine_ticket = tickets, fines, violations; damage_claim = damage, accident cost, insurance, cargo claim; advance = money given to the driver ahead; deduction = taken from his pay (escrow, ELD, insurance); pay_question = pay or settlement asked about or disputed; reimbursement = the driver paid and wants it back.' },
+    what: { type: 'string', description: 'One short sentence: what it was and where it stands.' },
+    amount: { type: 'number', description: 'US dollars, ONLY if a figure was written or read from a receipt. Leave out when no figure was given: never guess.' },
+    paid_by: { type: 'string', enum: ['company', 'driver', 'unknown'] },
+    status: { type: 'string', enum: ['settled', 'open', 'unknown'], description: 'open = still to pay, approve, return or answer.' } }, required: ['day', 'kind', 'what', 'paid_by', 'status'] } },
+  open: { type: 'array', items: { type: 'string' }, description: 'Money matters still open at the end of the week that someone must act on. Empty if none.' } }, required: ['summary', 'items', 'open'] } };
+async function weekMoney({ driver, from, to, lines }) {
+  const system = `You read one week (Sunday ${from} to Saturday ${to}) of the Telegram groups of a trucking company for one driver (${driver || 'unknown driver'}) and write the MONEY summary of the week for the owner.
+Main focus: every expense around the truck and trailer (repairs, parts, tires, tow, road service, shop, oil, DEF, fuel, tolls, parking, scales, washes, permits, ELD, insurance).
+Also every other money case: advances, deductions, escrow, fines and tickets, damage and claims, pay or settlement questions, reimbursements, money someone owes.
+Leave the loads out: no bookings, rates, pickups, deliveries, routes or load numbers. A load only counts when it is a money case of its own (the driver paid a lumper or another fee, or disputes the pay for it).
+Give an amount only when a figure was written or read from a receipt; never guess or add up on your own. One item per case. Never include passwords, card, account or license numbers.`;
+  return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text: lines.join('\n').slice(-150000) }], tool: WEEK_TOOL, maxTokens: 2500 });
+}
 // Onboarding: a screenshot or report the driver sent
 const ONB_TOOL = { name: 'onboarding_doc', description: 'What this picture or PDF from a new driver shows.', input_schema: { type: 'object', properties: {
   kind: { type: 'string', enum: ['relay_screen', 'background_report', 'mvr', 'psp', 'drug_test', 'clearinghouse', 'cdl', 'medical_card', 'other'],
@@ -282,4 +302,4 @@ async function weeklyReview(text) {
   const system = 'You are the onboarding assistant of a US trucking company, reviewing your own last week to get better. Below: your drafts that did not match what the team wrote, steps you wrongly thought were done, follow-ups nobody answered, your score by topic and which wordings drivers answered. Propose only fixes the evidence supports, the most useful first, at most 8. No personal details, no driver names. If the week gives nothing worth changing, return an empty list.';
   return ask({ model: SUMMARY_MODEL(), system, content: [{ type: 'text', text }], tool: REVIEW_TOOL, maxTokens: 2500 });
 }
-module.exports = { DISP_RULES, weeklyReview, gradeDraft, AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile, kbTidy };
+module.exports = { weekMoney, WEEK_KINDS, DISP_RULES, weeklyReview, gradeDraft, AREAS, jobs, on, docKind, summarize, onbDoc, driverReply, digest, profile, dispatcherProfile, kbTidy };

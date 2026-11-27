@@ -2088,3 +2088,11 @@ dd .multi{margin-left:0;margin-right:6px}
 @media (max-width:900px){.agd .gcell{flex-direction:column;align-items:stretch;gap:3px}.agd .gcell select{width:100%}.agbar .agsearch,.agbar .agsearch input{width:100%}}
 .scoretab .howto{margin-top:6px;padding:6px 10px;border-left:3px solid var(--green);background:#F3F8F4;border-radius:0 6px 6px 0}.scoretab .better{margin-top:4px;color:#12451F}
 .rulescard summary{cursor:pointer}.rulescard .rulesfixed{white-space:pre-wrap;font:inherit;background:#F6F4EF;border-radius:6px;padding:8px 10px;margin:4px 0 10px}.rulescard textarea{width:100%;font:inherit}
+/* an active driver's week in money */
+.dweek h3 select{font:inherit;font-size:14px;font-weight:400;padding:5px 8px;border:1px solid #D8D3C8;border-radius:6px;max-width:100%}
+.wktot{display:flex;flex-wrap:wrap;gap:6px 18px;margin:8px 0 10px;font-size:14px}
+.wkt{width:100%;border-collapse:collapse;font-size:14px;margin:0 0 10px}
+.wkt th,.wkt td{text-align:left;padding:6px 8px;border-bottom:1px solid #ECE8DF;vertical-align:top}
+.wkt th{font-size:12px;color:#6B665C;font-weight:600}
+.wkt .n{text-align:right}.wkt .nw{white-space:nowrap}
+@media (max-width:640px){.wkt{display:block;overflow-x:auto}}

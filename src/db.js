@@ -358,6 +358,11 @@ async function migrate() {
       id SERIAL PRIMARY KEY, chat_id BIGINT NOT NULL, day DATE NOT NULL, summary TEXT, issues JSONB, mood TEXT, messages INT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (chat_id, day)
     );
+    -- each active driver's week (Sunday to Saturday) in money: truck expenses and other money cases from his groups, kept week by week
+    CREATE TABLE IF NOT EXISTS tg_weeks (
+      id SERIAL PRIMARY KEY, driver_id INT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE, week DATE NOT NULL, summary TEXT, items JSONB, open JSONB,
+      total NUMERIC(10,2), messages INT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (driver_id, week)
+    );
     -- Badge levels each person reached (1 Bronze … 5 Diamond); kept once reached
     CREATE TABLE IF NOT EXISTS user_badges (
       user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

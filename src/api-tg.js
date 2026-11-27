@@ -8,6 +8,7 @@ const eld = require('./tg/eld');
 const onb = require('./tg/onboard');
 require('./tg/acct');
 const profile = require('./tg/profile');
+const weekly = require('./tg/weekly');
 const digest = require('./tg/digest');
 const summary = require('./tg/summary');
 const ai = require('./tg/ai');
@@ -316,6 +317,20 @@ module.exports = (app) => {
     await q(`INSERT INTO driver_profiles (driver_id, pins) VALUES ($1, $2) ON CONFLICT (driver_id) DO UPDATE SET pins = $2`, [d.id, pins]);
     await lib.history(d.id, pins ? 'Dispatcher notes updated' : 'Dispatcher notes cleared', req.user.name);
     res.json({ ok: true });
+  }));
+  // ---------- the active driver's weeks in money (Sunday to Saturday), kept week by week ----------
+  app.get('/api/drivers/:id/weeks', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    res.json(await weekly.weeks(d.id));
+  }));
+  app.post('/api/drivers/:id/weeks/build', needUser, wrap(async (req, res) => {
+    const d = await loadDriver(req, res); if (!d) return;
+    const day = String((req.body || {}).week || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(new Date(day + 'T12:00:00Z'))) return res.status(400).json({ error: 'Which week?' });
+    if (!ai.on()) return res.status(400).json({ error: 'AI is off: add ANTHROPIC_API_KEY on Railway' });
+    const w = await weekly.buildWeek(d.id, day);
+    if (!w) return res.status(400).json({ error: 'No messages in his groups that week' });
+    res.json({ ok: true, week: w });
   }));
   app.post('/api/drivers/:id/profile/build', needUser, wrap(async (req, res) => {
     const d = await loadDriver(req, res); if (!d) return;
